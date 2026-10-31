@@ -14,6 +14,7 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -31,10 +32,14 @@ import { Apple1Terminal } from './apple1-terminal.ts';
 import { Apple1Keyboard, apple1PasteBytes } from './apple1-keyboard.ts';
 import { APPLE1_DEFAULT_OPTIONS, readApple1Options, type Apple1Options } from './options.ts';
 import { Apple1Cassette } from './apple1-cassette.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
+import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { Apple1Charset } from './apple1-charset.ts';
 import { Apple1Video } from './apple1-video.ts';
 import { apple1Descriptor } from './descriptor.ts';
 import { createApple1Services, type Apple1Services } from './services/index.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Frames the cursor spends on, then off (about 1.9 blinks a second). */
 const CURSOR_FRAMES = 16;
@@ -65,6 +70,12 @@ export class Apple1Machine extends BaseMachine implements Machine {
   display: IScreenRenderer | null;
 
   readonly cassette = new Apple1Cassette();
+  /** Times the ACI's output toggles — what a write to tape puts on it — for
+   *  the Save menu's recording (services/tape.ts). */
+  readonly tapeRecorder = new PulseRecorder();
+  /** Cycles run before the last RESET-key press: the key resets the 6502's
+   *  cycle count but not the tape, so the recorder's clock carries on from here. */
+  private tapeClockBase = 0;
   readonly charset = new Apple1Charset();
   readonly video = new Apple1Video();
   private cursorFrame = 0;
@@ -149,11 +160,11 @@ export class Apple1Machine extends BaseMachine implements Machine {
    */
   private wireAci(): void {
     const { memory } = this;
-    memory.aciRead = () => {
-      this.pulseCassetteOutput();
+    memory.aciRead = (offset) => {
+      this.pulseCassetteOutput(offset, false);
       return this.cassetteInputBit ? 0x80 : 0x00;
     };
-    memory.aciWrite = () => this.pulseCassetteOutput();
+    memory.aciWrite = (offset) => this.pulseCassetteOutput(offset, true);
     memory.aciPeek = () => (this.cassetteInputBit ? 0x80 : 0x00);
   }
 
@@ -163,9 +174,20 @@ export class Apple1Machine extends BaseMachine implements Machine {
     return this.cassette.inputBit === 1;
   }
 
-  /** A toggle of the tape output. It is counted for the activity readout; the
-   *  recording is not kept (see the machine's documentation). */
-  pulseCassetteOutput(): void { this.activity.cassetteToggles++; }
+  /** A toggle of the tape output, by an access to `$C0xx` (`offset` = xx).
+   *  The edge is timed on the access's own cycle of the instruction (the 6502
+   *  core runs the bus before counting cycles) and recorded for the Save
+   *  menu, and counted for the activity readout. */
+  pulseCassetteOutput(offset: number, write: boolean): void {
+    this.activity.cassetteToggles++;
+    const t = this.insnActive
+      ? accessTime(this.cpu.tStates, this.peekOpcode(this.insnPc), this.insnPc, 0xC000 | offset, write, false)
+      : this.cpu.tStates;
+    this.tapeRecorder.toggle(this.tapeClockBase + t);
+  }
+
+  /** The recorder's clock now: cycles since the machine was last reset. */
+  get tapeClock(): number { return this.tapeClockBase + this.cpu.tStates; }
 
   /** Fit the RAM and interface the settings ask for, then list the ROMs the machine
    *  needs besides the Monitor: the video character generator and the interface's ROM. */
@@ -233,6 +255,7 @@ export class Apple1Machine extends BaseMachine implements Machine {
    *  cycle. RAM and the screen survive; the Monitor's reset handler runs again. */
   pressResetKey(): boolean {
     this.cancelPaste();
+    this.tapeClockBase += this.cpu.tStates;
     this.cpu.reset();
     this.dropFrameInProgress();
     this.pia.reset();
@@ -280,6 +303,8 @@ export class Apple1Machine extends BaseMachine implements Machine {
     this.cancelPaste();
     this.memory.reset();
     this.cpu.reset();
+    this.tapeRecorder.reset();
+    this.tapeClockBase = 0;
     this.pia.reset();
     this.keyboard.reset();
     this.terminal.clear();
@@ -401,6 +426,116 @@ export class Apple1Machine extends BaseMachine implements Machine {
     return { data: this.memory.ram.slice(0, kb * 1024), filename: `${this.model}-ram-${kb}k.bin` };
   }
 
-  startTrace(_mode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn feeds it (debug/m6502/trace.ts). */
+  protected override tracer = new M6502Trace(this, { io: [[0xC000, 0xC0FF], [0xD000, 0xDFFF]], ioLabel: apple1IoLabel });
+
+  // ── Snapshots (.a1state; see shared/native-state.ts for the container) ───
+
+  /** CRC-32s of the Woz Monitor PROM and the Cassette Interface's ROM (0
+   *  when the interface is not fitted), for the snapshot header. */
+  stateRomCrcs(): number[] {
+    return [crc32(this.memory.rom), this.options.aci ? crc32(this.memory.aciRom) : 0];
+  }
+
+  /** The fitted memory, as the Hardware pane names it. */
+  private static fittedName(ramKb: number, basicRam: boolean, aci: boolean): string {
+    return `${ramKb}K${basicRam ? ' with the BASIC RAM card' : ''}${aci ? ' and the Cassette Interface' : ''}`;
+  }
+
+  /** Run the rest of a frame a stop left part-way, with every stop set aside,
+   *  so the machine is between frames (a snapshot is taken there). */
+  private completeFrame(): void {
+    if (!this.midFrame) return;
+    withStopsDisarmed(this, () => {
+      this.resumeSkipPc = -1;
+      this.stepFrame();
+    });
+  }
+
+  /**
+   * Write the machine's state between frames: the CPU, the memory, the PIA,
+   * the terminal (its screen, cursor and busy time) and the cassette deck;
+   * with `withMedia`, the tape recording too. A listing being typed in is a
+   * host action, not machine state, and is not carried.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    // The fitted memory first, so a restore can refuse a mismatch before it
+    // changes anything.
+    w.section('CONF', () => {
+      w.u8(this.options.ramKb); w.bool(this.options.basicRam); w.bool(this.options.aci);
+    });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameNumber); w.f64(this.frameStartT); w.f64(this.frameEndT);
+      w.u8(this.cursorFrame); w.f64(this.busyUntil);
+    });
+    w.section('MEM ', () => w.raw(this.memory.ram));
+    w.section('PIA ', () => this.pia.saveState(w));
+    w.section('TERM', () => {
+      w.raw(this.terminal.cells);
+      w.u8(this.terminal.col); w.u8(this.terminal.row);
+    });
+    w.section('TAPE', () => {
+      this.cassette.saveState(w, withMedia);
+      // What the program has written to the cassette output so far.
+      this.tapeRecorder.saveState(w);
+      w.f64(this.tapeClockBase);
+    });
+  }
+
+  /**
+   * Restore a state written by `saveState` into this machine, which has the
+   * same model; one saved with other memory or interface fitted is refused
+   * before anything changes. The frame loop must be stopped.
+   */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const ramKb = s.u8(), basicRam = s.bool(), aci = s.bool();
+      const o = this.options;
+      if (ramKb !== o.ramKb || basicRam !== o.basicRam || aci !== o.aci) {
+        throw new Error(`This snapshot was saved with ${Apple1Machine.fittedName(ramKb, basicRam, aci)} and this Apple I has ${Apple1Machine.fittedName(o.ramKb, o.basicRam, o.aci)}; change it in the Hardware pane and load it again`);
+      }
+    }
+    this.dropFrameInProgress();
+    this.cancelPaste();
+    // The keyboard's own state is the host's; clear it first, since doing so
+    // also drives the PIA's port A pins, which the PIA's state then restores.
+    this.keyboard.reset();
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameNumber = s.f64(); this.frameStartT = s.f64(); this.frameEndT = s.f64();
+      this.cursorFrame = s.u8(); this.busyUntil = s.f64();
+    }
+    r.section('MEM ').rawInto(this.memory.ram);
+    this.pia.loadState(r.section('PIA '));
+    {
+      const s = r.section('TERM');
+      s.rawInto(this.terminal.cells);
+      this.terminal.col = s.u8(); this.terminal.row = s.u8();
+      this.terminal.version++;
+    }
+    {
+      const s = r.section('TAPE');
+      this.cassette.loadState(s);
+      this.tapeRecorder.loadState(s);
+      this.tapeClockBase = s.f64();
+    }
+    this.activity.kbdReads = 0;
+    this.activity.cassetteToggles = 0;
+    this.mixer.reset();
+    this.audio.reset();
+    this.video.invalidate();
+    this.drawFrame();
+  }
+}
+
+/** Portio-trace names for the Apple I's I/O: the PIA (repeated through $Dxxx,
+ *  address bit 4 set) and the cassette interface's page. */
+function apple1IoLabel(addr: number): string {
+  if ((addr & 0xF010) === 0xD010) return ['KBD', 'KBDCR', 'DSP', 'DSPCR'][addr & 3];
+  return (addr & 0xFF00) === 0xC000 ? 'ACI' : '';
 }

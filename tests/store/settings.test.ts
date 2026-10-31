@@ -520,17 +520,3 @@ describe('settings — per-device sound volumes', () => {
   });
 });
 
-describe('settings — MIC in speaker', () => {
-  it('defaults to audible (hardware-accurate)', async () => {
-    const s = await load();
-    expect(s.micAudible()).toBe(true);
-  });
-
-  it('reads a saved off value, and the Sound reset restores it', async () => {
-    storage.store.set('zx84-mic-audible', 'off');
-    const s = await load();
-    expect(s.micAudible()).toBe(false);
-    s.resetSettingsGroup('sound');
-    expect(s.micAudible()).toBe(true);
-  });
-});

@@ -19,18 +19,22 @@ import {
 
 const BBC_UI: MachineUiCapabilities = {
   hiddenPanes: [
-    'microdrive-panel', 'mouse-panel', 'joystick-panel',
+    'microdrive-panel', 'mouse-panel',
     'sysvar-panel', 'font-panel', 'banks-panel',
   ],
   memoryLayout: false,
-  trace: false,
+  trace: true,
+  traceModes: ['full', 'portio'],
   // Mode 7 / ULA palette control; 'bbc' selects the BBC palette family.
   colorMap: 'bbc',
   accuracy: 'raster',
   builtinDisk: true,
   builtinDrives: 2,
-  joystick: false,
-  fixedJoystick: false,
+  // The analogue port: two proportional sticks on the uPD7002, one fire
+  // button each on the System VIA.
+  joystick: true,
+  fixedJoystick: true,
+  joystickFireButtons: 1,
   mouseTypes: [],
   cartridge: false,
   systemRomLabel: 'OS + BASIC ROMs',
@@ -44,7 +48,7 @@ const BBC_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ACORN_TAPE_EXTENSIONS,
   // 'tape-tap' downloads whatever the OS has SAVEd to the cassette port (.uef).
-  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['snapshot-bbcstate', 'tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,

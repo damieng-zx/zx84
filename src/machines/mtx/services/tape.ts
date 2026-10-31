@@ -40,6 +40,19 @@ export class MtxTapeService implements TapeService {
     return this.mount(data, name);
   }
 
+  /**
+   * The latest program the ROM SAVEd since the last reset, as a `.mtx`, or
+   * null when nothing has been saved. The stream is the chunks the ROM tape
+   * routine was asked to write, in order — the same chunks LOAD asks for —
+   * so it mounts straight back. Named after the program, as the MTX named it.
+   */
+  recordedBytes(): { data: Uint8Array; filename: string } | null {
+    const data = this.machine.tapeRecorder.bytes();
+    if (!data) return null;
+    const name = (parseMtxTapeHeader(data)?.name ?? '').replace(/[^A-Za-z0-9 _.-]/g, '').trim();
+    return { data, filename: `${name || 'mtx'}.mtx` };
+  }
+
   stashState(): TapeStashState | null {
     return this.loaded ? { casData: this.machine.cassette.getData() } : null;
   }

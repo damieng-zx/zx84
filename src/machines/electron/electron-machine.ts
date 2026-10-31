@@ -22,6 +22,7 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -30,14 +31,16 @@ import type { OcrResult } from '@/ocr/ocr.ts';
 import {
   ocrElectronBitmap, findElectronFont, ELECTRON_MODE_COLS, ELECTRON_MODE_ROWS,
 } from '@/ocr/electron.ts';
-import type { ElectronModel } from './models.ts';
+import { ELECTRON_ROM_SIZE, type ElectronModel } from './models.ts';
 import { ElectronMemory } from './electron-memory.ts';
 import { ElectronKeyboard } from './electron-keyboard.ts';
 import {
   ElectronUla, INT_DISPLAY_END, INT_RTC, MODE_DISPEND, MODE_MAX_RA,
 } from './electron-ula.ts';
 import { wireElectronIo } from './electron-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { ElectronPlus1, PLUS1_ROM_PAGE, CART_PAGES } from './peripherals/plus1.ts';
+import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { ADFS_SECTORS_PER_TRACK } from '@/media/floppy/adfs.ts';
 import { SSD_SECTORS_PER_TRACK } from '@/media/floppy/ssd.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
@@ -49,6 +52,7 @@ import {
   ELECTRON_CYCLES_PER_LINE, ELECTRON_FETCH_CYCLES, ELECTRON_LINES_PER_FRAME,
   ELECTRON_SCREEN_HEIGHT, ELECTRON_SCREEN_WIDTH, ELECTRON_TSTATES_PER_FRAME,
 } from './constants.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** First line of the display-end interrupt window: the interrupt fires at the
  *  line equal to the mode's last displayed line (250 or 256). */
@@ -91,6 +95,8 @@ export class ElectronMachine extends BaseMachine implements Machine {
   readonly plus3 = new ElectronPlus3((asserted) => { if (asserted) this.cpu.nmi(); });
   plus1Fitted = false;
   plus3Fitted = false;
+  /** The two joysticks on the Plus 1's analogue port, as the host drives them. */
+  readonly sticks = new AnalogSticks(2);
   /** How many of the Plus 3's two drives are fitted (1 or 2), from the Drives pane. */
   driveCount = 2;
   /** The Plus 3's drives run the ACP 1770 DFS (Acorn DFS discs) instead of ADFS. */
@@ -232,6 +238,35 @@ export class ElectronMachine extends BaseMachine implements Machine {
     }
   }
 
+  /** A joystick direction or fire button on the Plus 1's analogue port.
+   *  Directions are full deflection. */
+  joystickPress(dir: string, pressed: boolean, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    if (dir === 'fire') { this.plus1.fire[player] = pressed; return; }
+    if (this.sticks.press(dir, pressed, player)) this.updateStickInputs(player);
+  }
+
+  /** A gamepad's proportional axis (-1 left/up … +1 right/down). */
+  joystickAnalog(axis: 'x' | 'y', value: number, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    this.sticks.analog(axis, value, player);
+    this.updateStickInputs(player);
+  }
+
+  releaseJoysticks(): void {
+    this.sticks.reset();
+    this.plus1.fire[0] = this.plus1.fire[1] = false;
+    this.updateStickInputs(0);
+    this.updateStickInputs(1);
+  }
+
+  /** Joystick `player` onto ADC channels 2p (X) and 2p+1 (Y); the sticks read
+   *  255 at full left and full up, as on the BBC Micro. */
+  private updateStickInputs(player: number): void {
+    this.plus1.adc[player * 2] = axisToRange(this.sticks.x(player), 0xFF, true);
+    this.plus1.adc[player * 2 + 1] = axisToRange(this.sticks.y(player), 0xFF, true);
+  }
+
   installPlus1Rom(data: Uint8Array): void { this.memory.setExpansionRom(PLUS1_ROM_PAGE, data); }
   installPlus3Rom(data: Uint8Array): void { this.memory.setExpansionRom(PLUS3_ROM_PAGE, data); }
   installDfsRom(data: Uint8Array): void { this.memory.setExpansionRom(DFS_ROM_PAGE, data); }
@@ -296,6 +331,7 @@ export class ElectronMachine extends BaseMachine implements Machine {
   }
 
   private resetHardware(power: boolean): void {
+    this.refreshResumed = false;
     this.memory.reset();
     if (power) this.ula.reset(); else this.ula.breakReset();
     this.cassette.reset();
@@ -457,8 +493,9 @@ export class ElectronMachine extends BaseMachine implements Machine {
     return { data: this.memory.ram.slice(), filename: `${this.model}-ram-32k.bin` };
   }
 
-  startTrace(_mode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn feeds it (debug/m6502/trace.ts). */
+  protected override tracer = new M6502Trace(this, { io: [[0xFC00, 0xFEFF]], ioLabel: electronIoLabel });
 
   // ── Text recognition ─────────────────────────────────────────────────────
 
@@ -521,4 +558,181 @@ export class ElectronMachine extends BaseMachine implements Machine {
       }
     }
   }
+
+  // ── Snapshots (.elkstate; see shared/native-state.ts for the container) ──
+
+  /** Set when a state without its media (the browser-refresh copy) has been
+   *  restored: the shell then remounts the persisted discs, and that must not
+   *  SHIFT+BREAK or move the heads (see the media service). Cleared by any
+   *  reset. */
+  refreshResumed = false;
+
+  /** CRC-32s of the BASIC and OS ROMs and of what each of the sixteen paged
+   *  windows holds besides a cartridge (which is in the state itself; an
+   *  empty window counts as 0), for the snapshot header. */
+  stateRomCrcs(): number[] {
+    const mem = this.memory;
+    const crcs = [crc32(mem.basicRom), crc32(mem.osRom)];
+    for (let page = 0; page < mem.roms.length; page++) {
+      const rom = (CART_PAGES as readonly number[]).includes(page) ? mem.roms[page] : mem.expansion[page] ?? mem.roms[page];
+      crcs.push(rom ? crc32(rom) : 0);
+    }
+    return crcs;
+  }
+
+  /** The expansions fitted, as the Hardware pane names them. */
+  private static expansionsName(plus1: boolean, plus3: boolean, dfs: boolean): string {
+    return `${plus1 ? 'a Plus 1' : 'no Plus 1'} and ${plus3 ? `a Plus 3 (${dfs ? 'DFS' : 'ADFS'})` : 'no Plus 3'}`;
+  }
+
+  /** Run the rest of a frame a stop left part-way, with every stop set aside,
+   *  so the machine is between frames (a snapshot is taken there). */
+  private completeFrame(): void {
+    if (!this.midFrame) return;
+    withStopsDisarmed(this, () => {
+      this.resumeSkipPc = -1;
+      this.stepFrame();
+    });
+  }
+
+  /**
+   * Write the machine's state between frames: the CPU, the RAM and paging,
+   * the ULA, the cassette, the expansions (with the joysticks on the Plus 1's
+   * analogue port as held) and a Plus 1 cartridge. `withMedia`
+   * adds the discs and the tape; the refresh path leaves them to the shell.
+   * Host input (held keys) is live state, not machine state.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    // The expansions first, so a restore can refuse a mismatch before it
+    // changes anything.
+    w.section('CONF', () => {
+      w.bool(this.plus1Fitted); w.bool(this.plus3Fitted); w.bool(this.dfsFitted); w.u8(this.driveCount);
+    });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameNumber); w.f64(this.frameStartT); w.f64(this.frameEndT);
+      w.u32(this.bootShiftFrames); w.u8(this.discAccum);
+      w.f64(this.lineStart); w.bool(this.fetchLine); w.u8(this.prevSound);
+    });
+    w.section('MEM ', () => {
+      w.raw(this.memory.ram);
+      w.u8(this.memory.romPage);
+    });
+    w.section('CART', () => {
+      const lo = this.memory.expansion[CART_PAGES[0]];
+      const hi = this.memory.expansion[CART_PAGES[1]];
+      w.bool(lo !== null && hi !== null);
+      if (!lo || !hi) return;
+      w.str(this.cartridgeName);
+      w.raw(lo); w.raw(hi);
+    });
+    w.section('ULA ', () => this.ula.saveState(w));
+    w.section('TAPE', () => this.cassette.saveState(w, withMedia));
+    w.section('PLS1', () => {
+      this.plus1.saveState(w);
+      this.sticks.saveState(w);
+    });
+    // The discs go before the controller, whose transfer in flight points into them.
+    w.section('MEDA', () => {
+      w.bool(withMedia);
+      if (withMedia) this.services.disks.saveState(w);
+    });
+    w.section('PLS3', () => this.plus3.saveState(w));
+  }
+
+  /**
+   * Restore a state written by `saveState` into this machine, which has the
+   * same model; one saved with other expansions or another drive count is
+   * refused before anything changes. The frame loop must be stopped. The ROMs, settings and, for a state without media, the
+   * drives and tape stay as they are.
+   */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const plus1 = s.bool(), plus3 = s.bool(), dfs = s.bool(), drives = s.u8();
+      if (plus1 !== this.plus1Fitted || plus3 !== this.plus3Fitted || dfs !== this.dfsFitted) {
+        throw new Error(`This snapshot was saved with ${ElectronMachine.expansionsName(plus1, plus3, dfs)} and this Electron has ${ElectronMachine.expansionsName(this.plus1Fitted, this.plus3Fitted, this.dfsFitted)}; change it in the Hardware pane and load it again`);
+      }
+      if (plus3 && drives !== this.driveCount) {
+        throw new Error(`This snapshot was saved with ${drives} drives and this Electron has ${this.driveCount}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.midFrame = false;
+    this.fLine = 0;
+    this.lineLive = false;
+    this.clearInterrupts();
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameNumber = s.f64(); this.frameStartT = s.f64(); this.frameEndT = s.f64();
+      this.bootShiftFrames = s.u32(); this.discAccum = s.u8();
+      this.lineStart = s.f64(); this.fetchLine = s.bool(); this.prevSound = s.u8();
+    }
+    {
+      const s = r.section('MEM ');
+      s.rawInto(this.memory.ram);
+      this.memory.romPage = s.u8() & 0x0F;
+    }
+    {
+      const s = r.section('CART');
+      if (s.bool()) {
+        const name = s.str();
+        const lo = new Uint8Array(ELECTRON_ROM_SIZE);
+        const hi = new Uint8Array(ELECTRON_ROM_SIZE);
+        s.rawInto(lo); s.rawInto(hi);
+        this.memory.setExpansionRom(CART_PAGES[0], lo);
+        this.memory.setExpansionRom(CART_PAGES[1], hi);
+        this.cartridgeName = name;
+      } else {
+        this.ejectCartridge();
+      }
+    }
+    this.ula.loadState(r.section('ULA '));
+    this.cassette.loadState(r.section('TAPE'));
+    {
+      const s = r.section('PLS1');
+      this.plus1.loadState(s);
+      this.sticks.loadState(s);
+    }
+    let withMedia: boolean;
+    {
+      const s = r.section('MEDA');
+      withMedia = s.bool();
+      if (withMedia) this.services.disks.loadState(s);
+    }
+    this.plus3.loadState(r.section('PLS3'));
+
+    // What the state does not hold: the host's keys are whatever they are
+    // now, except the SHIFT a SHIFT+BREAK boot is still holding.
+    this.keyboard.reset();
+    this.keyboard.capsLock = this.ula.capsLock;
+    if (this.bootShiftFrames > 0) this.keyboard.setCell(13, 3, true);
+    this.refreshResumed = !withMedia;
+    this.activity.beeperToggles = 0;
+    this.audio.reset();
+    this.mixer.reset();
+    this.repaint();
+    this.needsDisplay = true;
+  }
+
+  /** Draw the picture from the restored memory and ULA, as the next frame
+   *  will, without moving the ULA's display counters. */
+  private repaint(): void {
+    const ula = this.ula;
+    const addr = ula.screenAddr;
+    const ra = ula.screenRa;
+    ula.clear(this.pixels32);
+    ula.startFrame();
+    for (let line = 0; line < PICTURE_LINES; line++) {
+      ula.renderLine(line, this.memory.ram, this.pixels32, ELECTRON_BORDER_TOP + line);
+    }
+    ula.screenAddr = addr;
+    ula.screenRa = ra;
+  }
+}
+
+/** Portio-trace names for the Electron's FRED, JIM and SHEILA (the ULA) pages. */
+function electronIoLabel(addr: number): string {
+  return addr < 0xFD00 ? 'FRED' : addr < 0xFE00 ? 'JIM' : 'ULA';
 }

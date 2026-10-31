@@ -6,7 +6,7 @@ import {
   ayStereo, setAyStereo,
   snStereo, setSnStereo,
   ayAntialias, setAyAntialias,
-  micAudible, setMicAudible,
+  c64Sid, setC64Sid,
   persistSetting, resetSettingsGroup, DEVICE_VOLUMES,
 } from '@/store/settings.ts';
 import { applyDisplaySettings, settingEnabled } from '@/shell/settings.ts';
@@ -62,26 +62,6 @@ export function SoundPane() {
           );
         }}
       </For>
-      {/* The MIC line leaks into the Spectrum speaker. Software that pulses it as a
-          sync/trigger output (the SpecDrum's clock) then ticks; this hides it. */}
-      <Show when={machineCaps().micSpeaker}>
-        <div class="slider-row">
-          <span class="slider-label">MIC in speaker</span>
-          <label class="toggle">
-            <input
-              type="checkbox"
-              id="mic-audible"
-              checked={micAudible()}
-              onChange={(e) => {
-                const on = (e.target as HTMLInputElement).checked;
-                setMicAudible(on);
-                persistSetting('mic-audible', on ? 'on' : 'off');
-                applyDisplaySettings();
-              }}
-            />
-          </label>
-        </div>
-      </Show>
       {/* All three below are AY-3-891x shaping; a machine lists the ones it
           actually reads, so nothing is offered that would do nothing. */}
       <Show when={machineCaps().psgControls.includes('stereo')}>
@@ -117,6 +97,30 @@ export function SoundPane() {
           }}
         >
           {STEREO_MODES.map(m => <option value={m.value}>{m.label}</option>)}
+        </select>
+      </div>
+      </Show>
+      {/* The 64's sound chip: the original 6581 or the C64C's 8580. */}
+      <Show when={machineCaps().psgControls.includes('sid-model')}>
+      <div class="slider-row">
+        <span
+          class="slider-label"
+          title="The sound chip: the original 6581 (S-curve filter, a DC level the volume register scales) or the later 8580 of the C64C (centred, linear filter)"
+        >
+          SID
+        </span>
+        <select
+          id="sid-model-select"
+          value={c64Sid()}
+          onChange={(e) => {
+            const model = (e.target as HTMLSelectElement).value;
+            setC64Sid(model);
+            persistSetting('c64-sid', model);
+            applyDisplaySettings();
+          }}
+        >
+          <option value="6581">6581 (original)</option>
+          <option value="8580">8580 (C64C)</option>
         </select>
       </div>
       </Show>

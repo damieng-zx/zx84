@@ -66,7 +66,6 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     beeper: true,
     soundChip: is128kClass(model) ? 'AY-3-8912' : undefined,
     psgControls: ['stereo', 'filter'],
-    micSpeaker: true,
     soundDevices: spectrumSoundDevices(model),
     statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',
@@ -75,11 +74,12 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     fastRomLoading: true,
     tapeSound: true,
     tapeExtensions: ['.tap', '.tzx', '.csw', '.wav', '.zip'],
+    // 'tape-tap' downloads what SAVE has written to the MIC line (as .tzx).
     // .z80 holds at most 128K of RAM (and has no Scorpion paging), so the
     // Pentagon 512/1024 and the Scorpion save only as .szx.
     saveMenu: ramBankCountFor(model) > 8
-      ? ['snapshot-szx', 'screenshot-png', 'screen-scr', 'ram-bin']
-      : ['snapshot-szx', 'snapshot-z80', 'screenshot-png', 'screen-scr', 'ram-bin'],
+      ? ['snapshot-szx', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin']
+      : ['snapshot-szx', 'snapshot-z80', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
     zipPolicy: 'all',
     persistMedia: true,
     bootDisk: false,

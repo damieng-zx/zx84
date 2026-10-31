@@ -15,7 +15,7 @@ export function readElectronIo(m: ElectronMachine, addr: number): number {
   if ((addr & 0xFF00) === 0xFE00) return m.ula.read(addr & 0x0F);
   if ((addr & 0xFF00) === 0xFC00) {
     // FRED: whichever fitted expansion decodes the address; the rest floats high.
-    if (m.plus1Fitted) { const v = m.plus1.read(addr); if (v !== null) return v; }
+    if (m.plus1Fitted) { const v = m.plus1.read(addr, m.cpu.tStates); if (v !== null) return v; }
     if (m.plus3Fitted) { const v = m.plus3.read(addr); if (v !== null) return v; }
   }
   return 0xFF;
@@ -23,7 +23,7 @@ export function readElectronIo(m: ElectronMachine, addr: number): number {
 
 export function writeElectronIo(m: ElectronMachine, addr: number, val: number): void {
   if ((addr & 0xFF00) === 0xFC00) {
-    if (m.plus1Fitted && m.plus1.write(addr, val)) return;
+    if (m.plus1Fitted && m.plus1.write(addr, val, m.cpu.tStates)) return;
     if (m.plus3Fitted) m.plus3.write(addr, val);
     return;
   }

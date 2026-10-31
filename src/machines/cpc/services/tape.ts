@@ -13,6 +13,7 @@ import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
 import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
+import { cpcSaveToCdt } from '@/machines/cpc/cpc-tape-save.ts';
 
 export class CpcTapeService implements TapeService {
   /** Mounted filename — media identity is service state; the deck only holds
@@ -82,7 +83,15 @@ export class CpcTapeService implements TapeService {
     return true;
   }
 
-  stashState(): TapeStashState | null {
+  /** What the machine has SAVEd since the last reset, as .cdt bytes, or null
+   *  when nothing recognisable has been written to the cassette. The firmware
+   *  (or any saver) drives PPI Port C bit 5 and the recorder times it — see
+   *  cpc-tape-save.ts — so this is whatever the machine actually wrote. */
+  recordedBytes(): { data: Uint8Array; filename: string } | null {
+    return cpcSaveToCdt(this.c.tapeRecorder.pulses(this.c.cpu.tStates));
+  }
+
+    stashState(): TapeStashState | null {
     return {
       blocks: [...this.c.tape.blocks],
       position: this.c.tape.position,

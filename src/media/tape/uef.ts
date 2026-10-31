@@ -26,6 +26,7 @@
 
 import type { CswBlock, PauseBlock, TapeBlock } from '@/media/tape/tap.ts';
 import { TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 const UEF_SIGNATURE = [0x55, 0x45, 0x46, 0x20, 0x46, 0x69, 0x6C, 0x65, 0x21, 0x00];
 
@@ -362,5 +363,25 @@ export class UefRecorder {
     this.flushData();
     const origin = new TextEncoder().encode('ZX84 ');
     return buildUef([{ id: 0x0000, data: origin }, ...this.chunks]);
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write what has been recorded so far and where the recorder is in it. */
+  saveState(w: StateSink): void {
+    w.u32(this.chunks.length);
+    for (const c of this.chunks) { w.u16(c.id); w.bytes(c.data); }
+    w.bytes(Uint8Array.from(this.pending));
+    w.f64(this.lastEnd); w.f64(this.motorOnAt); w.f64(this.baud);
+  }
+
+  loadState(r: StateSource): void {
+    this.chunks.length = 0;
+    for (let n = r.u32(); n > 0; n--) {
+      const id = r.u16();
+      this.chunks.push({ id, data: r.bytes() });
+    }
+    this.pending = Array.from(r.bytes());
+    this.lastEnd = r.f64(); this.motorOnAt = r.f64(); this.baud = r.f64();
   }
 }

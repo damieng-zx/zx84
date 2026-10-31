@@ -22,7 +22,7 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
   return {
     hiddenPanes: ['sysvar-panel', 'font-panel'],
     memoryLayout: true,
-    trace: false,
+    trace: true,
     colorMap: 'cpc',
     accuracy: false,
     builtinDisk: cpcHasDisk(model),
@@ -49,7 +49,10 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     fastRomLoading: cpcHasTape(model),
     tapeSound: false,
     tapeExtensions: cpcHasTape(model) ? ['.cdt', '.tzx', '.tap', '.csw', '.wav', '.zip'] : [],
-    saveMenu: ['snapshot-sna-v2', 'snapshot-sna-v3', 'screenshot-png', 'screen-scr', 'ram-bin'],
+    // 'tape-tap' downloads what the firmware has written to cassette (.cdt).
+    saveMenu: cpcHasTape(model)
+      ? ['snapshot-sna-v2', 'snapshot-sna-v3', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin']
+      : ['snapshot-sna-v2', 'snapshot-sna-v3', 'screenshot-png', 'screen-scr', 'ram-bin'],
     zipPolicy: 'none',
     persistMedia: false,
     bootDisk: false,

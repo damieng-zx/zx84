@@ -7,6 +7,7 @@
  * cassette loading, the FDX/SDX-compatible floppy expansion, and the optional
  * FDX 80-column display. Printer and DART/RS-232 behavior is not emulated;
  * the DART was optional on the MTX models and standard on the RS128.
+ * Snapshots are zx84's own `.mtxstate` (snapshots/mtx-state.ts).
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -17,14 +18,18 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { Tms9918ScreenText, tms9918TextGrid } from '@/ocr/tms9918.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type {
   BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
-  MachineTraceMode, SettingsView,
+  SettingsView,
 } from '@/machines/machine.ts';
 import type { MtxModel } from './models.ts';
 import { MtxMemory } from './mtx-memory.ts';
@@ -37,8 +42,8 @@ import { installMtxMemoryHooks, wireMtxPortIO } from './mtx-io.ts';
 import { mtxDescriptor } from './descriptor.ts';
 import { createMtxServices, type MtxServices } from './services/index.ts';
 import {
-  MtxCassette, MTX_FIRST_HEADER_ADDRESS, MTX_FIRST_HEADER_LENGTH,
-  MTX_TAPE_FAILURE, MTX_TAPE_RETURN, MTX_TAPE_ROUTINE,
+  MtxCassette, MtxTapeRecorder, MTX_FIRST_HEADER_ADDRESS, MTX_FIRST_HEADER_LENGTH,
+  MTX_TAPE_EPILOGUE, MTX_TAPE_FAILURE, MTX_TAPE_RETURN, MTX_TAPE_ROUTINE,
 } from './mtx-tape.ts';
 import {
   MTX_ACTIVE_LINES, MTX_BORDER_LEFT, MTX_BORDER_TOP, MTX_CPU_CLOCK, MTX_MAX_DRIVES,
@@ -76,6 +81,8 @@ export class MtxMachine extends BaseMachine implements Machine {
   private vdpIntAsserted = false;
   /** Logical `.mtx` stream served through the ROM tape routine. */
   readonly cassette = new MtxCassette();
+  /** What the ROM tape routine was asked to SAVE since the last reset. */
+  readonly tapeRecorder = new MtxTapeRecorder();
   readonly activity = { kbdReads: 0, psgWrites: 0, casReads: 0, fdcAccesses: 0 };
   cpmSystemEnabled = false;
   /** FDX floppy subsystem fitted (drives B:/C: + FDX Disk BASIC ROM). */
@@ -256,6 +263,7 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.audio.reset();
     this.mixer.reset();
     this.tapeOutput = 0;
+    this.tapeRecorder.reset();
     this.soundLatch = 0;
     this.vdpIntAsserted = false;
     this.resetFrameCount();
@@ -264,20 +272,20 @@ export class MtxMachine extends BaseMachine implements Machine {
   }
 
   /**
-   * Serve one ROM LOAD/VERIFY request from the mounted logical cassette.
+   * Serve one ROM tape request from the logical cassette.
    *
    * MEMU's established `.mtx` convention patches the routine at 0AAE with a
    * host trap followed by RET at 0AB0. We leave ROM immutable and intercept the
-   * same entry point. SAVE (FD68=0) falls through to the real hardware routine;
-   * this fast path only claims LOAD and VERIFY.
+   * same entry point. LOAD and VERIFY (FD68 != 0) are served from the mounted
+   * image. SAVE (FD68 = 0) is completed instantly into `tapeRecorder` (the Save
+   * menu's .mtx): the real routine times its bits with CTC channel 1 counting
+   * an external clock, which is not modelled, so left to itself it would wait
+   * forever for the first bit-cell interrupt.
    */
   trapCassetteRoutine(): boolean {
-    if (
-      !this.cassette.loaded ||
-      this.memory.ramMode ||
-      this.cpu.pc !== MTX_TAPE_ROUTINE ||
-      this.memory.readByte(0xFD68) === 0
-    ) return false;
+    if (this.cpu.pc !== MTX_TAPE_ROUTINE || this.memory.ramMode) return false;
+    if (this.memory.readByte(0xFD68) === 0) return this.trapCassetteSave();
+    if (!this.cassette.loaded) return false;
 
     const base = this.cpu.hl;
     const length = this.cpu.de;
@@ -300,6 +308,16 @@ export class MtxMachine extends BaseMachine implements Machine {
     }
 
     this.activity.casReads++;
+    if (ok) {
+      // Leave the registers as the real routine's last `DEC DE / LD A,D /
+      // OR E` does: HL past the block, DE zero, Z set. 0AB0 is `RET Z` in the
+      // unpatched ROM, so without Z the CPU falls into the hardware routine
+      // and waits forever for a tape edge.
+      this.cpu.hl = (base + length) & 0xFFFF;
+      this.cpu.de = 0;
+      this.cpu.a = 0;
+      this.cpu.f = 0x44;
+    }
     this.cpu.pc = ok ? MTX_TAPE_RETURN : MTX_TAPE_FAILURE;
     // Account for the two-byte host-trap opcode used by the reference patch.
     this.cpu.tStates += 8;
@@ -314,6 +332,30 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.vdp.readStatus();
     this.ctc.write(0, 0xA5);
     this.ctc.write(0, 0x7D);
+    return true;
+  }
+
+  /**
+   * Complete one SAVE request: copy the HL/DE block into the recorder, then
+   * leave the routine the way it leaves after its last byte — HL past the
+   * block, DE zero, Z set by its final `LD A,D / OR E` — through its own
+   * epilogue at 0B06, which resets the CTC, restores the frame interrupt and
+   * returns to the caller. A zero-length request is the routine's own early
+   * RET, so it is left to the ROM.
+   */
+  private trapCassetteSave(): boolean {
+    const base = this.cpu.hl;
+    const length = this.cpu.de;
+    if (length === 0) return false;
+    const sp = this.cpu.sp;
+    const caller = this.memory.readByte(sp) | (this.memory.readByte((sp + 1) & 0xFFFF) << 8);
+    this.tapeRecorder.record(caller, this.memory.readBlock(base, length));
+    this.activity.casReads++;
+    this.cpu.hl = (base + length) & 0xFFFF;
+    this.cpu.de = 0;
+    this.cpu.a = 0;
+    this.cpu.f = 0x44;              // Z and P/V, as OR E leaves them with A = 0
+    this.cpu.pc = MTX_TAPE_EPILOGUE;
     return true;
   }
 
@@ -425,8 +467,125 @@ export class MtxMachine extends BaseMachine implements Machine {
     this.needsDisplay = true;
   }
 
-  startTrace(_mode: MachineTraceMode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
+
+  // ── Snapshot state (.mtxstate) ─────────────────────────────────────────
+
+  /** CRC-32s of the five firmware ROMs (OS, BASIC, ASSEM, CP/M, FDX). */
+  stateRomCrcs(): number[] {
+    const mem = this.memory;
+    return [mem.osRom, mem.romPages[0], mem.romPages[1], mem.romPages[4], mem.romPages[5]].map(crc32);
+  }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /** The fitted hardware a state depends on, in CONF order. */
+  private stateConfig(): number[] {
+    return [
+      this.memory.ramExpansion512kEnabled ? 1 : 0,
+      this.cpmSystemEnabled ? 1 : 0,
+      this.floppyEnabled ? 1 : 0,
+      this.column80.enabled ? 1 : 0,
+      this.driveCount,
+    ];
+  }
+
+  /**
+   * Write the machine's sections of a `.mtxstate` (see snapshots/mtx-state.ts).
+   * The disks always travel with the state, even the refresh copy: the shell
+   * does not persist MTX disks across a reload, and a CP/M session without
+   * its disk cannot carry on.
+   */
+  saveState(w: StateWriter, _withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => { for (const v of this.stateConfig()) w.u8(v); });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.u8(this.tapeOutput); w.u8(this.soundLatch); w.bool(this.vdpIntAsserted);
+      w.u8(this.keyboard.driveLatch);
+    });
+    w.section('MEM ', () => {
+      this.memory.saveState(w);
+      w.str(this.services.roms.cartridge.name);
+    });
+    w.section('VDP ', () => this.vdp.saveState(w));
+    w.section('PSG ', () => this.psg.saveState(w));
+    w.section('CTC ', () => this.ctc.saveState(w));
+    w.section('80CO', () => this.column80.saveState(w));
+    w.section('MEDA', () => {
+      for (const id of ['a', 'b']) {
+        const image = this.fdc.getDiskImage(id === 'b' ? 1 : 0);
+        w.bool(image !== null);
+        if (!image) continue;
+        writeDskImage(w, image);
+        const name = this.services.disks.nameOf(id);
+        w.bool(name !== undefined);
+        if (name !== undefined) w.str(name);
+      }
+    });
+    w.section('FDX ', () => this.fdx.saveState(w));
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the fitted hardware differs. */
+  loadState(r: StateReader): void {
+    const conf = r.section('CONF');
+    const saved = this.stateConfig().map(() => conf.u8());
+    const live = this.stateConfig();
+    const names = ['the 512 KiB RAM expansion', 'the CP/M system', 'the FDX floppy subsystem', 'the 80-column card'];
+    for (let i = 0; i < names.length; i++) {
+      if (saved[i] !== live[i]) {
+        throw new Error(`This snapshot was saved ${saved[i] ? 'with' : 'without'} ${names[i]}; ${saved[i] ? 'fit' : 'remove'} it in the Hardware pane and load it again`);
+      }
+    }
+    if (saved[4] !== live[4]) {
+      throw new Error(`This snapshot was saved with ${saved[4]} drive${saved[4] === 1 ? '' : 's'} fitted and this MTX has ${live[4]}; change it in the Drives pane and load it again`);
+    }
+
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.tapeOutput = s.u8(); this.soundLatch = s.u8(); this.vdpIntAsserted = s.bool();
+      this.keyboard.reset();
+      this.keyboard.selectDrive(s.u8());
+    }
+    {
+      const s = r.section('MEM ');
+      this.memory.loadState(s);
+      this.services.roms.restoreRomPackName(s.str());
+    }
+    this.vdp.loadState(r.section('VDP '));
+    this.psg.loadState(r.section('PSG '));
+    this.ctc.loadState(r.section('CTC '));
+    this.column80.loadState(r.section('80CO'));
+    {
+      const s = r.section('MEDA');
+      for (const id of ['a', 'b']) {
+        if (!s.bool()) { this.services.disks.restore(id, null, undefined); continue; }
+        const image = readDskImage(s);
+        const name = s.bool() ? s.str() : undefined;
+        this.services.disks.restore(id, image, name);
+      }
+    }
+    this.fdx.loadState(r.section('FDX '));
+
+    // What the state does not hold: the host's keys are whatever they are
+    // now, and nothing is part-way through a frame.
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
+  }
+
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
     if (this.column80.enabled) return this.column80.text();
     return this.screenText.ocr(this.vdp.vram, this.vdp.regs, this.vdp.mode());

@@ -10,7 +10,8 @@ import type { TapeBlockInfo, TapeService, TapeStashState } from '@/machines/mach
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
 import {
-  LYNX_TAPE_HZ_128, LYNX_TAPE_HZ_48, parseLynxTap, type LynxTapEntry,
+  LYNX_TAPE_HZ_128, LYNX_TAPE_HZ_48, decodeLynxSavePulses, encodeLynxTap, parseLynxTap,
+  type LynxTapEntry,
 } from '@/media/tape/lynx-tap.ts';
 import type { LynxMachine } from '../lynx-machine.ts';
 
@@ -80,6 +81,22 @@ export class LynxTapeService implements TapeService {
     this.m.tape.paused = true;
     this._entries = [];
     this._name = '';
+  }
+
+  /**
+   * What the ROM has SAVEd since the last reset, as a .tap, or null when
+   * nothing decodable has gone out of the cassette port. The ROM's own SAVE
+   * drives port 0x84 and the machine times the edges; they are decoded back
+   * to bytes here (see decodeLynxSavePulses), so it is whatever the machine
+   * really wrote. Named after the first file on it.
+   */
+  recordedBytes(): { data: Uint8Array; filename: string } | null {
+    const pulses = this.m.tapeRecorder.pulses(this.m.cpu.tStates);
+    const data = encodeLynxTap(decodeLynxSavePulses(pulses));
+    if (!data) return null;
+    const first = parseLynxTap(data).entries[0]?.name ?? '';
+    const name = first.replace(/[^A-Za-z0-9 _.-]/g, '').trim();
+    return { data, filename: `${name || 'lynx'}.tap` };
   }
 
   stashState(): TapeStashState | null {

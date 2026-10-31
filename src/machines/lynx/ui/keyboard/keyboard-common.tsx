@@ -3,10 +3,10 @@
  *
  * Ten lines of six or seven sense bits, active low (see `lynx-keyboard.ts`).
  *
- * A cap may carry no cell at all: BREAK is wired to the CPU's interrupt line
- * rather than into the matrix, so it depresses under the pointer and reaches
- * no switch. Both SHIFT caps are one switch, so pressing either lights both —
- * which is what the hardware does.
+ * A cap may carry no cell at all: BREAK is wired to the CPU's /INT line
+ * rather than into the matrix, so it holds that line low while it is down
+ * (`LynxKeyboard.setBreak`) and reaches no sense bit. Both SHIFT caps are one
+ * switch, so pressing either lights both — which is what the hardware does.
  */
 
 import { createSignal } from 'solid-js';
@@ -28,7 +28,7 @@ export function useLynxKeyboard(): LynxKeyboardController {
     rowCount: 10,
     released: 0xff,
   });
-  /** Caps with no matrix cell, held down for the look of the thing. */
+  /** Caps with no matrix cell (BREAK), held down under the pointer. */
   const [inert, setInert] = createSignal<ReadonlySet<string>>(new Set());
 
   const isDown = (id: string, cell: LynxCell | null) =>
@@ -43,13 +43,18 @@ export function useLynxKeyboard(): LynxKeyboardController {
     setInert(next);
   };
 
+  const setOffMatrix = (id: string, down: boolean) => {
+    setInertKey(id, down);
+    if (id === 'break') activeLynx()?.keyboard.setBreak(down);
+  };
+
   const onDown = (id: string, cell: LynxCell | null) => {
-    if (!cell) setInertKey(id, true);
+    if (!cell) setOffMatrix(id, true);
     else matrix.press(cell[0], cell[1]);
   };
 
   const onUp = (id: string, cell: LynxCell | null) => {
-    if (!cell) setInertKey(id, false);
+    if (!cell) setOffMatrix(id, false);
     else matrix.release(cell[0], cell[1]);
   };
 

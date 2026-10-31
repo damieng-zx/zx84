@@ -18,6 +18,8 @@
  * (plus any serviced interrupt). The core never calls back into the machine.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 // ── Status register bits (P) ────────────────────────────────────────────────
 export const FLAG_C = 0x01; // Carry
 export const FLAG_Z = 0x02; // Zero
@@ -642,5 +644,25 @@ export class M6502 {
     this.setFlag(FLAG_C, r >= 0);
     this.x = r & 0xFF;
     this.setZN(this.x);
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write the registers, the cycle count and the interrupt inputs, including
+   *  the one-instruction lag a CLI/SEI/PLP leaves on the IRQ poll. Taken
+   *  between instructions, so nothing of an instruction in progress exists. */
+  saveState(w: StateSink): void {
+    w.u8(this.a); w.u8(this.x); w.u8(this.y); w.u8(this.sp); w.u16(this.pc); w.u8(this.p);
+    w.f64(this.tStates);
+    w.bool(this.irqLine); w.bool(this.nmiPending);
+    w.bool(this.iDeferred); w.bool(this.iBefore);
+  }
+
+  /** Restore what `saveState` wrote. The bus hooks are the machine's and stay. */
+  loadState(r: StateSource): void {
+    this.a = r.u8(); this.x = r.u8(); this.y = r.u8(); this.sp = r.u8(); this.pc = r.u16(); this.p = r.u8();
+    this.tStates = r.f64();
+    this.irqLine = r.bool(); this.nmiPending = r.bool();
+    this.iDeferred = r.bool(); this.iBefore = r.bool();
   }
 }

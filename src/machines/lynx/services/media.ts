@@ -3,6 +3,7 @@
  *
  * Cassettes mount, and on the 96K/128K so do raw `.ldf` disk dumps. The 48K has
  * no disk interface, so `.ldf` is refused rather than mounted into nothing.
+ * `.lynxstate` snapshots go to the snapshot service.
  */
 
 import type {
@@ -13,6 +14,7 @@ import { parseLdf } from '@/media/floppy/ldf-image.ts';
 import type { LynxMachine } from '../lynx-machine.ts';
 import type { LynxTapeService } from './tape.ts';
 import type { LynxDiskService } from './disks.ts';
+import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 
 /** The drive id a mount target names: 'a'..'d' directly, a shell `unit:N`
  *  (0-based), or 1..4 numerically. Defaults to A:. */
@@ -29,11 +31,13 @@ export class LynxMediaService implements MediaService {
     private readonly m: LynxMachine,
     private readonly disks: LynxDiskService,
     private readonly tape: LynxTapeService,
+    private readonly snapshots: NativeSnapshotService,
   ) {}
 
   accepts(): MediaTypeDescriptor[] {
     const out: MediaTypeDescriptor[] = [{ ext: '.tap', target: 'tape' }];
     if (this.m.hasDisk) out.push({ ext: '.ldf', target: 'a' });
+    out.push({ ext: '.lynxstate', target: 'snapshot' });
     return out;
   }
 
@@ -71,7 +75,16 @@ export class LynxMediaService implements MediaService {
       return { ok: true, target: id, message: `Drive ${id.toUpperCase()}: ${filename}` };
     }
 
-    return { ok: false, message: 'The Lynx accepts .tap cassettes and .ldf disks' };
+    if (/\.lynxstate$/i.test(filename)) {
+      const r = await this.snapshots.apply(data, filename);
+      if (r.needsReplay) return { ok: true, replay: true, message: r.message };
+      // A state carries its own drives: the panes re-read them.
+      return r.ok
+        ? { ok: true, target: 'snapshot', mediaChanged: true, message: r.message }
+        : { ok: false, message: r.message };
+    }
+
+    return { ok: false, message: 'The Lynx accepts .tap cassettes, .ldf disks and .lynxstate snapshots' };
   }
 
   /** The command that loads the tape's first program: BASIC takes LOAD,

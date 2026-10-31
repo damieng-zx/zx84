@@ -3,7 +3,7 @@
  * keyboard matrix, replacing the shell's per-machine dispatch ladder.
  */
 
-import type { HostKeyEvent, InputService, MouseSink } from '@/machines/machine.ts';
+import type { HostKeyEvent, InputService, JoystickInput, MouseSink } from '@/machines/machine.ts';
 import type { EinsteinMachine } from '@/machines/einstein/einstein-machine.ts';
 
 export class EinsteinInputService implements InputService {
@@ -19,7 +19,16 @@ export class EinsteinInputService implements InputService {
 
   releaseAll(): void {
     this.e.keyboard.reset();
+    this.e.sticks.reset();
   }
+
+  /** The two joystick ports: the TC-01's ADC0844 channels (proportional) and
+   *  the 256's digital ports, with fire on status bits 0/1 and the fire
+   *  interrupt. The ports are fixed, so the interface `mode` is ignored. */
+  readonly joystick: JoystickInput = {
+    press: (dir, pressed, _mode, player) => this.e.joystickPress(dir, pressed, player),
+    analog: (axis, value, player) => this.e.joystickAnalog(axis, value, player),
+  };
 
   readonly mouse: MouseSink | null = null;
 }

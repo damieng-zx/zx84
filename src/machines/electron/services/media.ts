@@ -2,13 +2,17 @@ import type {
   MediaService, MediaTargetId, MediaTypeDescriptor, MountResult,
 } from '@/machines/machine.ts';
 import type { AcornTapeService } from '@/machines/shared/acorn-tape-service.ts';
-import { parseAdfs } from '@/media/floppy/adfs.ts';
-import { parseSsd } from '@/media/floppy/ssd.ts';
+import { parseAcornDisc } from '@/media/floppy/acorn-disc.ts';
+import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
+import { ELECTRON_STATE_SPEC } from '../snapshots/electron-state.ts';
 import type { ElectronMachine } from '../electron-machine.ts';
 import type { ElectronDiskService } from './disks.ts';
 
 const ADFS_EXT = /\.(?:adf|adl|ads|adm)$/i;
 const DFS_EXT = /\.(?:ssd|dsd)$/i;
+/** Discs of either filing system: sector dumps told apart by content, and HFE /
+ *  SCP bitstream and flux images decoded track by track. */
+const ANY_DISC_EXT = /\.(?:img|dsk|hfe|scp)$/i;
 
 /** The drive a mount target names: 'a' / 'b' directly, or the shell's
  *  family-agnostic `unit:N` hint (unit 0 = drive 0, unit 1 = drive 1). */
@@ -31,8 +35,9 @@ interface CartridgeHalf {
   readonly mountedAs: string;
 }
 
-/** Electron media routing: UEF and CSW cassettes always; ADFS discs once a Plus 3
- *  is fitted and `.rom` cartridges once a Plus 1 is. A disc loaded into drive 0
+/** Electron media routing: UEF and CSW cassettes always; discs once a Plus 3 is
+ *  fitted (ADFS or DFS, as the Plus 3 is set up; .img/.dsk dumps and .hfe/.scp
+ *  images of either) and `.rom` cartridges once a Plus 1 is. A disc loaded into drive 0
  *  is booted with SHIFT+BREAK, and a cartridge by the same, as a user would. */
 export class ElectronMediaService implements MediaService {
   private half: CartridgeHalf | null = null;
@@ -41,6 +46,7 @@ export class ElectronMediaService implements MediaService {
     private readonly machine: ElectronMachine,
     private readonly disks: ElectronDiskService,
     private readonly tape: AcornTapeService,
+    private readonly snapshots: NativeSnapshotService,
   ) {}
 
   accepts(): MediaTypeDescriptor[] {
@@ -48,9 +54,11 @@ export class ElectronMediaService implements MediaService {
       { ext: '.uef', target: 'tape' },
       { ext: '.csw', target: 'tape' },
       { ext: '.wav', target: 'tape' },
+      { ext: ELECTRON_STATE_SPEC.ext, target: 'snapshot' },
     ];
     if (this.machine.plus3Fitted) {
       const exts = this.machine.dfsFitted ? ['.ssd', '.dsd'] : ['.adf', '.adl', '.ads', '.adm'];
+      exts.push('.img', '.dsk', '.hfe', '.scp');
       for (const ext of exts) types.push({ ext, target: 'a' });
     }
     if (this.machine.plus1Fitted) types.push({ ext: '.rom', target: 'cartridge' });
@@ -72,38 +80,45 @@ export class ElectronMediaService implements MediaService {
         message: `Tape loaded: ${filename} — type CHAIN"" (or *RUN)`,
       };
     }
-    if (ADFS_EXT.test(filename) || DFS_EXT.test(filename)) {
+    if (ADFS_EXT.test(filename) || DFS_EXT.test(filename) || ANY_DISC_EXT.test(filename)) {
       if (!this.machine.plus3Fitted) {
         return { ok: false, message: 'Fit the Plus 3 in the Hardware pane to use discs' };
-      }
-      const dfsDisc = DFS_EXT.test(filename);
-      if (dfsDisc !== this.machine.dfsFitted) {
-        return {
-          ok: false,
-          message: dfsDisc
-            ? 'Acorn DFS discs (.ssd/.dsd) need the Plus 3 set to DFS in the Hardware pane'
-            : 'ADFS discs need the Plus 3 set to ADFS in the Hardware pane',
-        };
       }
       const id = driveOf(target);
       if (id === 'b' && this.machine.driveCount < 2) {
         return { ok: false, message: 'Drive 1 is not fitted (change the drive count in the Drives pane)' };
       }
+      // The shell remounting a disc after a browser-refresh restore names the
+      // drive by its id: the restored machine is already running whatever was
+      // on it, so the disc goes back in without a SHIFT+BREAK or a head move.
+      const reattach = target === id && this.machine.refreshResumed;
       try {
         // .adl is the double-sided L format even when the file has been trimmed;
-        // .dsd is always two sides.
-        const image = dfsDisc
-          ? parseSsd(data, /\.dsd$/i.test(filename))
-          : parseAdfs(data, /\.adl$/i.test(filename));
-        this.disks.insert(id, image, filename);
+        // .dsd is always two sides. A dump whose content says neither filing
+        // system is taken as the one the Plus 3 is set up for.
+        const disc = parseAcornDisc(data, filename, this.machine.dfsFitted ? 'dfs' : 'adfs');
+        // A disc that is plainly the other filing system's (a protected disc
+        // with an odd first track is let through) cannot be read as set up.
+        if (disc.fs !== null && (disc.fs === 'dfs') !== this.machine.dfsFitted) {
+          return {
+            ok: false,
+            message: disc.fs === 'dfs'
+              ? 'Acorn DFS discs need the Plus 3 set to DFS in the Hardware pane'
+              : 'ADFS discs need the Plus 3 set to ADFS in the Hardware pane',
+          };
+        }
+        if (reattach) this.disks.reattach(id, disc.image, filename);
+        else this.disks.insert(id, disc.image, filename);
       } catch (err) {
         return { ok: false, message: `Disk error: ${(err as Error).message}` };
       }
-      if (id === 'a') this.machine.bootWithShift();
+      if (id === 'a' && !reattach) this.machine.bootWithShift();
       return {
         ok: true,
         target: id,
-        message: id === 'a' ? `Drive 0 loaded: ${filename} (SHIFT+BREAK)` : `Drive 1 loaded: ${filename}`,
+        message: id === 'a' && !reattach
+          ? `Drive 0 loaded: ${filename} (SHIFT+BREAK)`
+          : `Drive ${id === 'a' ? 0 : 1} loaded: ${filename}`,
       };
     }
     if (/\.rom$/i.test(filename)) {
@@ -115,9 +130,17 @@ export class ElectronMediaService implements MediaService {
       slot.insert(image, name);
       return { ok: true, target: 'cartridge', message: `Cartridge: ${name} (SHIFT+BREAK)` };
     }
+    if (filename.toLowerCase().endsWith(ELECTRON_STATE_SPEC.ext)) {
+      const r = await this.snapshots.apply(data, filename);
+      if (r.needsReplay) return { ok: true, replay: true, message: r.message };
+      // A state carries its own discs, tape and cartridge: the panes re-read them.
+      return r.ok
+        ? { ok: true, target: 'snapshot', mediaChanged: true, message: r.message }
+        : { ok: false, message: r.message };
+    }
     return {
       ok: false,
-      message: 'The Electron accepts .uef/.csw tapes, .adf/.adl or .ssd/.dsd discs and .rom cartridges',
+      message: 'The Electron accepts .uef/.csw tapes, .adf/.adl/.ssd/.dsd/.img/.hfe/.scp discs, .rom cartridges and .elkstate snapshots',
     };
   }
 

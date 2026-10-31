@@ -59,9 +59,6 @@ const DEFAULTS = {
   'specdrum-volume': '100',
   // Level of the Currah µSpeech speech output (0-200).
   'uspeech-volume': '100',
-  // Whether the Spectrum's MIC line leaks into the speaker mix (it does on real
-  // hardware); off hides sync/trigger ticks that software pulses on it.
-  'mic-audible':  'on',
 
   // Joystick
   'joy-p1':     'kempston',
@@ -123,6 +120,8 @@ const DEFAULTS = {
   'electron-dfs':   'off',
   'lynx-fdc':       'on',
   'apple2-disk2':   'on',
+  'c64-drive':      'on',
+  'c64-sid':        '6581',
   'drive-counts':   '{}',
   'drive-models':   '{}',
   'apple2-langcard': 'on',
@@ -237,7 +236,6 @@ export const [snStereo, setSnStereo] = signal(savedText('sn-stereo'));
 export const [ayAntialias, setAyAntialias] = signal(savedText('ay-antialias'));
 export const [specdrumVolume, setSpecdrumVolume] = signal(savedNumber('specdrum-volume'));
 export const [uspeechVolume, setUspeechVolume] = signal(savedNumber('uspeech-volume'));
-export const [micAudible, setMicAudible] = signal(savedFlag('mic-audible'));
 
 /** Per-device Sound-pane volume signals, keyed by the setting a machine
  *  descriptor names in `soundDevices[].volumeSetting` — so the generic pane
@@ -341,6 +339,9 @@ export const [einsteinXtalDos, setEinsteinXtalDos] = signal(savedFlag('einstein-
 export const [mtxCpm, setMtxCpm] = signal(savedFlag('mtx-cpm'));
 export const [mtx80Column, setMtx80Column] = signal(savedFlag('mtx-80-column'));
 export const [apple2Disk2, setApple2Disk2] = signal(savedFlag('apple2-disk2'));
+export const [c64Drive, setC64Drive] = signal(savedFlag('c64-drive'));
+/** Which SID the 64 has: '6581' (the original) or '8580' (the C64C's). */
+export const [c64Sid, setC64Sid] = signal(savedText('c64-sid'));
 
 // ── Built-in drive count ────────────────────────────────────────────────
 // How many of a machine's built-in floppy drives are fitted, kept per machine
@@ -543,9 +544,9 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'ay-stereo',   set: setAyStereo,   type: 'string' },
     { key: 'sn-stereo',   set: setSnStereo,   type: 'string' },
     { key: 'ay-antialias', set: setAyAntialias, type: 'string' },
+    { key: 'c64-sid',     set: setC64Sid,     type: 'string' },
     { key: 'specdrum-volume', set: setSpecdrumVolume, type: 'number' },
     { key: 'uspeech-volume', set: setUspeechVolume, type: 'number' },
-    { key: 'mic-audible', set: setMicAudible, type: 'bool' },
   ],
   joystick: [
     { key: 'joy-p1',     set: setJoyP1,    type: 'string' },
@@ -603,6 +604,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'electron-dfs', set: setElectronDfs, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
+    { key: 'c64-drive', set: setC64Drive, type: 'bool' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
     { key: 'apple2-joystick', set: setApple2Joystick, type: 'bool' },
     { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },

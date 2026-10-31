@@ -12,6 +12,8 @@
  * Select the machine's fitted part explicitly when that distinction matters.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 export type Sn76489Variant = 'ti-15bit' | 'sega' | 'mtx';
 
 /**
@@ -439,5 +441,32 @@ export class Sn76489 {
 
   private lpCoefficient(sampleRate: number): number {
     return 1 - Math.exp(-2 * Math.PI * LP_CUTOFF_HZ / sampleRate);
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────
+  /** The registers, the latch and the dividers and noise LFSR mid-count. The
+   *  output filters and stereo placement belong to the host's audio path. */
+  saveState(w: StateSink): void {
+    for (let ch = 0; ch < 3; ch++) {
+      w.u16(this.tonePeriod[ch]); w.i32(this.toneCounter[ch]); w.u8(this.toneOutput[ch]);
+    }
+    w.raw(this.attenuation);
+    w.u8(this.noiseControl); w.u8(this.latchedRegister);
+    w.i32(this.noiseCounter); w.u8(this.noiseClockOutput); w.u8(this.noiseOutput);
+    w.u32(this.noiseLfsr);
+    w.f64(this.cycleFraction);
+  }
+
+  loadState(r: StateSource): void {
+    for (let ch = 0; ch < 3; ch++) {
+      this.tonePeriod[ch] = r.u16(); this.toneCounter[ch] = r.i32(); this.toneOutput[ch] = r.u8();
+    }
+    r.rawInto(this.attenuation);
+    this.noiseControl = r.u8(); this.latchedRegister = r.u8();
+    this.noiseCounter = r.i32(); this.noiseClockOutput = r.u8(); this.noiseOutput = r.u8();
+    this.noiseLfsr = r.u32();
+    this.cycleFraction = r.f64();
+    this.dcPrevious = 0; this.dcOutput = 0; this.lpOutput = 0;
+    this.dcPrevLR.fill(0); this.dcOutLR.fill(0); this.lpOutLR.fill(0);
   }
 }

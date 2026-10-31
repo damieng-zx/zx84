@@ -26,6 +26,7 @@ import { ScreenText, OCR_GRIDS, detectGrid } from '@/ocr/spectrum.ts';
 import type { FontSource, OcrResult, OcrGridName, SpectrumOcrGrid } from '@/ocr/ocr.ts';
 import { trapTapeLoad } from '@/machines/spectrum/tape-loader.ts';
 import { LoaderDetector } from '@/media/tape/loader-detector.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import { installMemoryHooks, wirePortIO } from '@/machines/spectrum/io.ts';
 import { KempstonJoystick } from '@/machines/spectrum/peripherals/joysticks.ts';
 import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
@@ -266,6 +267,9 @@ export class Spectrum extends BaseMachine implements Machine {
   /** Tape auto play/stop detector — decides when the tape runs and exposes
    *  `loaderActive` to engage tape turbo. Never touches CPU/tape data. */
   loaderDetector = new LoaderDetector();
+  /** Times the MIC line (port 0xFE bit 3) — what SAVE writes to tape. Read
+   *  back as a .tzx by the tape service (see tape-save.ts). */
+  readonly micRecorder = new PulseRecorder();
 
   /** T-state at which the tape was last advanced (for sub-instruction accuracy) */
   tapeLastAdvanceT = 0;
@@ -362,6 +366,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tape.is48K = this.variant.is48K;
     this.fdc = new UPD765A();
     this.trace = new SpectrumTrace(this);
+    this.tracer = this.trace;
     installMemoryHooks(this);
     wirePortIO(this);
 
@@ -432,7 +437,6 @@ export class Spectrum extends BaseMachine implements Machine {
     this.mixer.ayGain = gains.psg ?? 1;
     this.mixer.auxGain = gains.specdrum;
     this.mixer.monoGain = gains.uspeech ?? 1;
-    this.ula.micAudible = view.get('mic-audible', true);
     // The SpecDrum needs no ROM, so it is fitted/removed live here (and read once
     // at build by prepare()).
     this.setSpecdrumFitted(view.get('specdrum', false));
@@ -592,6 +596,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.cpu.reset();
     this.ay.reset();
     this.ula.reset();
+    this.micRecorder.reset();
     this.keyboard.reset();
     this.audio.reset();
     this.fdc.reset();

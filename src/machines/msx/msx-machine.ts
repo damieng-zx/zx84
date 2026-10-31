@@ -13,6 +13,8 @@
  * straight to the Z80 /INT and services it in interrupt mode 1 (RST 38h); and
  * because MSX BASIC lives in the 32KB internal ROM, the machine boots straight
  * to the BASIC "Ok" prompt with no disk.
+ *
+ * Snapshots are zx84's own `.msxstate` (see snapshots/msx-state.ts).
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -25,8 +27,10 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { AuxRomRequest, Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
+import { soundDeviceGains } from '@/machines/machine.ts';
+import type { AuxRomRequest, Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, SettingsView } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { msxDescriptor } from '@/machines/msx/descriptor.ts';
@@ -43,11 +47,17 @@ import { msxDiskAuxRom, msxFirmwareAuxRom } from '@/machines/msx/aux-roms.ts';
 import { MsxPpi, installMsxMemoryHooks, wireMsxPortIO } from '@/machines/msx/msx-io.ts';
 import { createMsxConfig, type MsxConfig } from '@/machines/msx/config.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import {
   MSX_CPU_CLOCK, MSX_PSG_CLOCK, MSX_MAX_DRIVES,
   MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT,
   MSX_BORDER_LEFT, MSX_BORDER_TOP,
 } from '@/machines/msx/constants.ts';
+
+/** The key click's level against the AY at full scale, before its Sound-pane volume. */
+const KEY_CLICK_GAIN = 0.5;
 
 /** Active display lines (0..191); the VDP raises its vblank at line 192. */
 const ACTIVE_LINES = 192;
@@ -124,7 +134,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.audio = new Audio();
     this.mixer = new AudioMixer(MSX_CPU_CLOCK);
     // The 1-bit "beeper" path carries the PPI port C bit 7 key click.
-    this.mixer.beeperGain = 0.5;
+    this.mixer.beeperGain = KEY_CLICK_GAIN;
     this.mixer.ayGain = 1;
     this.display = display ?? null;
 
@@ -155,6 +165,10 @@ export class MsxMachine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.vdp.palette = MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
+    // The key click and the AY each have a volume; 100 % keeps the hardware's levels.
+    const gains = soundDeviceGains(this.descriptor.ui.soundDevices, view);
+    this.mixer.beeperGain = KEY_CLICK_GAIN * gains.beeper;
+    this.mixer.ayGain = gains.psg;
     applyAySettings(this.ay, view);
     // The Hardware pane's "reset settings" turns the option off underneath a
     // fitted card: take it out and cold-start, since Disk BASIC's hooks into
@@ -449,6 +463,139 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.needsDisplay = true;
   }
 
+  // ── Snapshot state (.msxstate) ─────────────────────────────────────────
+
+  /** CRC-32s of the BIOS/BASIC ROM, the on-board firmware ROM and the Disk
+   *  BASIC ROM (0 for one that is not there), for the snapshot header. */
+  stateRomCrcs(): number[] {
+    const firmware = this.memory.getFirmware();
+    return [
+      crc32(this.memory.getRom()),
+      firmware ? crc32(firmware) : 0,
+      this.diskIf.romLoaded ? crc32(this.diskIf.getRom()) : 0,
+    ];
+  }
+
+  /** The disk interface is in slot 3 (enabled and with its ROM). */
+  private get diskFitted(): boolean { return this.memory.hasDiskInterface; }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.msxstate` (see snapshots/msx-state.ts):
+   * the configuration first, so a restore can refuse a mismatch before it
+   * changes anything, then the CPU, frame grid, memory and cartridge, PPI,
+   * VDP, PSG and the disk interface with the disks in its drives. The MSX
+   * keeps its disks even without `withMedia` (the browser-refresh state):
+   * the shell does not persist MSX disks or cartridges, so the state is the
+   * only thing that can bring them back.
+   */
+  saveState(w: StateWriter, _withMedia: boolean): void {
+    const withMedia = true;
+    this.completeFrame();
+    const fitted = this.diskFitted;
+    w.section('CONF', () => {
+      w.bool(fitted);
+      w.u8(this.driveCount);
+    });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.bool(this.kanaLed);
+    });
+    w.section('MEM ', () => {
+      this.memory.saveState(w);
+      w.str(this.cartridgeName);
+    });
+    w.section('PPI ', () => this.ppi.saveState(w));
+    w.section('VDP ', () => this.vdp.saveState(w));
+    w.section('PSG ', () => this.ay.saveState(w));
+    w.section('DISK', () => {
+      if (!fitted) return;
+      w.bool(withMedia);
+      if (withMedia) {
+        for (let u = 0; u < this.driveCount; u++) {
+          const image = this.fdc.getDiskImage(u);
+          w.bool(image !== null);
+          if (image) {
+            w.str(this.services.disks.nameOf(u === 0 ? 'a' : 'b'));
+            writeDskImage(w, image);
+          }
+        }
+      }
+      this.diskIf.saveState(w);
+    });
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the disk interface or its
+   *  drive count differs from this machine's. */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const fitted = s.bool();
+      const drives = s.u8();
+      if (fitted !== this.diskFitted) {
+        throw new Error(fitted
+          ? 'This snapshot was saved with the disk interface fitted; fit it in the Hardware pane and load it again'
+          : 'This snapshot was saved without the disk interface; remove it in the Hardware pane and load it again');
+      }
+      if (fitted && drives !== this.driveCount) {
+        const n = (k: number) => (k === 1 ? 'one drive' : `${k} drives`);
+        throw new Error(`This snapshot was saved with ${n(drives)} and this MSX has ${n(this.driveCount)}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.kanaLed = s.bool();
+    }
+    {
+      const s = r.section('MEM ');
+      this.memory.loadState(s);
+      this.cartridgeName = s.str();
+    }
+    this.ppi.loadState(r.section('PPI '));
+    this.vdp.loadState(r.section('VDP '));
+    this.ay.loadState(r.section('PSG '));
+    // PSG port B bit 6 picks the joystick port that port A reads.
+    this.joystick.setSelect(this.ay.regs[15]);
+    {
+      const s = r.section('DISK');
+      if (this.diskFitted) {
+        if (s.bool()) {
+          for (let u = 0; u < this.driveCount; u++) {
+            const id = u === 0 ? 'a' : 'b';
+            if (s.bool()) {
+              const name = s.str();
+              this.services.disks.insert(id, readDskImage(s), name);
+            } else {
+              this.services.disks.eject(id);
+            }
+          }
+        }
+        this.diskIf.loadState(s);
+      }
+    }
+    // What the state does not hold: the host's keys and sticks are whatever
+    // they are now, and nothing is part-way through a frame.
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.keyboard.reset();
+    this.keyboard.selectRow(this.ppi.readC() & 0x0F);
+    for (const player of [0, 1]) {
+      for (const dir of ['up', 'down', 'left', 'right', 'fire', 'fire2']) this.joystick.set(dir, false, player);
+    }
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
+  }
+
   // ── Machine: debug helpers ───────────────────────────────────────────
 
   disasmAt(pc: number): DisasmLine {
@@ -457,11 +604,9 @@ export class MsxMachine extends BaseMachine implements Machine {
     return { ...disasmOne(buf, 0), addr: pc };
   }
 
-  startTrace(_mode: MachineTraceMode = 'full'): void {
-    // Execution tracing is a later addition; no-op so the MCP tool degrades.
-  }
-
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
 
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
     // The VDP name table holds character codes directly (grid fixed by mode).

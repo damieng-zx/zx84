@@ -142,6 +142,15 @@ const CMOS_OPS: readonly Op[] = OPS.map((entry, op) => {
   return documented ? entry : cmosNop(op);
 });
 
+/** An addressing mode, as the disassembler names it. */
+export type M6502Mode = Mode;
+
+/** The mnemonic and addressing mode of an opcode: the NMOS table, or the
+ *  65C02's with `cmos`. */
+export function opcodeInfo(op: number, cmos = false): readonly [string, M6502Mode] {
+  return (cmos ? CMOS_OPS : OPS)[op & 0xFF];
+}
+
 export function disasmOne(mem: Uint8Array, addr: number, cmos = false): DisasmLine {
   const start = addr & 0xFFFF;
   let p = start;

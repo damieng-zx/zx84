@@ -19,6 +19,7 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -35,9 +36,12 @@ import { BbcKeyboard } from './bbc-keyboard.ts';
 import { BbcVideo, bitmapMode, wrapSubtract } from './bbc-video.ts';
 import { BbcDfs1770 } from './peripherals/wd1770-dfs.ts';
 import { BbcAcornDfs } from './peripherals/acorn-8271-dfs.ts';
+import { Upd7002 } from './peripherals/upd7002.ts';
+import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { BbcDiscController } from './peripherals/disc-controller.ts';
 import { wireBbcIo } from './bbc-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { bbcDescriptor } from './descriptor.ts';
 import { createBbcServices, type BbcServices } from './services/index.ts';
 import {
@@ -45,6 +49,7 @@ import {
   BBC_SCREEN_WIDTH, BBC_SOUND_CLOCK,
   BBC_TSTATES_PER_FRAME,
 } from './constants.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Serial ULA baud-rate codes (bits 0-2 transmit, 3-5 receive). The cassette
  *  runs at 1200 or 300 baud; RS423 defaults to 9600 (code 4, hence 0x64). */
@@ -91,6 +96,13 @@ export class BbcMachine extends BaseMachine implements Machine {
   readonly video = new BbcVideo();
   readonly fdc1770 = new BbcDfs1770((asserted) => { if (asserted) this.cpu.nmi(); });
   readonly acorn8271 = new BbcAcornDfs(() => this.cpu.nmi());
+  /** The analogue port's uPD7002 ADC (&FEC0-&FEDF); end of conversion is
+   *  System VIA CB1. */
+  readonly adc = new Upd7002();
+  /** The two joysticks on the analogue port, as the host drives them. */
+  readonly sticks = new AnalogSticks(2);
+  /** Joystick fire buttons, System VIA PB4 (joystick 1) and PB5 (joystick 2). */
+  private readonly fire = [false, false];
   /** The 6850 ACIA behind the serial ULA: RS423 or, here, the cassette port. */
   readonly acia = new Mc6850();
   /** Cassette deck, tone decoder and recorder wired to the serial ULA. */
@@ -281,6 +293,43 @@ export class BbcMachine extends BaseMachine implements Machine {
     );
   }
 
+  /** A joystick direction or fire button from the host. Directions are full
+   *  deflection; fire is PB4/PB5, low while pressed. */
+  joystickPress(dir: string, pressed: boolean, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    if (dir === 'fire') { this.fire[player] = pressed; this.updateFireInputs(); return; }
+    if (this.sticks.press(dir, pressed, player)) this.updateStickInputs(player);
+  }
+
+  /** A gamepad's proportional axis (-1 left/up … +1 right/down). */
+  joystickAnalog(axis: 'x' | 'y', value: number, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    this.sticks.analog(axis, value, player);
+    this.updateStickInputs(player);
+  }
+
+  /** Release both sticks and fire buttons (window blur). */
+  releaseJoysticks(): void {
+    this.sticks.reset();
+    this.fire[0] = this.fire[1] = false;
+    this.updateStickInputs(0);
+    this.updateStickInputs(1);
+    this.updateFireInputs();
+  }
+
+  /** Joystick `player`'s position onto ADC channels 2p (X) and 2p+1 (Y).
+   *  A BBC stick reads highest at full left and full up. */
+  private updateStickInputs(player: number): void {
+    this.adc.inputs[player * 2] = axisToRange(this.sticks.x(player), 0xFFF, true);
+    this.adc.inputs[player * 2 + 1] = axisToRange(this.sticks.y(player), 0xFFF, true);
+  }
+
+  /** PB4/PB5 are inputs pulled high; a pressed fire button grounds its bit.
+   *  PB6/PB7 (the speech system's lines) stay high. */
+  private updateFireInputs(): void {
+    this.sysVia.portBInput = 0xFF & ~(this.fire[0] ? 0x10 : 0) & ~(this.fire[1] ? 0x20 : 0);
+  }
+
   /** A key changed: pulse CA2 (keyboard) when auto-scan is enabled. */
   keyboardActivity(): void {
     if (!this.ic32.keyboardScan) return;
@@ -315,6 +364,7 @@ export class BbcMachine extends BaseMachine implements Machine {
   }
 
   private resetHardware(): void {
+    this.refreshResumed = false;
     this.bootShiftFrames = 0;
     this.cpu.reset();
     // The clock restarts, so a frame a stop left open cannot be carried on.
@@ -333,6 +383,8 @@ export class BbcMachine extends BaseMachine implements Machine {
     // genuine transition (VSYNC on CA1, ADC EOC on CB1).
     this.sysVia.setCA1(true);
     this.sysVia.setCB1(true);
+    this.adc.reset();
+    this.updateFireInputs();
     this.ic32 = { soundEnabled: false, keyboardScan: false, c0: 0, c1: 0, capsLock: false, shiftLock: false };
     this.videoUlaControl = 0;
     this.videoPaletteRegister = 0;
@@ -402,6 +454,7 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.disc?.tick(viaCycles);   // 1 MHz disc controller clock
     }
     const now = this.cpu.tStates;
+    if (this.adc.doneAt >= 0 && now >= this.adc.doneAt) this.adc.tick(now);
     this.cassette.step(elapsed, now);
     this.updateSerialInputs();
     this.acia.tick(now);
@@ -542,8 +595,9 @@ export class BbcMachine extends BaseMachine implements Machine {
     return { data: this.memory.ram.slice(), filename: `${this.model}-ram-32k.bin` };
   }
 
-  startTrace(_mode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn feeds it (debug/m6502/trace.ts). */
+  protected override tracer = new M6502Trace(this, { io: [[0xFC00, 0xFEFF]], ioLabel: bbcIoLabel });
 
   /** True while the Video ULA is in teletext (Mode 7). */
   private isMode7(): boolean { return (this.videoUlaControl & 0x02) !== 0; }
@@ -644,4 +698,164 @@ export class BbcMachine extends BaseMachine implements Machine {
       }
     }
   }
+
+  // ── Snapshots (.bbcstate; see shared/native-state.ts for the container) ──
+
+  /** Set when a state without its media (the browser-refresh copy) has been
+   *  restored: the shell then remounts the persisted discs, and that must not
+   *  SHIFT+BREAK or move the heads (see the media service). Cleared by any
+   *  reset. */
+  refreshResumed = false;
+
+  /** CRC-32s of the OS ROM and the sixteen sideways sockets (an empty socket
+   *  reads as zeros), for the snapshot header. */
+  stateRomCrcs(): number[] {
+    return [crc32(this.memory.osRom), ...this.memory.roms.map(rom => crc32(rom))];
+  }
+
+  /** A disc interface, as the Hardware pane names it. */
+  private static discName(system: string): string {
+    return system === 'acorn' ? 'the 8271 interface' : system === '1770' ? 'the 1770 interface' : 'no disc interface';
+  }
+
+  /** Run the rest of a frame a stop left part-way, with every stop set aside,
+   *  so the machine is between frames (a snapshot is taken there). */
+  private completeFrame(): void {
+    if (!this.midFrame) return;
+    withStopsDisarmed(this, () => {
+      this.resumeSkipPc = -1;
+      this.stepFrame();
+    });
+  }
+
+  /**
+   * Write the machine's state between frames. The video ULA's line drawing,
+   * the SAA5050's attributes and the frame's accuracy are all started afresh
+   * at the top of every frame, so nothing of them is carried. `withMedia`
+   * adds the discs and the tape; the refresh path leaves them to the shell.
+   * Host input (held keys) is live state, not machine state.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    // The disc interface first, so a restore can refuse a mismatch before it
+    // changes anything.
+    w.section('CONF', () => { w.str(this.diskSystem); w.u8(this.driveCount); });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameNumber); w.f64(this.frameStartT); w.f64(this.frameEndT);
+      w.u8(this.viaAccum); w.bool(this.prevVsync); w.u32(this.bootShiftFrames);
+      const ic = this.ic32;
+      w.bool(ic.soundEnabled); w.bool(ic.keyboardScan); w.u8(ic.c0); w.u8(ic.c1);
+      w.bool(ic.capsLock); w.bool(ic.shiftLock);
+      w.u8(this.videoUlaControl); w.u8(this.videoPaletteRegister); w.u8(this.serialUlaControl);
+      w.raw(this.palette);
+    });
+    w.section('MEM ', () => {
+      w.raw(this.memory.ram);
+      w.u8(this.memory.romsel);
+    });
+    w.section('CRTC', () => this.crtc.saveState(w));
+    w.section('SVIA', () => this.sysVia.saveState(w));
+    w.section('UVIA', () => this.userVia.saveState(w));
+    w.section('PSG ', () => this.psg.saveState(w));
+    w.section('ACIA', () => this.acia.saveState(w));
+    w.section('ADC ', () => {
+      this.adc.saveState(w);
+      this.sticks.saveState(w);
+      w.bool(this.fire[0]); w.bool(this.fire[1]);
+    });
+    w.section('TAPE', () => this.cassette.saveState(w, withMedia));
+    // The discs go before the controller, whose transfer in flight points into them.
+    w.section('MEDA', () => {
+      w.bool(withMedia);
+      if (withMedia) this.services.disks.saveState(w);
+    });
+    w.section('DISC', () => this.disc?.saveState(w));
+  }
+
+  /**
+   * Restore a state written by `saveState` into this machine, which has the
+   * same model; one saved with another disc interface or drive count is
+   * refused before anything changes. The frame loop must be stopped. The ROMs, settings and, for a state without media, the
+   * drives and tape stay as they are.
+   */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const disc = s.str();
+      const drives = s.u8();
+      if (disc !== this.diskSystem) {
+        throw new Error(`This snapshot was saved with ${BbcMachine.discName(disc)} and this BBC has ${BbcMachine.discName(this.diskSystem)}; change it in the Hardware pane and load it again`);
+      }
+      if (disc !== 'none' && drives !== this.driveCount) {
+        throw new Error(`This snapshot was saved with ${drives} drives and this BBC has ${this.driveCount}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.midFrame = false;
+    this.fLine = 0;
+    this.clearInterrupts();
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameNumber = s.f64(); this.frameStartT = s.f64(); this.frameEndT = s.f64();
+      this.viaAccum = s.u8(); this.prevVsync = s.bool(); this.bootShiftFrames = s.u32();
+      this.ic32 = {
+        soundEnabled: s.bool(), keyboardScan: s.bool(), c0: s.u8(), c1: s.u8(),
+        capsLock: s.bool(), shiftLock: s.bool(),
+      };
+      this.videoUlaControl = s.u8(); this.videoPaletteRegister = s.u8(); this.serialUlaControl = s.u8();
+      s.rawInto(this.palette);
+    }
+    {
+      const s = r.section('MEM ');
+      s.rawInto(this.memory.ram);
+      this.memory.romsel = s.u8();
+    }
+    this.crtc.loadState(r.section('CRTC'));
+    this.sysVia.loadState(r.section('SVIA'));
+    this.userVia.loadState(r.section('UVIA'));
+    this.psg.loadState(r.section('PSG '));
+    this.acia.loadState(r.section('ACIA'));
+    {
+      const s = r.section('ADC ');
+      this.adc.loadState(s);
+      this.sticks.loadState(s);
+      this.fire[0] = s.bool(); this.fire[1] = s.bool();
+    }
+    this.cassette.loadState(r.section('TAPE'));
+    let withMedia: boolean;
+    {
+      const s = r.section('MEDA');
+      withMedia = s.bool();
+      if (withMedia) this.services.disks.loadState(s);
+    }
+    {
+      const s = r.section('DISC');
+      this.disc?.loadState(s);
+    }
+
+    // What the state does not hold: the host's keys are whatever they are
+    // now, except the SHIFT a SHIFT+BREAK boot is still holding.
+    this.keyboard.reset();
+    if (this.bootShiftFrames > 0) this.keyboard.setCell(0, 0, true);
+    this.refreshResumed = !withMedia;
+    this.activity.psgWrites = 0;
+    this.audio.reset();
+    this.mixer.reset();
+    this.video.render(this);
+    this.needsDisplay = true;
+  }
+}
+
+/** Portio-trace names for the BBC Micro's FRED, JIM and SHEILA pages. */
+function bbcIoLabel(addr: number): string {
+  if (addr < 0xFD00) return 'FRED';
+  if (addr < 0xFE00) return 'JIM';
+  const o = addr & 0xFF;
+  if (o < 0x08) return 'CRTC';
+  if (o < 0x10) return 'ACIA';
+  if (o < 0x20) return 'SERULA';
+  if (o < 0x30) return 'VIDULA';
+  if (o < 0x40) return 'ROMSEL';
+  return ['SYSVIA', 'USRVIA', 'FDC', 'ECONET', 'ADC', 'TUBE'][(o - 0x40) >> 5];
 }

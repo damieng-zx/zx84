@@ -5,16 +5,19 @@
  * track, sector, data) with the drive-control latch at &FE80. The latch is a
  * write-only register (a 74LS173/174) whose outputs drive the drive/side/
  * density/reset lines; reads float high. Bit 1 selects drive 1 (else drive 0),
- * bit 2 the head, bit 3 the density, and bit 5 the controller reset — active
- * low, matching the /MR input it drives.
+ * bit 2 the head, bit 3 the density (high = single density: it drives the
+ * controller's /DDEN), and bit 5 the controller reset — active low, matching
+ * the /MR input it drives.
  */
 
 import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { BbcDiscController } from './disc-controller.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const CTRL_DRIVE1 = 0x02;
 const CTRL_SIDE = 0x04;
+const CTRL_SINGLE_DENSITY = 0x08;
 const CTRL_RESET = 0x20;
 
 export class BbcDfs1770 implements BbcDiscController {
@@ -39,6 +42,7 @@ export class BbcDfs1770 implements BbcDiscController {
     this.control = 0;
     this.resetting = false;
     this.fdc.reset();
+    this.fdc.setDensity(false);
   }
 
   /** Advance the per-byte transfer cadence at the 1 MHz disc clock. */
@@ -89,6 +93,7 @@ export class BbcDfs1770 implements BbcDiscController {
     // the inverse of DS0, so the two bits are not a binary drive number).
     this.fdc.selectDrive((val & CTRL_DRIVE1) ? 1 : 0);
     this.fdc.setSide((val & CTRL_SIDE) ? 1 : 0);
+    this.fdc.setDensity((val & CTRL_SINGLE_DENSITY) !== 0);
   }
 
   tickFrame(): void { this.fdc.tickFrame(); }
@@ -101,5 +106,16 @@ export class BbcDfs1770 implements BbcDiscController {
   get writeProtect(): boolean[] { return this.fdc.writeProtect; }
   setDriveCount(count: number): void {
     this.fdc.connected = this.fdc.connected.map((_, u) => u < count);
+  }
+
+  /** Snapshot: the drive-control latch and the controller (not the discs). */
+  saveState(w: StateWriter): void {
+    w.u8(this.control); w.bool(this.resetting);
+    this.fdc.saveState(w);
+  }
+
+  loadState(r: StateReader): void {
+    this.control = r.u8(); this.resetting = r.bool();
+    this.fdc.loadState(r);
   }
 }

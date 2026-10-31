@@ -29,7 +29,8 @@ function buildTrack(data: Uint8Array, base: number, cyl: number, side: number): 
       data: data.slice(off, off + SSD_SECTOR_SIZE),
     });
   }
-  return { sectors, sectorMap, gap3: 0x2A, filler: FILLER };
+  // DFS discs are single density (FM), as the 8271 and Acorn's 1770 DFS write them.
+  return { sectors, sectorMap, gap3: 0x2A, filler: FILLER, encoding: 'fm' };
 }
 
 /** Sectors a side's DFS catalogue says the disc holds (sector 1, bytes 6-7). */

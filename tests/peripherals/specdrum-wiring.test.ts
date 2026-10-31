@@ -316,14 +316,15 @@ describe('SpecDrum — streamed samples (the way the real software drives it)', 
 });
 
 describe('SpecDrum — MIC sync tick', () => {
-  // The Cheetah software pulses MIC (OUT 0xFE bit 3 only) as a sync clock. On real
-  // hardware that leaks faintly into the Spectrum speaker; the Sound pane can mute it.
+  // The Cheetah software pulses MIC (OUT 0xFE bit 3 only) as a sync clock. The MIC
+  // leak into the speaker is off by default, so that clock does not tick.
   //   loop: LD A,08h / OUT (FEh),A / LD B,0 / DJNZ $ / XOR A / OUT (FEh),A / LD B,0 / DJNZ $ / JR loop
   const PROGRAM = [0x3E, 0x08, 0xD3, 0xFE, 0x06, 0x00, 0x10, 0xFE, 0xAF, 0xD3, 0xFE, 0x06, 0x00, 0x10, 0xFE, 0x18, 0xEF];
 
   function peak(micAudible: boolean): number {
     const s = makeMachine('zx48k');
-    s.applySettings(view({ 'mic-audible': micAudible }));
+    s.applySettings(view({}));
+    s.ula.micAudible = micAudible;
     PROGRAM.forEach((b, i) => { s.memory.flat[0x8000 + i] = b; });
     s.cpu.pc = 0x8000;
     const out: number[] = [];
@@ -332,21 +333,14 @@ describe('SpecDrum — MIC sync tick', () => {
     return out.slice(500).reduce((m, x) => Math.max(m, Math.abs(x)), 0);
   }
 
-  it('is audible by default', () => {
-    expect(peak(true)).toBeGreaterThan(0.02);
-  });
-
-  it('is silent when "MIC in speaker" is off', () => {
+  it('is silent on a machine with default settings', () => {
+    const s = makeMachine('zx48k');
+    s.applySettings(view({}));
+    expect(s.ula.micAudible).toBe(false);
     expect(peak(false)).toBe(0);
   });
 
-  it('applySettings follows the setting live', () => {
-    const s = makeMachine('zx48k');
-    s.applySettings(view({ 'mic-audible': false }));
-    expect(s.ula.micAudible).toBe(false);
-    s.applySettings(view({ 'mic-audible': true }));
-    expect(s.ula.micAudible).toBe(true);
-    s.applySettings(view({}));                  // a missing key keeps the hardware-accurate default
-    expect(s.ula.micAudible).toBe(true);
+  it('would tick audibly if the MIC leak were enabled (the pulse itself is real)', () => {
+    expect(peak(true)).toBeGreaterThan(0.02);
   });
 });

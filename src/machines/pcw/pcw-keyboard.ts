@@ -43,6 +43,7 @@
  * &3FFB-&3FFF but does not enumerate them. They are unmapped until sourced.
  */
 
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { HostKeyEvent } from '@/machines/machine.ts';
 import { PCW_KEYBOARD_BYTES } from './constants.ts';
 
@@ -244,6 +245,21 @@ export class PcwKeyboard {
    */
   scan(): void {
     this.updateToggle = !this.updateToggle;
+    this.refreshStatus();
+  }
+
+  /** The keyboard's own latches: SHIFT LOCK and the &3FFF heartbeat. Which
+   *  keys are held is the host's, not state. */
+  saveState(w: StateWriter): void {
+    w.bool(this.shiftLock);
+    w.bool(this.updateToggle);
+  }
+
+  /** Restore the latches with every key released. */
+  loadState(r: StateReader): void {
+    this.reset();
+    this.shiftLock = r.bool();
+    this.updateToggle = r.bool();
     this.refreshStatus();
   }
 

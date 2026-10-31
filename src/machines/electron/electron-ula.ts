@@ -30,6 +30,7 @@ import {
   ELECTRON_ACTIVE_WIDTH, ELECTRON_BORDER_LEFT, ELECTRON_CPU_CLOCK, ELECTRON_SCREEN_WIDTH,
   ELECTRON_TAPE_BAUD,
 } from './constants.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 export const INT_POWER_ON_RESET = 0x02;
 export const INT_DISPLAY_END = 0x04;
@@ -379,4 +380,35 @@ export class ElectronUla {
 
   /** Fill the whole frame with black (power-on). */
   clear(out: Uint32Array): void { out.fill(BLACK); }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write the registers, the display address counters, the sound counter
+   *  and the cassette shifters (the receiver's frame in progress, the byte
+   *  held for transmission). The palette mode is a display setting. */
+  saveState(w: StateWriter): void {
+    w.u8(this.intStatus); w.u8(this.intControl);
+    w.u16(this.screenStart); w.u16(this.screenAddr); w.u8(this.screenRa);
+    w.u8(this.dispMode); w.u8(this.commsMode); w.bool(this.cassMotor); w.bool(this.capsLock);
+    w.u8(this.tapeByte); w.u8(this.divider);
+    w.raw(this.palette); w.raw(this.pens);
+    w.u8(this.soundLevel); w.f64(this.soundCount);
+    w.f64(this.now); w.bool(this.highTone);
+    w.i32(this.txHold); w.f64(this.txHoldAt); w.f64(this.txEnd);
+    this.rx.saveState(w);
+  }
+
+  /** Restore what `saveState` wrote, without the side effects of the register
+   *  writes (the cassette relay and caps-lock LED are restored with their owners). */
+  loadState(r: StateReader): void {
+    this.intStatus = r.u8(); this.intControl = r.u8();
+    this.screenStart = r.u16(); this.screenAddr = r.u16(); this.screenRa = r.u8();
+    this.dispMode = r.u8() & 7; this.commsMode = r.u8(); this.cassMotor = r.bool(); this.capsLock = r.bool();
+    this.tapeByte = r.u8(); this.divider = r.u8();
+    r.rawInto(this.palette); r.rawInto(this.pens);
+    this.soundLevel = r.u8(); this.soundCount = r.f64();
+    this.now = r.f64(); this.highTone = r.bool();
+    this.txHold = r.i32(); this.txHoldAt = r.f64(); this.txEnd = r.f64();
+    this.rx.loadState(r);
+  }
 }

@@ -19,6 +19,7 @@
  */
 
 import type { Apple2Card } from '../cards.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 export const VIDEX_SLOT = 3;
 export const VIDEX_COLS = 80;
@@ -115,6 +116,19 @@ export class Videx implements Apple2Card {
     this.regs.fill(0);
     this.addressReg = 0;
     this.bank = 0;
+    this.refresh();
+  }
+
+  /** Snapshot: the CRTC registers, the selected register and RAM window, and
+   *  the card's 2K of RAM. Its ROMs are firmware. */
+  saveState(w: StateWriter): void {
+    w.raw(this.regs); w.u8(this.addressReg); w.u8(this.bank);
+    w.raw(this.ram);
+  }
+
+  loadState(r: StateReader): void {
+    r.rawInto(this.regs); this.addressReg = r.u8() & 0x1F; this.bank = r.u8() & 3;
+    r.rawInto(this.ram);
     this.refresh();
   }
 }

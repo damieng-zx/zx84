@@ -100,6 +100,21 @@ export class MtxDiskService implements DiskService {
     if (firstSector) writeStartup(firstSector, enabled);
   }
 
+  /** A drive's media name as the service holds it (undefined = none; the
+   *  hidden CP/M boot disk is ''), for a snapshot. */
+  nameOf(id: string): string | undefined { return this.names.get(id); }
+
+  /** Put back a drive a snapshot carried: the image goes straight into the
+   *  controller (the snapshot's drive count was checked against this
+   *  machine's first). */
+  restore(id: string, image: DskImage | null, name: string | undefined): void {
+    const unit = id === 'b' ? 1 : 0;
+    if (image) this.machine.loadDisk(image, unit);
+    else this.machine.fdc.ejectDisk(unit);
+    if (image && name !== undefined) this.names.set(id, name);
+    else this.names.delete(id);
+  }
+
   private describe(id: string, label: string, unit: number): DriveDescriptor {
     const fdc = this.machine.fdc;
     return {

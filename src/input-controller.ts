@@ -42,6 +42,12 @@ const KEY_MAP_FOR_MODE: Record<string, Record<string, string>> = {
 // ── Gamepad constants ───────────────────────────────────────────────────
 
 const GAMEPAD_DEADZONE = 0.4;
+/** Below this deflection an analogue axis reads as centred, so a stick that
+ *  rests a little off-centre does not drift the machine's paddle or ADC. */
+const ANALOG_DEADZONE = 0.08;
+/** An analogue axis is resent when it moves by more than this (1/256 of full
+ *  travel, the finest step any machine here resolves). */
+const ANALOG_STEP = 1 / 256;
 const CONFIG_STEPS = ['deadzone', 'up', 'down', 'left', 'right', 'fire'] as const;
 type ConfigStep = typeof CONFIG_STEPS[number];
 type BindingStep = Exclude<ConfigStep, 'deadzone'>;
@@ -93,6 +99,20 @@ function isBindingActive(gp: Gamepad, binding: GamepadBinding, neutralAxes?: num
     : deviation < -GAMEPAD_DEADZONE;
 }
 
+/**
+ * The proportional position of the axis a player's left/right (or up/down)
+ * bindings share, -1 … +1 with +1 toward the `right`/`down` binding — or null
+ * when those two directions are not the two ends of one analogue axis (a
+ * D-pad, buttons, or two different axes), in which case it stays digital.
+ */
+function analogAxisValue(gp: Gamepad, neg: GamepadBinding, pos: GamepadBinding, neutralAxes?: number[]): number | null {
+  if (neg.type !== 'axis' || pos.type !== 'axis' || neg.index !== pos.index || neg.direction === pos.direction) return null;
+  const raw = (gp.axes[pos.index] ?? 0) - (neutralAxes?.[pos.index] ?? 0);
+  let v = pos.direction === 'positive' ? raw : -raw;
+  if (Math.abs(v) < ANALOG_DEADZONE) v = 0;
+  return Math.max(-1, Math.min(1, v));
+}
+
 function detectInput(gp: Gamepad, neutralAxes: number[]): GamepadBinding | null {
   for (let i = 0; i < gp.buttons.length; i++) {
     if (gp.buttons[i].pressed) return { type: 'button', index: i };
@@ -125,6 +145,26 @@ function isBindingAlreadyUsed(binding: GamepadBinding, config: Partial<GamepadCo
 export class InputController {
   private gamepadPrevState: Array<Record<string, boolean>> = [{}, {}];
   private gamepadDetected: boolean[] = [false, false];
+  /** Last analogue position sent per player and axis (0 = centred). */
+  private analogPrev: Array<{ x: number; y: number }> = [{ x: 0, y: 0 }, { x: 0, y: 0 }];
+
+  /** Send an analogue axis to the machine when it has moved enough. */
+  private sendAnalog(p: number, axis: 'x' | 'y', value: number): void {
+    const prev = this.analogPrev[p];
+    if (Math.abs(value - prev[axis]) < ANALOG_STEP && !(value === 0 && prev[axis] !== 0)) return;
+    prev[axis] = value;
+    machine?.services.input.joystick?.analog?.(axis, value, p);
+    const [neg, pos] = axis === 'x' ? ['left', 'right'] : ['up', 'down'];
+    setDpadHighlight(p, neg, value <= -GAMEPAD_DEADZONE);
+    setDpadHighlight(p, pos, value >= GAMEPAD_DEADZONE);
+  }
+
+  /** Centre any analogue axis left deflected (blur, joystick type 'none'). */
+  private centreAnalog(p: number): void {
+    for (const axis of ['x', 'y'] as const) {
+      if (this.analogPrev[p][axis] !== 0) this.sendAnalog(p, axis, 0);
+    }
+  }
 
   // Configuration state
   private configPending: Partial<GamepadConfig> = {};
@@ -209,6 +249,7 @@ export class InputController {
           prev[dir] = false;
         }
       }
+      this.centreAnalog(p);
     }
   };
 
@@ -353,6 +394,7 @@ export class InputController {
             prev[dir] = false;
           }
         }
+        this.centreAnalog(p);
         continue;
       }
 
@@ -363,6 +405,15 @@ export class InputController {
         right: isBindingActive(gp, config.right, config.deadzone),
         fire: isBindingActive(gp, config.fire, config.deadzone),
       };
+
+      // A machine with analogue inputs takes a stick's axes proportionally;
+      // those directions then stay out of the digital path (each axis has
+      // one driver). Bindings that are not one analogue axis stay digital.
+      const analog = machine.services.input.joystick?.analog !== undefined;
+      const ax = analog ? analogAxisValue(gp, config.left, config.right, config.deadzone) : null;
+      const ay = analog ? analogAxisValue(gp, config.up, config.down, config.deadzone) : null;
+      if (ax !== null) { dirs.left = dirs.right = false; this.sendAnalog(p, 'x', ax); }
+      if (ay !== null) { dirs.up = dirs.down = false; this.sendAnalog(p, 'y', ay); }
 
       for (const dir of ['up', 'down', 'left', 'right', 'fire'] as const) {
         if (dirs[dir] !== (prev[dir] ?? false)) {

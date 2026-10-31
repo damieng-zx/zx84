@@ -97,7 +97,7 @@ export class LynxFrameProbe implements FrameProbe {
     out.tapePosition = tape.position;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.machine.traceActive;
 
     const fdc = m.fdc;
     for (let unit = 0; unit < 4; unit++) {

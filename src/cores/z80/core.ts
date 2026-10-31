@@ -17,6 +17,8 @@
   method module) or via `@/cores/z80.ts` (the re-export shim).
 */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 export class Z80 {
   portOutHandler: ((port: number, val: number) => void) | null;
   portInHandler: ((port: number) => number) | null;
@@ -447,5 +449,38 @@ export class Z80 {
     this.r = (this.r & 0x80) | ((this.r + 1) & 0x7F);
 
     this.executeMain(opcode);
+  }
+
+  // --- Snapshot state ---
+  /** Everything the CPU carries from one instruction boundary to the next:
+   *  registers, the hidden MEMPTR and Q latches, the interrupt flip-flops and
+   *  their one-instruction delays, and the cycle counter. Wiring and timing
+   *  configuration (handlers, M1 waits, contention) are not state. */
+  saveState(w: StateSink): void {
+    w.u8(this.a); w.u8(this.f); w.u8(this.b); w.u8(this.c);
+    w.u8(this.d); w.u8(this.e); w.u8(this.h); w.u8(this.l);
+    w.u8(this.a_); w.u8(this.f_); w.u8(this.b_); w.u8(this.c_);
+    w.u8(this.d_); w.u8(this.e_); w.u8(this.h_); w.u8(this.l_);
+    w.u16(this.ix); w.u16(this.iy); w.u16(this.sp); w.u16(this.pc);
+    w.u8(this.i); w.u8(this.r);
+    w.u16(this.memptr); w.u8(this._qReg); w.u8(this._prevQ);
+    w.bool(this.iff1); w.bool(this.iff2); w.u8(this.im);
+    w.bool(this.halted); w.bool(this.eiDelay); w.bool(this.ldAirPv);
+    w.u8(this._pendingVector);
+    w.f64(this.tStates);
+  }
+
+  loadState(r: StateSource): void {
+    this.a = r.u8(); this.f = r.u8(); this.b = r.u8(); this.c = r.u8();
+    this.d = r.u8(); this.e = r.u8(); this.h = r.u8(); this.l = r.u8();
+    this.a_ = r.u8(); this.f_ = r.u8(); this.b_ = r.u8(); this.c_ = r.u8();
+    this.d_ = r.u8(); this.e_ = r.u8(); this.h_ = r.u8(); this.l_ = r.u8();
+    this.ix = r.u16(); this.iy = r.u16(); this.sp = r.u16(); this.pc = r.u16();
+    this.i = r.u8(); this.r = r.u8();
+    this.memptr = r.u16(); this._qReg = r.u8(); this._prevQ = r.u8();
+    this.iff1 = r.bool(); this.iff2 = r.bool(); this.im = r.u8() & 3;
+    this.halted = r.bool(); this.eiDelay = r.bool(); this.ldAirPv = r.bool();
+    this._pendingVector = r.u8();
+    this.tStates = r.f64();
   }
 }

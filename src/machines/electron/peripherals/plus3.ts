@@ -5,8 +5,9 @@
  *   &FCC0        drive-control latch (write-only)
  *   &FCC4-&FCC7  WD1770 status/command, track, sector, data
  *
- * Latch bits: 0 selects drive 0, 1 drive 1, 2 the head, 3 the density, and 5 is
- * the controller's /MR reset — active low, so a 0 written there holds the chip
+ * Latch bits: 0 selects drive 0, 1 drive 1, 2 the head, 3 the density (high =
+ * single density, for DFS discs: it drives /DDEN), and 5 is the controller's /MR
+ * reset — active low, so a 0 written there holds the chip
  * in reset. The controller's DRQ and command-completion lines are wired to the
  * CPU's NMI, and ADFS moves each byte from an NMI handler.
  *
@@ -17,10 +18,12 @@
 import { WD179x } from '@/cores/wd179x.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { ADFS_SECTORS_PER_TRACK } from '@/media/floppy/adfs.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const CTRL_DRIVE0 = 0x01;
 const CTRL_DRIVE1 = 0x02;
 const CTRL_SIDE = 0x04;
+const CTRL_SINGLE_DENSITY = 0x08;
 const CTRL_RESET = 0x20;
 
 export const PLUS3_ROM_PAGE = 4;
@@ -54,6 +57,7 @@ export class ElectronPlus3 {
     this.control = 0;
     this.resetting = false;
     this.fdc.reset();
+    this.fdc.setDensity(false);
   }
 
   /** Advance the per-byte transfer cadence at the 1 MHz disc clock. */
@@ -99,6 +103,7 @@ export class ElectronPlus3 {
     // the default so a command still has somewhere to go.
     this.fdc.selectDrive((val & CTRL_DRIVE1) && !(val & CTRL_DRIVE0) ? 1 : 0);
     this.fdc.setSide((val & CTRL_SIDE) ? 1 : 0);
+    this.fdc.setDensity((val & CTRL_SINGLE_DENSITY) !== 0);
   }
 
   // Frame-probe indicators and media (delegated to the WD179x).
@@ -124,5 +129,16 @@ export class ElectronPlus3 {
   /** Fit the first `count` drives; the other select lines have nothing on them. */
   setDriveCount(count: number): void {
     this.fdc.connected = this.fdc.connected.map((_, u) => u < count);
+  }
+
+  /** Snapshot: the drive-control latch and the controller (not the discs). */
+  saveState(w: StateWriter): void {
+    w.u8(this.control); w.bool(this.resetting);
+    this.fdc.saveState(w);
+  }
+
+  loadState(r: StateReader): void {
+    this.control = r.u8(); this.resetting = r.bool();
+    this.fdc.loadState(r);
   }
 }

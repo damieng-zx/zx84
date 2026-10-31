@@ -25,7 +25,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -331,11 +331,18 @@ export interface SoundDeviceInfo {
   readonly maxVolume?: number;
 }
 
-export type PsgControl = 'stereo' | 'sn-stereo' | 'filter';
+export type PsgControl = 'stereo' | 'sn-stereo' | 'filter' | 'sid-model';
 
 /** One mouse interface a machine offers — see `MachineUiCapabilities.mouseTypes`.
  *  `id` is the mode string passed back through `InputService.mice`. */
 export interface MouseTypeInfo {
+  readonly id: string;
+  readonly label: string;
+}
+
+/** One joystick interface a machine offers — see
+ *  `MachineUiCapabilities.joystickTypes`. */
+export interface JoystickTypeInfo {
   readonly id: string;
   readonly label: string;
 }
@@ -347,14 +354,31 @@ export interface MouseTypeInfo {
  * capability test holds each entry against the service that has to honour it.
  */
 export type SaveMenuItem =
-  /** Whatever the machine has written to its cassette port, in the machine's
-   *  own tape format (.tap on the Ace, .cas on the MSX). */
+  /** Whatever the machine has written to its cassette port, in the format its
+   *  own tape loader accepts back (.tap on the Ace and Lynx, .cas on the MSX
+   *  and Atari, .uef on the BBC/Electron, .tzx on the Spectrum, .cdt on the
+   *  CPC, .wav on the Apple I/II, .mtx on the MTX, .p/.o on the ZX81/ZX80).
+   *  The menu labels it "Saved tape"; the id predates the other formats. */
   | 'tape-tap'
   | 'snapshot-szx'
   | 'snapshot-z80'
   | 'snapshot-sna-v2'
   | 'snapshot-sna-v3'
   | 'snapshot-a8state'
+  /** zx84's native save states of the Z80 machines (see shared/native-state.ts). */
+  | 'snapshot-acestate'
+  | 'snapshot-zx8xstate'
+  | 'snapshot-lynxstate'
+  | 'snapshot-mtxstate'
+  | 'snapshot-msxstate'
+  | 'snapshot-einstate'
+  | 'snapshot-pcwstate'
+  | 'snapshot-epstate'
+  | 'snapshot-bbcstate'
+  | 'snapshot-elkstate'
+  | 'snapshot-a1state'
+  | 'snapshot-a2state'
+  | 'snapshot-c64state'
   | 'screenshot-png'
   | 'screen-scr'
   | 'ram-bin';
@@ -366,6 +390,9 @@ export interface MachineUiCapabilities {
   readonly memoryLayout: boolean;
   /** Execution-trace debugger control is available. */
   readonly trace: boolean;
+  /** The trace modes offered, when not all three ('zxtl' is a Z80 register
+   *  layout, so a 6502 machine lists 'full' and 'portio'). */
+  readonly traceModes?: readonly MachineTraceMode[];
   /** Palette / colour-map family shown in the Display pane. */
   readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'apple2' | 'atari' | 'mono';
   /** The Color map drop-down's choices, where the machine computes them
@@ -395,6 +422,8 @@ export interface MachineUiCapabilities {
   readonly requires?: {
     readonly builtinDisk?: string;
     readonly cartridge?: string;
+    /** The joystick ports belong to an add-on (the Electron's Plus 1). */
+    readonly joystick?: string;
   };
   /** Built-in drives fitted, A: onward — defaults to 2 when `builtinDisk`.
    *  The Lynx's FD1793 addresses four. Peripheral drives are not counted. */
@@ -417,6 +446,14 @@ export interface MachineUiCapabilities {
    *  interface (the CPC, MSX and MTX sticks) and 1 otherwise; the Atari's
    *  fixed ports take one-button CX40s. */
   readonly joystickFireButtons?: 1 | 2;
+  /** The joystick interfaces the type selector offers when the joystick is
+   *  not fixed, in order; the ids are the `joy-p1`/`joy-p2` setting values the
+   *  machine reads and the `mode` its `JoystickInput` receives. Omitted, the
+   *  selector offers the Spectrum's interfaces (Kempston, Cursor, Sinclair). */
+  readonly joystickTypes?: readonly JoystickTypeInfo[];
+  /** Joysticks the machine can take — defaults to 2. With 1 the pane shows
+   *  only player 1. */
+  readonly joystickPlayers?: 1 | 2;
   /**
    * Mouse interfaces this machine can drive, in the order the Mouse pane
    * offers them; empty means no mouse pane.
@@ -453,10 +490,6 @@ export interface MachineUiCapabilities {
    * Declare a device here and it gets its slider and persistence for free.
    */
   readonly soundDevices?: readonly SoundDeviceInfo[];
-  /** The machine's ULA leaks its MIC (tape-save) output into the speaker, and
-   *  reads 'mic-audible' in applySettings: the Sound pane offers a toggle to
-   *  hear it or not. Omitted where MIC is not part of the speaker mix. */
-  readonly micSpeaker?: boolean;
   /**
    * Which of the Sound pane's PSG-shaping controls apply to this machine.
    *
@@ -615,6 +648,11 @@ export interface MountResult {
    *  Atari snapshot carries its disks and cassette): the shell re-reads the
    *  drives and tape into the panes and persistence. */
   readonly mediaChanged?: boolean;
+  /** Set with `ok: false` when the disk needs a different drive than the one it
+   *  was meant for (a .d81 with only a 1541 fitted): the shell sets drive `index`
+   *  to `model` (rebuilding the machine if that needs a ROM it has not fetched),
+   *  then re-dispatches the file once. `message` is what to show if that fails. */
+  readonly needsDriveModel?: { readonly index: number; readonly model: string };
 }
 
 /**
@@ -762,8 +800,9 @@ export interface DiskService {
   formatBlank?(id: string, name?: string): { data: Uint8Array; name: string } | null;
   /** Machines with `ui.driveModels`: the model of each fitted drive, in order. */
   readonly driveModels?: readonly string[];
-  /** Change one drive's model; its disk stays in it. */
-  setDriveModel?(index: number, model: string): void;
+  /** Change one drive's model; its disk stays in it. Resolves once the machine
+   *  has been rebuilt, when the model needed a ROM that had to be fetched. */
+  setDriveModel?(index: number, model: string): void | Promise<void>;
   /** Add an empty drive below `after` (same model); the drives under it move
    *  down with their disks. False when no more fit. */
   addDrive?(after: number): boolean;
@@ -933,8 +972,14 @@ export interface DebugService {
   stepOut(): void;
   /** Multi-line CPU state + disassembly block (clipboard copy). */
   cpuStateText(): string;
+  /** Start an execution trace ('full', 'portio' or 'zxtl'; a mode the
+   *  machine does not offer is ignored). */
   startTrace(mode?: string): void;
+  /** Stop the trace and return its text. */
   stopTrace(): string;
+  /** The mode of the trace started and not yet stopped — it may already have
+   *  stopped capturing at its line cap — or null. */
+  traceSession(): MachineTraceMode | null;
   /** Screen OCR ('auto' or a machine-defined grid name). */
   ocr(mode?: string): string;
   /** Resolve a Memory-pane ROM region id (descriptor.ui.memoryRegions) to a
@@ -1010,6 +1055,19 @@ export interface MouseInput {
  *  joystick hardware (Kempston port, PPI matrix row, …). */
 export interface JoystickInput {
   press(dir: string, pressed: boolean, mode: string, player: number): void;
+  /**
+   * Proportional stick position, for a machine whose joystick is analogue (a
+   * BBC Micro's ADC, the Apple II's paddle timers, …). `value` runs from -1
+   * (full left / full up) through 0 (centred) to +1 (full right / full down);
+   * the machine converts that to its own hardware's scale and direction.
+   *
+   * Optional: only machines with analogue inputs implement it. When it is
+   * present the input controller sends a gamepad's analogue axes here and does
+   * not also send that axis's digital directions, so an axis is driven by one
+   * path at a time; keys and the on-screen pad still arrive through `press`,
+   * where a direction means full deflection.
+   */
+  analog?(axis: 'x' | 'y', value: number, player: number): void;
 }
 
 export interface InputService {

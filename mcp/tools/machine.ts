@@ -130,8 +130,9 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'model',
-    { description: 'Show or switch the machine model. Creates a fresh machine when switching. ZX80/ZX81 may select 16KB RAM; ZX81 may select one high-resolution graphics device.', inputSchema: {
+    { description: 'Show or switch the machine model. Creates a fresh machine when switching. The Atari and the Commodore 64 may select the NTSC machine (tv "ntsc", otherwise PAL). ZX80/ZX81 may select 16KB RAM; ZX81 may select one high-resolution graphics device.', inputSchema: {
       target: z.enum(MCP_MODELS).optional().describe('Model to switch to (omit to show current)'),
+      tv: z.enum(['pal', 'ntsc']).optional().describe('Atari and Commodore 64 only: the TV standard (default PAL). Switching it builds a fresh machine'),
       ram16k: z.boolean().optional().describe('ZX80/ZX81 only: enable or disable 16KB RAM'),
       udgRam: z.boolean().optional().describe('ZX81 only: map UDG character RAM at $3000-$3FFF'),
       udg128Ram: z.boolean().optional().describe('ZX81 only: map the 128-character UDG board at $3000-$3FFF'),
@@ -139,15 +140,16 @@ export function register(server: McpServer): void {
       memotechHrg: z.boolean().optional().describe('ZX81 only: enable the Memotech 248x192 HRG board'),
       quickSilvaHrg: z.boolean().optional().describe('ZX81 only: enable the QuickSilva 256x192 HRG board'),
     } },
-    async ({ target, ram16k, udgRam, udg128Ram, wrxHires, memotechHrg, quickSilvaHrg }) => {
-      if (!target && ram16k === undefined && udgRam === undefined && udg128Ram === undefined
+    async ({ target, tv, ram16k, udgRam, udg128Ram, wrxHires, memotechHrg, quickSilvaHrg }) => {
+      if (!target && tv === undefined && ram16k === undefined && udgRam === undefined && udg128Ram === undefined
           && wrxHires === undefined && memotechHrg === undefined && quickSilvaHrg === undefined) {
         const ram = state.spec.kind === 'zx8x' ? ` (${zx8x16kRam() ? '16KB' : '1KB'} RAM)` : '';
         const hires = state.model === 'zx81'
           ? ` (hi-res: ${zx81QuickSilvaHrg() ? 'QuickSilva' : zx81MemotechHrg() ? 'Memotech'
             : zx81WrxHires() ? 'WRX' : zx81Udg128Ram() ? 'UDG-128' : zx81UdgRam() ? 'UDG' : 'off'})`
           : '';
-        return text(`Current model: ${state.model}${ram}${hires}`);
+        const standard = state.locale === 'us' ? ' (NTSC)' : '';
+        return text(`Current model: ${state.model}${standard}${ram}${hires}`);
       }
       const next = target ?? state.model;
       const sameModel = next === state.model;
@@ -166,7 +168,10 @@ export function register(server: McpServer): void {
         zx81MemotechHrg: zx81MemotechHrg(),
         zx81QuickSilvaHrg: zx81QuickSilvaHrg(),
       } : {};
+      // The TV standard stays as it was unless asked for, while the model is the same.
+      const locale = tv === 'ntsc' ? 'us' : tv === 'pal' ? undefined : (sameModel ? state.locale : undefined);
       const msg = await initMachine(next, {
+        locale,
         zx8x16kRam: ram16k ?? (sameModel ? zx8x16kRam() : false),
         ...keep,
         ...(explicit ? {

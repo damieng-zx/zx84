@@ -37,6 +37,7 @@
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { MsxDiskInterface } from '@/machines/msx/peripherals/disk-interface.ts';
 
 const ROM_SIZE = 0x8000;       // 32KB internal ROM (BIOS + BASIC)
@@ -557,6 +558,55 @@ export class MsxMemory implements IMachineMemory {
     this.primarySlot = 0;
     this.subSlot.fill(0);
     if (this.mapper !== 'plain') this.resetMapper();   // /RESET reaches the cart
+    this.rebuild();
+  }
+
+  // ── Snapshot state ───────────────────────────────────────────────────────
+
+  /** The RAM, the slot and sub-slot registers and the cartridge in slot 1:
+   *  its image, mapper and (for a mega-ROM) the 8KB bank in each segment.
+   *  The cartridge rides in every state, since nothing else brings it back
+   *  after a reload. The internal and firmware ROMs are not state. */
+  saveState(w: StateWriter): void {
+    w.raw(this.ram);
+    w.u8(this.primarySlot);
+    w.raw(this.subSlot);
+    const cart = this.cartRom;
+    w.bool(cart !== null);
+    if (!cart) return;
+    w.bytes(cart);
+    w.str(this.mapper);
+    for (let seg = 0; seg < SEGS; seg++) {
+      const view = this.cartSeg[seg];
+      w.i32(this.mapper === 'plain' || view === null ? -1 : (view.byteOffset - this.cartImage.byteOffset) / SEG_SIZE);
+    }
+  }
+
+  /** Restore what {@link saveState} wrote, cartridge included (inserted
+   *  without the power-cycle a user insert makes). */
+  loadState(r: StateReader): void {
+    r.rawInto(this.ram);
+    this.primarySlot = r.u8();
+    r.rawInto(this.subSlot);
+    if (r.bool()) {
+      const image = r.bytes(1 << 23);
+      const mapper = r.str();
+      if (!['plain', 'ascii8', 'ascii16', 'konami', 'konami-scc'].includes(mapper)) {
+        throw new Error(`Snapshot cartridge mapper ${mapper} is not supported`);
+      }
+      this.cartRom = image.length > 0 ? image : null;
+      this.mapper = this.cartRom ? mapper as MsxMapper : 'plain';
+      this.buildCartViews();
+      const banks: number[] = [];
+      for (let seg = 0; seg < SEGS; seg++) banks.push(r.i32());
+      if (this.mapper !== 'plain') {
+        for (let seg = 0; seg < SEGS; seg++) this.cartSeg[seg] = banks[seg] < 0 ? null : this.block8(banks[seg]);
+      }
+    } else {
+      this.cartRom = null;
+      this.mapper = 'plain';
+      this.buildCartViews();
+    }
     this.rebuild();
   }
 }

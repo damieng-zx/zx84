@@ -66,7 +66,7 @@ export class EnterpriseFrameProbe implements FrameProbe {
     out.tapePosition = 0;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.machine.traceActive;
 
     const card = m.exdos;
     for (let unit = 0; unit < 4; unit++) {

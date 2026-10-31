@@ -17,14 +17,16 @@ import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { isCpr, parseCpr } from '@/media/cartridge/cpr.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { cpcDescriptor } from '@/machines/cpc/descriptor.ts';
 import { createCpcServices, type CpcServices } from '@/machines/cpc/services/index.ts';
@@ -129,6 +131,10 @@ export class CpcMachine extends BaseMachine implements Machine {
   /** True while the firmware is actively reading the cassette (detected by a
    *  tight Port-B read cadence). Drives tape advance. */
   tapeLoadingActive = false;
+  /** Times the cassette write-data line (PPI Port C bit 5) — what the
+   *  firmware's CAS WRITE (or any saver) sends to tape. Read back as a .cdt
+   *  by the tape service (see cpc-tape-save.ts). */
+  readonly tapeRecorder = new PulseRecorder();
   /** Fast ROM loading: whether the CAS READ instant-load trap is armed (Stage B). */
   tapeFastRom = true;
   /** The firmware's CAS READ routine, located by signature scan of the lower OS
@@ -172,7 +178,8 @@ export class CpcMachine extends BaseMachine implements Machine {
                            () => { this.activity.kbdReads++; },
                            () => { this.advanceTapeTo(); return this.tape.earBit; },
                            (on) => this.setTapeMotor(on),
-                           () => { this.activity.ayWrites++; });
+                           () => { this.activity.ayWrites++; },
+                           (level) => this.tapeRecorder.observe(level, this.cpu.tStates));
     this.display = display ?? null;
 
     // Gate Array drives ROM enable + RAM banking through the memory.
@@ -399,6 +406,7 @@ export class CpcMachine extends BaseMachine implements Machine {
     this.crtc.reset();
     this.gateArray.reset();
     this.ppi.reset();
+    this.tapeRecorder.reset();
     this.multiface.reset();
     this.kempstonMouse.reset();
     this.amxMouse.reset();
@@ -686,12 +694,9 @@ export class CpcMachine extends BaseMachine implements Machine {
     return { ...disasmOne(buf, 0), addr: pc };
   }
 
-  startTrace(_mode: MachineTraceMode = 'full'): void {
-    // CPC execution tracing is a later addition; no-op for now so the MCP
-    // trace tool degrades gracefully rather than throwing.
-  }
-
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
 
   // ── Screen OCR / TEXT overlay ────────────────────────────────────────
 

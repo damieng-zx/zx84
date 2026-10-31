@@ -28,6 +28,18 @@ const SNAPSHOT_FORMAT: Partial<Record<SaveMenuItem, string>> = {
   'snapshot-sna-v2': '.sna',
   'snapshot-sna-v3': '.sna',
   'snapshot-a8state': '.a8state',
+  'snapshot-acestate': '.acestate',
+  'snapshot-zx8xstate': '.zx8xstate',
+  'snapshot-lynxstate': '.lynxstate',
+  'snapshot-mtxstate': '.mtxstate',
+  'snapshot-msxstate': '.msxstate',
+  'snapshot-einstate': '.einstate',
+  'snapshot-pcwstate': '.pcwstate',
+  'snapshot-epstate': '.epstate',
+  'snapshot-bbcstate': '.bbcstate',
+  'snapshot-elkstate': '.elkstate',
+  'snapshot-a1state': '.a1state',
+  'snapshot-a2state': '.a2state',
 };
 
 /** Build a machine headlessly — no renderer, no ROM. */
@@ -170,7 +182,16 @@ describe('machine capabilities', () => {
           } else if (item === 'tape-tap') {
             // Naming the entry promises a tape service that records what the
             // machine writes to its cassette port; the menu calls this.
-            const tape = machine.services.tape;
+            // A cassette interface that is a Hardware-pane option (the Apple
+            // I's ACI) has no deck until it is fitted; the Save menu then
+            // reports nothing saved. Fitting it must produce the recorder.
+            let tape = machine.services.tape;
+            if (!tape && machine.prepare) {
+              machine.prepare({
+                get: <T,>(_key: string, fallback: T): T => (typeof fallback === 'boolean' ? true : fallback) as T,
+              });
+              tape = machine.services.tape;
+            }
             expect(tape, 'tape-tap needs a tape service').not.toBeNull();
             expect(typeof tape!.recordedBytes, 'tape-tap needs recordedBytes')
               .toBe('function');

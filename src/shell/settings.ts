@@ -44,7 +44,6 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'ay-antialias': () => settings.ayAntialias(),
   'specdrum-volume': () => settings.specdrumVolume(),
   'uspeech-volume': () => settings.uspeechVolume(),
-  'mic-audible': () => settings.micAudible(),
   // Selected joystick interface per player (Spectrum: Kempston port fitted?).
   'joy-p1': () => settings.joyP1(),
   'joy-p2': () => settings.joyP2(),
@@ -72,6 +71,8 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'electron-plus3': () => settings.electronPlus3(),
   'electron-dfs': () => settings.electronDfs(),
   'apple2-disk2': () => settings.apple2Disk2(),
+  'c64-drive': () => settings.c64Drive(),
+  'c64-sid': () => settings.c64Sid(),
   'apple2-langcard': () => settings.apple2LangCard(),
   'apple2-joystick': () => settings.apple2Joystick(),
   'apple2-mockingboard': () => settings.apple2Mockingboard(),

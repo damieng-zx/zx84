@@ -13,7 +13,7 @@ import { disasmOne, disassembleAroundPC, formatDisasmHtml, stripMarkers } from '
 import { hex8, hex16 } from '@/utils/hex.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
 import type {
-  CpuPorts, DebugPanelDescriptor, DebugService, DisasmRow, Machine,
+  CpuPorts, DebugPanelDescriptor, DebugService, DisasmRow, Machine, MachineTraceMode,
   RegisterDesc, RegisterSnapshot,
 } from '@/machines/machine.ts';
 
@@ -22,6 +22,7 @@ export interface M6502DebugTarget extends Machine {
   cpu: M6502;
   startTrace(mode?: string): void;
   stopTrace(): string;
+  traceSession(): MachineTraceMode | null;
   /** Execute one instruction inside the machine's frame loop (chips clocked,
    *  DMA stolen, WSYNC halting), when it has one. */
   stepInstruction?(): void;
@@ -244,6 +245,7 @@ export class M6502DebugService implements DebugService {
 
   startTrace(mode?: string): void { this.m.startTrace(mode); }
   stopTrace(): string { return this.m.stopTrace(); }
+  traceSession(): MachineTraceMode | null { return this.m.traceSession(); }
   ocr(mode?: string): string { return this.m.ocrScreenForMcp(mode); }
 
   resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {

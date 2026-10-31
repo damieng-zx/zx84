@@ -27,6 +27,7 @@ export type { ElectronModel } from '@/machines/electron/models.ts';
 export type { Apple2Model } from '@/machines/apple2/models.ts';
 export type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 export type { AtariModel } from '@/machines/atari/models.ts';
+export type { C64Model } from '@/machines/c64/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
 export {
@@ -60,6 +61,7 @@ export { isElectronModel } from '@/machines/electron/models.ts';
 export { isApple2Model } from '@/machines/apple2/models.ts';
 export { isEnterpriseModel } from '@/machines/enterprise/models.ts';
 export { isAtariModel } from '@/machines/atari/models.ts';
+export { isC64Model } from '@/machines/c64/models.ts';
 
 // ── System-ROM slot geometry (dispatches per family) ───────────────────────
 //
@@ -78,22 +80,28 @@ import {
 import {
   isLynxModel as isLynx, LYNX_ROM_SLOT_SIZE, lynxRomSlotLabels,
 } from '@/machines/lynx/models.ts';
+import {
+  isC64Model as isC64, C64_ROM_SLOT_SIZE, C64_ROM_SLOT_LABELS,
+} from '@/machines/c64/models.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 
 /** Number of independently-overridable system-ROM slots for a model
- *  (0 = one combined image). MTX → 5, Lynx → 2/4 (8K each); Spectrum → 0/2/4
- *  (16K each). */
+ *  (0 = one combined image). MTX → 5, Lynx → 2/4, C64 → 3 (8K stride);
+ *  Spectrum → 0/2/4 (16K each). */
 export function romPageSlotCount(model: MachineModel): number {
   if (isMtx(model)) return MTX_ROM_SLOT_LABELS.length;
   if (isLynx(model)) return lynxRomSlotLabels(model).length;
+  if (isC64(model)) return C64_ROM_SLOT_LABELS.length;
   return spectrumRomPageSlotCount(model);
 }
 
-/** Byte size of one system-ROM slot for a model — 8K on the MTX and Lynx, 16K
- *  elsewhere. Used to splice per-slot overrides back onto the concatenated ROM. */
+/** Byte size of one system-ROM slot for a model — 8K on the MTX, Lynx and
+ *  C64, 16K elsewhere. Used to splice per-slot overrides back onto the
+ *  concatenated ROM. */
 export function romSlotSize(model: MachineModel): number {
   if (isMtx(model)) return MTX_ROM_SLOT_SIZE;
   if (isLynx(model)) return LYNX_ROM_SLOT_SIZE;
+  if (isC64(model)) return C64_ROM_SLOT_SIZE;
   return BANK_SIZE;
 }
 
@@ -101,6 +109,7 @@ export function romSlotSize(model: MachineModel): number {
 export function defaultRomPageLabel(model: MachineModel, page: RomSlotIndex): string {
   if (isMtx(model)) return MTX_ROM_SLOT_LABELS[page];
   if (isLynx(model)) return lynxRomSlotLabels(model)[page] ?? '';
+  if (isC64(model)) return (C64_ROM_SLOT_LABELS as readonly string[])[page] ?? '';
   return spectrumDefaultRomPageLabel(model, page);
 }
 
@@ -120,6 +129,7 @@ import type { Apple2Model } from '@/machines/apple2/models.ts';
 import type { Apple1Model } from '@/machines/apple1/models.ts';
 import type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 import type { AtariModel } from '@/machines/atari/models.ts';
+import type { C64Model } from '@/machines/c64/models.ts';
 
 /** Any machine ZX84 can emulate. */
 export type MachineModel =
@@ -137,4 +147,5 @@ export type MachineModel =
   | Apple2Model
   | Apple1Model
   | EnterpriseModel
-  | AtariModel;
+  | AtariModel
+  | C64Model;

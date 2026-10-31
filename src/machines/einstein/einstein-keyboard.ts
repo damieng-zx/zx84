@@ -32,6 +32,8 @@
  * The rest of the host-key map is best-effort by physical position (US layout).
  */
 
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
+
 const LINES = 8;
 
 /**
@@ -227,11 +229,12 @@ export class EinsteinKeyboard {
    *  — port 0x26 bit0 on the 256. */
   alphaLockKeyPressed(): boolean { return (this.matrix[0] & 0x10) === 0; }
 
-  /** Einstein 256 joystick port low nibble bits (active-low, b4 = fire).
-   *  Directions are not mapped yet; fire rides the fire1/fire2 state. */
-  joystickByte(stick: 1 | 2): number {
+  /** Einstein 256 joystick port bits 4-0, active-low: b0 up, b1 down, b2
+   *  left, b3 right (`dirs`, from the machine's stick state) and b4 fire,
+   *  which is the same button as status bit 0 (`stick` 1) or bit 1 (2). */
+  joystickByte(stick: 1 | 2, dirs = 0x0F): number {
     const fire = stick === 1 ? this.fire1 : this.fire2;
-    return fire ? 0x0F : 0x1F;
+    return (fire ? 0x00 : 0x10) | (dirs & 0x0F);
   }
 
   reset(): void {
@@ -241,5 +244,23 @@ export class EinsteinKeyboard {
     this.heldArrows.clear();
     this.fire1 = this.fire2 = false;
     this.alphaLock = true;
+  }
+
+  /** Snapshot state: the row-select latch and the ALPHA LOCK latch. Which
+   *  keys are down is the host's business, not the machine's. */
+  saveState(w: StateWriter): void {
+    w.u8(this.selectMask);
+    w.bool(this.alphaLock);
+  }
+
+  /** Restore the latches and release every key (the host's keys are
+   *  whatever they are now). */
+  loadState(r: StateReader): void {
+    this.selectMask = r.u8();
+    this.alphaLock = r.bool();
+    this.matrix.fill(0xFF);
+    this.shift = this.control = this.graph = false;
+    this.heldArrows.clear();
+    this.fire1 = this.fire2 = false;
   }
 }

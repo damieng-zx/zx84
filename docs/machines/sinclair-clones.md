@@ -81,7 +81,7 @@ they overlay the same slot as the built-in Beta Disk.
 | `.hfe` / `.scp` | Disk | Beta Disk | ✅ | ✅ / ✗ | |
 | `.szx` | Snapshot | Machine | ✅ | ✅ | The only save format for the 512, 1024 and Scorpion (every bank is kept; EFF7 and 1FFD ride in the byte shared with 1FFD) |
 | `.z80` | Snapshot | Machine | ✅ | ◐ | Pentagon 128 only (hardware mode 9); `.z80` cannot hold more than 128K |
-| `.tap` / `.tzx` / `.csw` | Tape | Tape deck | ✅ | ✗ | |
+| `.tap` / `.tzx` / `.csw` | Tape | Tape deck | ✅ | ◐ | `.tzx` only: what the machine SAVEs is recorded and offered from the Save menu, as on the Spectrum |
 
 ### Loading a TR-DOS disk
 

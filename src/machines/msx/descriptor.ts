@@ -17,7 +17,7 @@ const MSX_UI: MachineUiCapabilities = {
   // No system-variables view (only the Spectrum contributes one).
   hiddenPanes: ['sysvar-panel'],
   memoryLayout: true,
-  trace: false,
+  trace: true,
   colorMap: 'msx',
   accuracy: false,
   // The floppy interface is a Hardware-pane option: the Drives pane shows only
@@ -35,13 +35,19 @@ const MSX_UI: MachineUiCapabilities = {
   // PSG (AY-3-8910) sound, cassette load, keyboard and OCR. The MSX has no
   // Spectrum-style EAR/rainbow/Kempston activity to indicate.
   soundChip: 'AY-3-8910',
+  // The PPI's key-click line (port C bit 7) is a second, 1-bit sound source
+  // beside the AY, so each gets its own Sound-pane volume.
+  soundDevices: [
+    { id: 'beeper', label: 'Key click', volumeSetting: 'beeper-volume' },
+    { id: 'psg', label: 'AY-3-8910', volumeSetting: 'psg-volume' },
+  ],
   statusLeds: ['kbd', 'load', 'chip', 'text'],
   keyboardBus: 'ula',
   tape: 'instant',
   tapeSound: true,
   tapeExtensions: ['.cas', '.zip'],
   // 'tape-tap' downloads what the BIOS has saved to cassette (as .cas).
-  saveMenu: ['tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['snapshot-msxstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,

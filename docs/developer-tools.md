@@ -195,6 +195,7 @@ strings, arrays and FOR–NEXT loop variables with their limit and step.
 | BBC Micro, Electron | BBC BASIC II | ✓ | ✓ |
 | Einstein | Xtal BASIC | ✓ | |
 | MTX | MTX BASIC | ✓ | |
+| Commodore 64 | BASIC V2 | ✓ | ✓ |
 
 ## System Variables
 

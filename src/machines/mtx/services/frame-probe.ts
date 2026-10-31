@@ -116,7 +116,7 @@ export class MtxFrameProbe implements FrameProbe {
       ? this.machine.cassette.currentBlock()
       : -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.machine.traceActive;
     const fdc = this.machine.fdc;
     const active = fdc.currentDrive;
     for (let unit = 0; unit < 2; unit++) {

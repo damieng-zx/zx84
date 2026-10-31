@@ -61,7 +61,7 @@ Dropping a raw ROM image picks the model by size: 16 KB → 48K, 32 KB → 128K,
 | AY-3-8912 | 128K-class | ✅ | Stereo placement (ABC by default), ultrasonic filter, DC block, beeper/AY mix |
 | Beeper / EAR / MIC | all | ✅ | Speaker level mixed from EAR and MIC like an Issue 3 board |
 | Keyboard matrix | all | ✅ | Host keyboard mapping plus on-screen keyboards (rubber-key and +2/+3 legends) |
-| Cassette interface | all | ✅ | Pulse-level playback; no recording (see Not emulated) |
+| Cassette interface | all | ✅ | Pulse-level playback, and recording of what `SAVE` (or any saver) writes to MIC |
 | uPD765A FDC + 3" drives | +3 | ✅ | Drives A:/B:, weak-sector copies, protection-correct status bits |
 
 ---
@@ -101,10 +101,10 @@ ZIP archives are unpacked and their contents routed as below.
 | `.sna` | Snapshot | Machine | ✅ | ✗ | 48K and 128K variants |
 | `.sp` | Snapshot | Machine | ✅ | ✗ | |
 | `.tap` | Tape | Tape deck | ✅ | ✗ | |
-| `.tzx` / `.cdt` | Tape | Tape deck | ✅ | ✗ | Turbo and custom loaders at pulse level |
+| `.tzx` / `.cdt` | Tape | Tape deck | ✅ | ✅ | Turbo and custom loaders at pulse level. Save is a recording of what the machine wrote to MIC since the last reset, not a re-save of the mounted tape: ROM-speed blocks become standard blocks (0x10), or turbo blocks (0x11) with the measured timings when the leader length or a partial last byte differs from the ROM's; anything else that starts with a pilot tone (a turbo saver) is kept as exact pulse widths (CSW block 0x18); clicks and sound with no pilot are dropped. Named after the first header, else `spectrum-tape.tzx` |
 | `.csw` | Tape | Tape deck | ✅ | ✗ | Sampled tape |
 | `.dsk` | Disk | +3 drives | ✅ | ✅ | Standard and extended DSK |
-| `.hfe` | Disk | +3, +D, Beta | ✅ | ✅ | HFE v1 bitstream; only changed sectors rewritten, so protection is preserved |
+| `.hfe` | Disk | +3, +D, Beta | ✅ | ✅ | HFE v1 or v3 bitstream (v3 weak `RAND` bytes become weak sectors); only changed sectors rewritten, so protection is preserved. Saved back as v1 |
 | `.scp` | Disk | +3, +D, Beta | ✅ | ✗ | Flux images; weak sectors recovered from repeated revolutions |
 | `.mgt` / `.img` | Disk | MGT +D | ✅ | ✅ | Saved as `.mgt` |
 | `.trd` / `.scl` | Disk | Beta Disk | ✅ | ✅ | Saved in the same format it was loaded in. Opened with Load or by drag-and-drop it also runs through TR-DOS (`RUN` once TR-DOS is entered) |
@@ -114,8 +114,8 @@ ZIP archives are unpacked and their contents routed as below.
 Blank disks can be created for the +3 (DSK or HFE), +D (800K MGT or HFE) and
 Beta Disk.
 
-**Save menu exports:** SZX snapshot, Z80 snapshot, PNG screenshot, `.scr`
-screen dump, RAM `.bin`.
+**Save menu exports:** SZX snapshot, Z80 snapshot, Saved tape (`.tzx`), PNG
+screenshot, `.scr` screen dump, RAM `.bin`.
 
 ---
 
@@ -157,12 +157,10 @@ None known.
 
 ## Not emulated
 
-- **Tape recording.** `SAVE` drives MIC (you can hear it), but nothing captures it to a tape file.
 - **Issue 2 keyboard behaviour.** Port FE bit 6 is modelled as an Issue 3 board, so software that relies on Issue 2 EAR/MIC feedback may misread keys.
 - **Interface 1 RS-232 and ZX Net.** The ports are decoded but return idle-line values.
 - **MGT +D printer port.** Reads 0xFF (never busy); writes are ignored.
 - **uPD765A SCAN commands.** Unimplemented; the frame probe flags it when software issues one.
-- **HFE v3** images are rejected with an error.
 - **VTX-5000 network.** The modem has nothing connected to it.
 
 ## Faithful quirks
@@ -178,6 +176,7 @@ None known.
 | Reference | Result | Last checked |
 | --- | --- | --- |
 | azesmbog ULA timing tests (48K, 128K, +3) | Pass | 2026-06-09 |
+| `tests/machines/spectrum/tape-save.test.ts` | MIC recording against the TZX standard-block timings (0x10/0x11/0x18 layouts, closing edge, partial byte, turbo fallback); SA-BYTES then LD-BYTES of the recording on the real 48K ROM, at pulse level and through the fast-load trap (skipped without the ROM) | 2026-10-26 |
 | Protected +3 disks (Speedlock, Alkatraz, Three-Inch Loader…) as HFE vs DSK | 38/47 byte-identical; the rest are corrupt dumps | 2026-07-14 |
 | +3 HFE and SCP boots vs DSK boot | Framebuffer bit-identical | 2026-07-14 |
 | Platoon, Barbarian II (+3 DDAM / CRC protections) | Load | 2026-06 |

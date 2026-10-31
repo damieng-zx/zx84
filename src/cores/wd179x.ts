@@ -29,6 +29,10 @@
  */
 
 import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
+import {
+  locateTrack, readDskSector, trackAt, writeDskSector,
+} from '@/media/floppy/disk-state.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 export interface WD179xOptions {
   /** WD1770/1772: MOTOR ON; WD1793: NOT READY. */
@@ -61,6 +65,22 @@ export interface WD179xOptions {
    * default) keeps the controller waiting for the CPU indefinitely.
    */
   readonly lostDataPolls?: number;
+  /**
+   * READ ADDRESS returns the ID field's real CRC bytes (CCITT over the address
+   * mark and C, H, R, N). Off by default: the polled hosts here never looked
+   * at them and get zeros. A host that checks them, as the Commodore 1581's DOS
+   * does to find where the head is, turns it on.
+   */
+  readonly addressCrc?: boolean;
+}
+
+/** CRC-16/CCITT-FALSE of `bytes` from `crc`, as the controller computes it over a field. */
+function crcCcitt(bytes: readonly number[], crc = 0xFFFF): number {
+  for (const b of bytes) {
+    crc ^= b << 8;
+    for (let i = 0; i < 8; i++) crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+  }
+  return crc;
 }
 
 // ── Status register bits ────────────────────────────────────────────────────
@@ -114,6 +134,7 @@ export class WD179x {
   private readonly hasSideCompare: boolean;
   private readonly onInterrupt?: (asserted: boolean) => void;
   private readonly lostDataPolls: number;
+  private readonly addressCrc: boolean;
   /** A write command has raised DRQ and the first byte has not arrived yet. */
   private awaitingFirstByte = false;
   /** Polls seen since the write command's DRQ went up (see lostDataPolls). */
@@ -128,6 +149,7 @@ export class WD179x {
     this.hasSideCompare = options.sideCompare ?? options.statusBit7 === 'not-ready';
     this.onInterrupt = options.onInterrupt;
     this.lostDataPolls = options.lostDataPolls ?? 0;
+    this.addressCrc = options.addressCrc ?? false;
   }
 
   // ── Registers ─────────────────────────────────────────────────────────
@@ -312,6 +334,16 @@ export class WD179x {
 
   selectDrive(unit: number): void { this.currentDrive = unit & 3; }
   setSide(side: number): void { this.side = side & 1; }
+
+  /**
+   * The /DDEN input: true selects single density (FM), false double density
+   * (MFM, the default). It is a pin the host board drives from its control
+   * latch, so a chip reset leaves it alone. A track recorded in the other
+   * density has no ID field the controller can read (see locateTrack), and a
+   * WRITE TRACK lays its sectors down in this density.
+   */
+  singleDensity = false;
+  setDensity(single: boolean): void { this.singleDensity = single; }
 
   // ── State getters (for the UI / floppy sound) ─────────────────────────
   get currentUnit(): number { return this.currentDrive; }
@@ -593,7 +625,11 @@ export class WD179x {
   private locateTrack(): DskTrack | null {
     const disk = this.disks[this.currentDrive];
     if (!disk) return null;
-    return disk.tracks[this.headTrack[this.currentDrive]]?.[this.side] ?? null;
+    const track = disk.tracks[this.headTrack[this.currentDrive]]?.[this.side] ?? null;
+    // In the wrong density the data separator never locks onto an address
+    // mark: the track reads as unformatted. Untagged tracks read in either.
+    if (track?.encoding && (track.encoding === 'fm') !== this.singleDensity) return null;
+    return track;
   }
 
   private base(): number { return this.statusBit7(); }
@@ -620,7 +656,17 @@ export class WD179x {
   }
 
   private failCommand(status: number): void {
-    this.statusReg = this.base() | status;
+    const done = this.base() | status;
+    if (this.pulseBusy) {
+      // A real controller is BUSY while it searches for a record that is not
+      // there: hold BUSY for a few reads, as a Type I command does, so a host
+      // waiting for it to set (the 1581's DOS) is not left waiting forever.
+      this.busyDoneStatus = done;
+      this.busyCountdown = BUSY_PULSE_READS;
+      this.statusReg = done | ST_BUSY;
+    } else {
+      this.statusReg = done;
+    }
     if (this.interruptDriven) this.scheduleCompletion();
   }
 
@@ -788,8 +834,13 @@ export class WD179x {
     if (this.addressRotation >= track.sectors.length) this.addressRotation = 0;
     const sec = track.sectors[this.addressRotation];
     this.addressRotation = (this.addressRotation + 1) % track.sectors.length;
-    // 6-byte ID: track, side, sector, size code, CRC hi, CRC lo (CRC faked 0).
-    this.buffer = Uint8Array.from([sec.c, sec.h, sec.r, sec.n, 0, 0]);
+    // 6-byte ID: track, side, sector, size code, CRC hi, CRC lo (zeros unless
+    // the host asked for the real ones).
+    const id = [sec.c, sec.h, sec.r, sec.n];
+    const crc = this.addressCrc
+      ? crcCcitt(this.singleDensity ? [0xFE, ...id] : [0xA1, 0xA1, 0xA1, 0xFE, ...id])
+      : 0;
+    this.buffer = Uint8Array.from([...id, crc >> 8, crc & 0xFF]);
     this.bufPos = 0;
     this.writing = false;
     this.multi = false;
@@ -885,7 +936,10 @@ export class WD179x {
     if (disk && this.fmtSectors.length > 0) {
       const sectorMap = new Map<number, number>();
       this.fmtSectors.forEach((s, i) => sectorMap.set(s.r, i));
-      const track: DskTrack = { sectors: this.fmtSectors, sectorMap, gap3: 82, filler: 0xE5 };
+      const track: DskTrack = {
+        sectors: this.fmtSectors, sectorMap, gap3: 82, filler: 0xE5,
+        encoding: this.singleDensity ? 'fm' : 'mfm',
+      };
       // Grow the cylinder array if the disk image is shorter than this track.
       while (disk.tracks.length <= cyl) disk.tracks.push([]);
       const sides = disk.tracks[cyl];
@@ -919,5 +973,132 @@ export class WD179x {
     this.latchFrames = LATCH_FRAMES;
     this.latchWriting = writing;
     this.latchSector = this.sectorReg;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────
+  /**
+   * The registers, head positions and any command in flight, down to the byte
+   * a transfer has reached. The disks themselves are the owner's to save (they
+   * are media); a sector being written in place is recorded by where it sits
+   * on the disk, so a restore with the same disks mounted first writes into
+   * the restored image. Drive wiring and settings (write protect, force
+   * ready, connected drives, the BUSY pulse) are not state.
+   */
+  saveState(w: StateSink): void {
+    w.u8(this.statusReg); w.u8(this.trackReg); w.u8(this.sectorReg); w.u8(this.dataReg);
+    w.u8(this.currentDrive); w.u8(this.side); w.bool(this.motorOn);
+    w.i32(this.stepDir);
+    for (let u = 0; u < 4; u++) w.u8(this.headTrack[u]);
+    for (let u = 0; u < 4; u++) { w.u8(this.flipSide[u]); w.bool(this.dirty[u]); }
+    w.bool(this.typeICmd); w.u8(this.indexCounter);
+    w.u8(this.busyCountdown); w.u8(this.busyDoneStatus);
+    w.u8(this.formatSectorsPerTrack);
+    w.bool(this.awaitingFirstByte); w.u32(this.idlePolls);
+    w.i32(this.formattedUnit);
+
+    // The transfer buffer: 0 none, 1 a sector of the current drive's disk
+    // written in place, 2 a detached copy.
+    const buf = this.buffer;
+    const where = this.writing && buf !== null ? this.locateSectorData(buf) : null;
+    if (buf === null) {
+      w.u8(0);
+    } else if (where) {
+      w.u8(1); w.u8(where[0]); w.u8(where[1]); w.u16(where[2]);
+    } else {
+      w.u8(2); w.bytes(buf);
+    }
+    w.u32(this.bufPos); w.bool(this.writing); w.bool(this.multi);
+    const cur = locateTrack(this.disks[this.currentDrive], this.curTrack);
+    w.bool(cur !== null);
+    if (cur) { w.u8(cur[0]); w.u8(cur[1]); }
+    w.u8(this.recFlags); w.bool(this.writeDeleted);
+    w.bool(this.sideCompare); w.u8(this.sideExpected);
+    w.u16(this.addressRotation);
+    w.bool(this.completionIrq); w.bool(this.dataRequest); w.bool(this.irqLevel);
+    w.i32(this.byteDelay); w.str(this.afterByte);
+
+    w.bool(this.formatting); w.str(this.fmtState);
+    w.u8(this.fmtId.length); for (const b of this.fmtId) w.u8(b);
+    w.u16(this.fmtSectors.length); for (const sec of this.fmtSectors) writeDskSector(w, sec);
+    w.u32(this.fmtDataLeft);
+    w.bool(this.fmtPending !== null); if (this.fmtPending) writeDskSector(w, this.fmtPending);
+    w.i32(this.fmtBytesLeft);
+
+    w.u8(this.latchFrames); w.bool(this.latchWriting); w.u8(this.latchSector);
+    w.u8(this.motorFrames);
+    w.bool(this.singleDensity);
+  }
+
+  /** Restore what {@link saveState} wrote. Mount the disks first: a transfer
+   *  in flight finds its track and sector in them. */
+  loadState(r: StateSource): void {
+    this.statusReg = r.u8(); this.trackReg = r.u8(); this.sectorReg = r.u8(); this.dataReg = r.u8();
+    this.currentDrive = r.u8() & 3; this.side = r.u8() & 1; this.motorOn = r.bool();
+    this.stepDir = r.i32() < 0 ? -1 : 1;
+    for (let u = 0; u < 4; u++) this.headTrack[u] = r.u8();
+    for (let u = 0; u < 4; u++) { this.flipSide[u] = r.u8(); this.dirty[u] = r.bool(); }
+    this.typeICmd = r.bool(); this.indexCounter = r.u8();
+    this.busyCountdown = r.u8(); this.busyDoneStatus = r.u8();
+    this.formatSectorsPerTrack = r.u8();
+    this.awaitingFirstByte = r.bool(); this.idlePolls = r.u32();
+    this.formattedUnit = r.i32();
+
+    const kind = r.u8();
+    let buf: Uint8Array | null = null;
+    if (kind === 1) {
+      const cyl = r.u8(), side = r.u8(), idx = r.u16();
+      buf = trackAt(this.disks[this.currentDrive], cyl, side)?.sectors[idx]?.data ?? null;
+      // The disk it was writing to is not mounted: finish into a scratch copy.
+      if (buf === null) buf = new Uint8Array(0x400);
+    } else if (kind === 2) {
+      buf = r.bytes(1 << 16);
+    } else if (kind !== 0) {
+      throw new Error('Snapshot is corrupt (WD179x buffer)');
+    }
+    this.buffer = buf;
+    this.bufPos = r.u32(); this.writing = r.bool(); this.multi = r.bool();
+    this.curTrack = r.bool() ? trackAt(this.disks[this.currentDrive], r.u8(), r.u8()) : null;
+    this.recFlags = r.u8(); this.writeDeleted = r.bool();
+    this.sideCompare = r.bool(); this.sideExpected = r.u8();
+    this.addressRotation = r.u16();
+    this.completionIrq = r.bool(); this.dataRequest = r.bool(); this.irqLevel = r.bool();
+    this.byteDelay = r.i32();
+    const after = r.str();
+    if (!['none', 'next', 'readDone', 'writeDone', 'formatDone', 'complete'].includes(after)) {
+      throw new Error('Snapshot is corrupt (WD179x phase)');
+    }
+    this.afterByte = after as WD179x['afterByte'];
+
+    this.formatting = r.bool();
+    const fmt = r.str();
+    if (fmt !== 'idle' && fmt !== 'id' && fmt !== 'data') throw new Error('Snapshot is corrupt (WD179x format)');
+    this.fmtState = fmt;
+    this.fmtId = [];
+    for (let n = r.u8(); n > 0; n--) this.fmtId.push(r.u8());
+    this.fmtSectors = [];
+    for (let n = r.u16(); n > 0; n--) this.fmtSectors.push(readDskSector(r));
+    this.fmtDataLeft = r.u32();
+    this.fmtPending = r.bool() ? readDskSector(r) : null;
+    this.fmtBytesLeft = r.i32();
+
+    this.latchFrames = r.u8(); this.latchWriting = r.bool(); this.latchSector = r.u8();
+    this.motorFrames = r.u8();
+    this.singleDensity = r.bool();
+  }
+
+  /** [cylinder, side, sector index] of the current drive's sector whose data
+   *  array is `data`, or null. */
+  private locateSectorData(data: Uint8Array): [number, number, number] | null {
+    const disk = this.disks[this.currentDrive];
+    if (!disk) return null;
+    for (let cyl = 0; cyl < disk.tracks.length; cyl++) {
+      const sides = disk.tracks[cyl];
+      if (!sides) continue;
+      for (let side = 0; side < sides.length; side++) {
+        const idx = sides[side]?.sectors.findIndex(sec => sec.data === data) ?? -1;
+        if (idx >= 0) return [cyl, side, idx];
+      }
+    }
+    return null;
   }
 }

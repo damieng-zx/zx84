@@ -63,16 +63,20 @@ shipped or hosted (`bootDisk: false`); load your own.
 
 ## Peripherals
 
-None. The PCW descriptor hides the tape, Microdrive, mouse, joystick, system
-variables and font panes, and has no joystick, mouse or cartridge slot.
+| Peripheral | Type | Models | Status | Notes |
+| --- | --- | --- | --- | --- |
+| Joystick interface | input | all | ✅ | One add-on interface, chosen in the Joystick pane (one player, one fire button). Kempston at &9F (active high: b4 fire, b3 down, b2 up, b1 left, b0 right); Spectravideo at &E0 (active high: b4 right, b3 up, b2 left, b1 fire, b0 down, b7 0); Cascade at &E0 (active low: b7 fire, b4 up, b2 down, b1 right, b0 left). Port layouts from John Elliott's PCW hardware guide §12. None fitted: both ports read &FF |
+
+The PCW descriptor hides the tape, Microdrive, mouse, system variables and font
+panes, and has no mouse or cartridge slot.
 
 ---
 
 ## Media formats
 
 ZIP archives are unpacked and their contents routed as below. All PCW media
-mounts into the disc drives; content is detected from the file, so the
-extension only decides whether the file is accepted.
+except zx84's own snapshot mounts into the disc drives; content is detected
+from the file, so the extension only decides whether the file is accepted.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -80,6 +84,7 @@ extension only decides whether the file is accepted.
 | `.td0` | Disk | Drive A: (B: on the 8512) | ✅ | ✗ | Teledisk; a mounted TD0 image saves back out as `.dsk` |
 | `.hfe` | Disk | Drive A: (B: on the 8512) | ✅ | ✅ | Bitstream retained; saved back as `.hfe` |
 | `.scp` | Disk | Drive A: (B: on the 8512) | ✅ | ✗ | Flux image decoded to sectors; a mounted SCP image saves back out as `.dsk` |
+| `.pcwstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state, discs included (see below) |
 
 Inserting a disc into drive A on a machine that has not booted starts the boot
 (a reset with a disc already in A: boots straight into it). On one-drive models,
@@ -88,7 +93,24 @@ settable per drive. Blank DSK or HFE discs can be created from the Drives pane
 (PCW/+3 single-sided 180 KB and PCW double-sided 720 KB are among the formats
 offered). Mounted discs are persisted across reloads.
 
-**Save menu exports:** PNG screenshot, `.scr` screen dump (the first 32 KB of physical RAM as the display fetch sees it), RAM `.bin` (all fitted RAM, 256 KB or 512 KB). There are no snapshots or tapes.
+**Snapshots.** `.pcwstate` is zx84's native save state, in the same container
+as the Atari's `.a8state` (magic `ZXPC`, a CRC-32 and length checked before the
+machine is touched, deflated when saved): the Z80 with its hidden MEMPTR/Q
+latches and interrupt delays, all fitted RAM and the &F0-&F4 paging, the gate
+array (roller RAM base and offset, video control, the 300 Hz pulse and its
+counter, FDC interrupt routing), the keyboard's SHIFT LOCK and update-toggle
+latches, the beeper, the beam's frame grid, and the uPD765A down to the byte a
+sector transfer has reached (terminal count and INT response timing included).
+A saved file carries the mounted discs exactly as the controller sees them
+(in-session writes, weak sectors and HFE bitstreams included) and their names;
+loading it replaces the discs in the drives. The header records the model (a
+state from another PCW asks to switch to it) and the fitted drive count, which
+must match the Drives pane or the state is refused. There is no ROM to check.
+A state is taken between frames (a frame a debugger stop left open is run to
+its end first). The same state, without the discs, backs browser-refresh
+resume. Held keys and the write-protect switches are not part of the state.
+
+**Save menu exports:** Snapshot `.pcwstate`, PNG screenshot, `.scr` screen dump (the first 32 KB of physical RAM as the display fetch sees it), RAM `.bin` (all fitted RAM, 256 KB or 512 KB). There are no tapes.
 
 ---
 
@@ -114,13 +136,13 @@ offered). Mounted discs are persisted across reloads.
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Shared Z80 debug service; memory and port watchpoints are checked in the PCW's access hooks |
-| Trace | ✗ | `trace: false` in the descriptor; `startTrace` is a no-op and `stopTrace` returns nothing |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Cuts the screen into 90×32 cells of 8×8 pixels (walking roller RAM) and matches them against the CP/M character set in RAM (block 2, offset &3800). Reports that OCR is unavailable if that area does not look like a font, and so is meaningful for CP/M screens. The TEXT overlay blanks matched cells |
 | Software library | ✗ | `library: false` |
 | Memory Layout pane | ✅ | Shows read and write block per 16 KB range, &F0–&F4, roller base and whether the machine has booted; flags the block holding roller RAM and the keyboard block |
 | On-screen keyboard | ✅ | 82 caps on the keyboard matrix; the 8256/8512 slab layout, or the 9512/9256 three-block layout. Caps with no host key (COPY, PASTE, EXCH, function keys) are clickable. Included in the keyboard lab presets |
 | Host keyboard | ✅ | Letters, digits, punctuation, numeric pad, F2/F4/F6/F8, Escape (STOP), Caps Lock (SHIFT LOCK, latching), Control (ALT), Alt (EXTRA), Backspace (DEL←), Delete, Tab, Enter |
-| MCP tools | ✅ | Generic tools: `model`, `load` (`.dsk`/`.td0`/`.hfe`/`.scp`, drive 0/A or 1/B), `eject`, `run`, `step`, `registers`, `read_memory`, `write_memory`, `disassemble`, breakpoints and watchpoints, `port_in`, `port_out`, `key`, `type`, `ocr`, `screenshot`, `fdc_log`. No PCW-specific tool. `save` (SZX), `disk_boot`, `disk_trace`, `frame_trace`, and the sector-level tools `weak`, `disk_geometry`, `track_geometry`, `sector_read` do not apply to the PCW. `trace` has no effect |
+| MCP tools | ✅ | Generic tools: `model`, `load` (`.dsk`/`.td0`/`.hfe`/`.scp`, drive 0/A or 1/B), `eject`, `run`, `step`, `registers`, `read_memory`, `write_memory`, `disassemble`, breakpoints and watchpoints, `port_in`, `port_out`, `key`, `type`, `ocr`, `screenshot`, `fdc_log`. No PCW-specific tool. `save` (SZX), `disk_boot`, `disk_trace`, `frame_trace`, and the sector-level tools `weak`, `disk_geometry`, `track_geometry`, `sector_read` do not apply to the PCW. `trace` works in all three modes |
 | Drive count | ✅ | Up to the model's own drives (one on the 8256, 9256 and 9512; two on the 8512). **Drive count** in drive A's options menu can lower an 8512 to one; saved, rebuilds the machine |
 
 ---
@@ -136,10 +158,11 @@ None known.
 - **Gate array bootstrap mode.** The invented bootstrap code is not run; the boot sector is placed and entered natively.
 - **Per-line flyback pulse.** Status bit 6 reports frame flyback only; software that watches for the line pulse itself sees nothing.
 - **60 Hz / 28-line screen.** The status byte always reports the 50 Hz, 32-line screen.
-- **Cursor and extended keyboard bits.** The key bits in &3FFB–&3FFF are unmapped (a `TODO(verify)` in the keyboard source: the reference does not enumerate them). The joystick bits of &3FF9 have no cap and no host mapping, and the joystick and mouse inputs are absent.
+- **Cursor and extended keyboard bits.** The key bits in &3FFB–&3FFF are unmapped (a `TODO(verify)` in the keyboard source: the reference does not enumerate them). The keyboard joystick bits (J1 in &3FF9, J2 in &3FFB) stay idle: no PCW keyboard has a socket for them (PCW hardware guide §10.3), so a host joystick goes to an add-on interface instead (see Peripherals). The LK2 W/A/D/X keyboard joystick is not modelled (LK2 is not fitted). There is no mouse.
 - **Drive mechanism limits.** Single- versus double-sided drive A (8256/8512 versus 9512/9256) is recorded per model but not enforced on mounted images.
-- **Tape, snapshots, cartridges, system ROM.** The PCW has none; the corresponding services are absent.
-- **Add-on ports.** Any port not decoded reads as open bus (&FF) and ignores writes; no serial interface or mouse is attached.
+- **Tape, cartridges, system ROM.** The PCW has none; the corresponding services are absent.
+- **Other emulators' snapshots.** Only zx84's own `.pcwstate` is loaded or saved; no community PCW snapshot format is read.
+- **Add-on ports.** Any port not decoded reads as open bus (&FF) and ignores writes; no serial interface or mouse is attached. The DKTronics joystick (a port of the DKTronics sound board's AY) is not offered, as that board is not emulated.
 - **Execution tracing.** Not wired up for this machine.
 
 ## Faithful quirks
@@ -164,6 +187,7 @@ None known.
 | [`tests/pcw/machine.test.ts`](../../tests/pcw/machine.test.ts) | Registry entry with no ROM, per-model RAM/drives/printer/drive type/phosphor, port decode, system commands, FDC response time, boot-sector load at &F000/&F010, 300 Hz pulse behaviour | Unit test |
 | [`tests/pcw/bootstrap.test.ts`](../../tests/pcw/bootstrap.test.ts) | Boot sector checksum and location, with no-disc, unreadable and bad-checksum reported separately | Unit test |
 | [`tests/pcw/keyboard.test.ts`](../../tests/pcw/keyboard.test.ts), [`pcw-keyboard-layout.test.ts`](../../tests/pcw/pcw-keyboard-layout.test.ts) | Matrix bit positions, idle zero state, link and heartbeat bits, on-screen keyboard caps and geometry for both decks | Unit test |
+| [`tests/pcw/pcw-joystick.test.ts`](../../tests/pcw/pcw-joystick.test.ts) | Kempston, Spectravideo and Cascade port bit layouts from the PCW hardware guide; none fitted floats high; keyboard-matrix joystick bits untouched | Unit test |
 | [`tests/pcw/ocr.test.ts`](../../tests/pcw/ocr.test.ts) | Font sanity check, cell recognition, TEXT overlay capability | Unit test |
 | [`tests/cores/upd765a-int.test.ts`](../../tests/cores/upd765a-int.test.ts), [`upd765a-tc.test.ts`](../../tests/cores/upd765a-tc.test.ts) | uPD765A interrupt line and terminal-count behaviour the PCW depends on | Unit test |
 | [`tests/emulator.test.ts`](../../tests/emulator.test.ts) | Drive A disc kept when switching within the PCW family, dropped when switching to another machine | Unit test |

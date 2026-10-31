@@ -71,6 +71,17 @@ const ASIC_SPLIT_ADDR_HI_OFFSET = 0x2802;   // &6802 — split address high
 const ASIC_SPLIT_ADDR_LO_OFFSET = 0x2803;   // &6803 — split address low
 const ASIC_SCROLL_OFFSET = 0x2804;          // &6804 — scroll / extend border
 const ASIC_VECTOR_OFFSET = 0x2805;          // &6805 — interrupt vector
+/** &6808-&680F — the eight analogue input channels (read-only). */
+const ASIC_ANALOGUE_OFFSET = 0x2808;
+const ASIC_ANALOGUE_CHANNELS = 8;
+/**
+ * Analogue channel values at power-on, 6 bits each. ADC0-ADC3 are the
+ * analogue joystick port's X1, Y1, X2, Y2 (0 = left / up, &3F = right /
+ * down), here a centred stick (&20). ADC4-ADC7 are not brought out: ADC4 and
+ * ADC6 are tied to +5V and read &3F, ADC5 and ADC7 to ground and read &00
+ * (CPCWiki, "Analog Joysticks", from measurements of a real Plus).
+ */
+const ANALOGUE_DEFAULTS = [0x20, 0x20, 0x20, 0x20, 0x3F, 0x00, 0x3F, 0x00] as const;
 const ASIC_DMA_CHAN_OFFSET = 0x2C00;        // &6C00 — 3 channels × 4 bytes
 const ASIC_DMA_DCSR_OFFSET = 0x2C0F;        // &6C0F — DMA control/status
 
@@ -115,6 +126,15 @@ export class Asic extends GateArray {
    * palette range at offset 0x2400.
    */
   readonly registerPage = new Uint8Array(0x4000);
+
+  /** The analogue inputs as the joystick port presents them (channels 0-7,
+   *  6 bits). Driven by the host's sticks, not by a reset. */
+  readonly analogue = Uint8Array.from(ANALOGUE_DEFAULTS);
+
+  constructor() {
+    super();
+    this.syncAnalogue();
+  }
 
   /**
    * The 12-bit decoded palette: 32 ABGR entries. Pens 0–15 are background
@@ -278,6 +298,8 @@ export class Asic extends GateArray {
    * IRQ; Phase 5 will add DMA.
    */
   cpuWrite(offset: number, val: number): void {
+    // The analogue inputs are read-only: a write leaves the channel's value.
+    if (offset >= ASIC_ANALOGUE_OFFSET && offset < ASIC_ANALOGUE_OFFSET + ASIC_ANALOGUE_CHANNELS) return;
     this.registerPage[offset] = val & 0xFF;
     if (offset >= ASIC_PALETTE_OFFSET &&
         offset < ASIC_PALETTE_OFFSET + ASIC_PALETTE_BYTES) {
@@ -340,6 +362,20 @@ export class Asic extends GateArray {
       this.writeDcsr();
       return;
     }
+  }
+
+  /** Set analogue input `channel` (0-7) to a 6-bit value. Reads of &6808+
+   *  see it at once (the register window is the CPU's view of this page). */
+  setAnalogue(channel: number, value: number): void {
+    if (channel < 0 || channel >= ASIC_ANALOGUE_CHANNELS) return;
+    this.analogue[channel] = value & 0x3F;
+    this.registerPage[ASIC_ANALOGUE_OFFSET + channel] = this.analogue[channel];
+  }
+
+  /** Put the live analogue values back into the register page after it has
+   *  been cleared or loaded wholesale. */
+  private syncAnalogue(): void {
+    this.registerPage.set(this.analogue, ASIC_ANALOGUE_OFFSET);
   }
 
   /** Recompute the DCSR byte (enables + int-pending bits) and write it back
@@ -710,6 +746,7 @@ export class Asic extends GateArray {
     for (let i = 0; i < this.registerPage.length; i++) {
       this.registerPage[i] = registerPage[i] & 0xFF;
     }
+    this.syncAnalogue();                     // the sticks are live, not saved state
     for (let i = 0; i < this.asicPalette.length; i++) {
       this.asicPalette[i] = asicPalette[i] >>> 0;
     }
@@ -780,6 +817,7 @@ export class Asic extends GateArray {
     this.lockSeqPos = 0;
     this.asicPageVisible = false;
     this.registerPage.fill(0);
+    this.syncAnalogue();
     // GateArray.reset() sets every pen to hardware colour 0 directly (not via
     // FN_COLOUR, so onPenColourChanged never fires) — mirror that baseline
     // here instead of filling with literal black. Colour 0 is a mid-grey on

@@ -32,6 +32,7 @@
  */
 
 import { LYNX_PAGE_SIZE, LYNX_PAGES } from './constants.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { LynxModel } from './models.ts';
 
 const PAGE = LYNX_PAGE_SIZE;
@@ -335,4 +336,24 @@ export class LynxMemory {
   }
 
   get ramBankCount(): number { return this.ramBanks.length; }
+
+  // ── Snapshot state ─────────────────────────────────────────────────────
+
+  /** Every RAM chip and the three latches the bank decode is built from (the
+   *  ROM is not state). */
+  saveState(w: StateWriter): void {
+    w.raw(this.userRam);
+    w.raw(this.videoRam);
+    if (this.extraRam) w.raw(this.extraRam);
+    w.u8(this.bankData); w.u8(this.port80); w.u8(this.port58);
+  }
+
+  /** The caller has checked the model (and so the RAM sizes) match. */
+  loadState(r: StateReader): void {
+    r.rawInto(this.userRam);
+    r.rawInto(this.videoRam);
+    if (this.extraRam) r.rawInto(this.extraRam);
+    this.bankData = r.u8(); this.port80 = r.u8(); this.port58 = r.u8();
+    this.applyBanks();
+  }
 }
