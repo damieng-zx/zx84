@@ -31,7 +31,7 @@ const NEWBRAIN_UI: MachineUiCapabilities = {
   // The NewBrain has no loudspeaker the model knows of.
   beeper: false,
   psgControls: [],
-  statusLeds: ['kbd', 'ear', 'load'],
+  statusLeds: ['kbd', 'ear', 'load', 'text'],
   keyboardBus: 'matrix',
   tape: 'deck',
   tapeSound: false,

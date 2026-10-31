@@ -103,34 +103,59 @@ export function renderNewBrainFrame(
   }
 }
 
+/** The text screen as a grid of cells, read straight out of RAM. */
+export interface NewBrainScreenCells {
+  cols: number;
+  rows: number;
+  /** Scan lines a character row takes: 10, or 8 with the upper character ROM. */
+  cellHeight: number;
+  /** One entry per cell, row-major: the character, or a space. */
+  chars: string[];
+  /** Cells that held a printable character, so the overlay may blank them;
+   *  graphics, control codes and everything past the end of the text are
+   *  left as picture. */
+  mask: boolean[];
+  reverse: boolean;
+}
+
 /**
- * Read the text on screen straight from RAM, one string per row, following
- * the same row layout and end-of-text rule as the circuit. Codes below 32 and
- * above 126 show as spaces — the OCR consumers want ASCII, not glyph indexes.
+ * Read the text on screen following the video circuit's own row rules: rows
+ * start two (40 column) or four (80 column) bytes into their 64- or 128-byte
+ * pitch, and the third zero byte in a run ends the text (everything after it
+ * is graphics). Codes 32-126 are ASCII and 0xE4 is the pound sign; the rest
+ * are control codes and mosaics and read as blanks.
  */
-export function newBrainScreenRows(ram: Uint8Array, tvl: number, tvctl: number): string[] {
-  const columns = (tvctl & TVCTL_80) ? 80 : 40;
-  const rowPitch = columns === 80 ? 128 : 64;
+export function newBrainScreenCells(ram: Uint8Array, tvl: number, tvctl: number): NewBrainScreenCells {
+  const cols = (tvctl & TVCTL_80) ? 80 : 40;
+  const rowPitch = cols === 80 ? 128 : 64;
   const ucr = (tvctl & TVCTL_UCR) !== 0;
   const rows = ucr ? 31 : 25;
-  const out: string[] = [];
-  let row = (tvl & 0x7FC0) | (columns === 80 ? 4 : 2);
+  const chars: string[] = new Array(cols * rows).fill(' ');
+  const mask: boolean[] = new Array(cols * rows).fill(false);
+  let row = (tvl & 0x7FC0) | (cols === 80 ? 4 : 2);
   let zeros = 0;
+  outer:
   for (let r = 0; r < rows; r++) {
-    let line = '';
-    for (let x = 0; x < columns; x++) {
+    for (let x = 0; x < cols; x++) {
       const c = ram[(row + x) & 0x7FFF];
       zeros = c === 0 ? zeros + 1 : 0;
-      // The third zero in a row ends the text; what follows is graphics.
-      if (zeros >= 3) {
-        const text = line.replace(/\s+$/, '');
-        if (text !== '') out.push(text);
-        return out;
-      }
-      line += c >= 32 && c < 127 ? String.fromCharCode(c) : ' ';
+      if (zeros >= 3) break outer;
+      const i = r * cols + x;
+      if (c >= 32 && c < 127) { chars[i] = String.fromCharCode(c); mask[i] = true; }
+      else if (c === 0xE4) { chars[i] = '£'; mask[i] = true; }
     }
-    out.push(line.replace(/\s+$/, ''));
     row = (row + rowPitch) & 0x7FFF;
   }
+  return { cols, rows, cellHeight: ucr ? 8 : 10, chars, mask, reverse: (tvctl & TVCTL_RV) !== 0 };
+}
+
+/** The text rows, trailing blanks trimmed and trailing empty rows dropped. */
+export function newBrainScreenRows(ram: Uint8Array, tvl: number, tvctl: number): string[] {
+  const cells = newBrainScreenCells(ram, tvl, tvctl);
+  const out: string[] = [];
+  for (let r = 0; r < cells.rows; r++) {
+    out.push(cells.chars.slice(r * cells.cols, (r + 1) * cells.cols).join('').replace(/\s+$/, ''));
+  }
+  while (out.length > 0 && out[out.length - 1] === '') out.pop();
   return out;
 }

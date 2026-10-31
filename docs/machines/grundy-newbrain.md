@@ -137,9 +137,10 @@ There are no snapshot, disk or cartridge formats yet.
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | Z80 family service; the COP420 is not exposed to it |
 | Trace | ✅ | Z80 execution trace |
-| Screen OCR / TEXT overlay | ◐ | `ocr` reads the text straight out of RAM by the video circuit's own row rules; there is no TEXT overlay |
+| Screen OCR / TEXT overlay | ✅ | The text is read straight out of RAM by the video circuit's own row rules (no font matching): 40 or 80 columns, 25 rows or 31 with the upper character ROM, `£` and the reverse-video bit honoured. The `ocr` MCP tool and the TEXT overlay share it |
+| BASIC listing and variables | ✅ | Read from the BASIC area the OS builds (base at page-zero `B3PRM`): the tokenised source through the line-number table, the symbol table for numbers, strings and arrays, and the FOR blocks for loops now running. See [`newbrain-basic-parser.ts`](../../src/basic/newbrain-basic-parser.ts) for the layout |
 | Software library | ✗ | |
-| Machine-specific panes | ✗ | No Hardware section or on-screen keyboard yet |
+| Machine-specific panes | ✗ | No Hardware section or on-screen keyboard yet; the generic BASIC Listing and BASIC Variables panes work |
 | MCP tools | ✅ | The generic set (`run`, `step`, `registers`, `read_memory`, `key`, `type`, `ocr`, `screenshot`, `load`, `save`, `trap`, …) |
 
 ---
@@ -148,6 +149,8 @@ There are no snapshot, disk or cartridge formats yet.
 
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
+| BASIC variables assume the default array base of 0 | BASIC Variables pane | low | `OPTION BASE 1` arrays are listed by element count less one, as for base 0 |
+| The BASIC listing prints keywords in capitals and keeps the spacing as typed | BASIC Listing pane | low | The OS lists from the same tokens; only the case of keywords typed in lower case is not preserved |
 | No on-screen keyboard, no VF display pane | UI | low | The COP420 does drive the display; nothing draws it yet |
 | Keys without a verified function | Keyboard | low | Y0 K3 / K7 / K8, Y12 K3, Y14 K3 and Y15 K8 are unmapped: they have no entry in the ROM's decode tables that a typed character reaches |
 | Text-line border in 32/40 mode | Video | low | The graphics window honours the border; text lines draw all `columns` cells |
@@ -175,5 +178,5 @@ There are no snapshot, disk or cartridge formats yet.
 | Reference | Result | Last checked |
 | --- | --- | --- |
 | `tests/cores/cop420.test.ts` — the COP420 instruction set, stack, interrupts, serial and host bus | 64 tests pass | 2026-10-31 |
-| `tests/newbrain/` — memory map, I/O decode, video, keyboard | Pass | 2026-10-31 |
-| `tests/newbrain/newbrain-firmware.test.ts` — the real ROMs boot, take typed keys, run a BASIC program, and SAVE then LOAD it back | Pass (skipped without the ROM images) | 2026-10-31 |
+| `tests/newbrain/` — memory map, I/O decode, video, keyboard, BASIC listing and variable parsers | Pass | 2026-10-31 |
+| `tests/newbrain/newbrain-firmware.test.ts` — the real ROMs boot, take typed keys, run a BASIC program, list it and its variables, feed the TEXT overlay, and SAVE then LOAD it back | Pass (skipped without the ROM images) | 2026-10-31 |

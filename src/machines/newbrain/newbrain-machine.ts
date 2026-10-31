@@ -33,15 +33,16 @@ import { NewBrainMemory } from './newbrain-memory.ts';
 import { NewBrainCopBoard } from './cop-board.ts';
 import { NewBrainKeyboard } from './keyboard.ts';
 import { installNewBrainMemoryHooks, wireNewBrainPortIO } from './newbrain-io.ts';
-import { renderNewBrainFrame, newBrainScreenRows } from './newbrain-video.ts';
-import type { OcrGridName } from '@/ocr/ocr.ts';
+import { renderNewBrainFrame, newBrainScreenRows, newBrainScreenCells } from './newbrain-video.ts';
+import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
+import { newBrainOcrResult } from '@/ocr/newbrain.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import {
   NB_CPU_CLOCK, NB_T_PER_FRAME, NB_LINES_PER_FRAME, NB_T_PER_LINE, NB_ACTIVE_LINES,
-  NB_SCREEN_WIDTH, NB_SCREEN_HEIGHT, NB_POWERUP_T, NB_T_PER_COP_CYCLE, NB_PAPER,
+  NB_SCREEN_WIDTH, NB_SCREEN_HEIGHT, NB_POWERUP_T, NB_T_PER_COP_CYCLE, NB_PAPER, NB_INK,
 } from './constants.ts';
 
 /** The make-believe sound chip the frame loop sizes its buffers against. */
@@ -411,5 +412,27 @@ export class NewBrainMachine extends BaseMachine implements Machine {
     const rows = newBrainScreenRows(this.memory.ram, this.tvl, this.tvctl);
     const cols = (this.tvctl & 0x40) ? 80 : 40;
     return `[${cols}x${rows.length}]\n${rows.join('\n')}`;
+  }
+
+  /** The text screen shaped for the TEXT overlay. */
+  ocrScreenStyled(): OcrResult {
+    return newBrainOcrResult(newBrainScreenCells(this.memory.ram, this.tvl, this.tvctl));
+  }
+
+  /** Blank the cells the overlay has taken over, so the glyphs underneath do
+   *  not show through it. */
+  blankTextCells(result: OcrResult): void {
+    const fill = (this.tvctl & 1) ? NB_INK : NB_PAPER;      // reverse video swaps the ground
+    for (let r = 0; r < result.rows; r++) {
+      for (let c = 0; c < result.cols; c++) {
+        if (!result.mask[r * result.cols + c]) continue;
+        for (let y = 0; y < result.cellHeight; y++) {
+          const from = (r * result.cellHeight + y) * NB_SCREEN_WIDTH + c * result.cellWidth;
+          if (from + result.cellWidth > this._pixels32.length) break;
+          this._pixels32.fill(fill, from, from + result.cellWidth);
+        }
+      }
+    }
+    this.display?.updateTexture(this._pixels);
   }
 }

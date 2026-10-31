@@ -4,8 +4,10 @@
  */
 
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot,
+  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot, TranscribeDriver,
 } from '@/machines/machine.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
+import { parseNewBrainBasic, parseNewBrainBasicVariables } from '@/basic/newbrain-basic-parser.ts';
 import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import type { NewBrainMachine } from '../newbrain-machine.ts';
 
@@ -29,11 +31,39 @@ function newBrainMemoryMap(m: NewBrainMachine): MemoryMapSnapshot {
   };
 }
 
+/**
+ * TEXT-overlay driver. The text is read from RAM every frame, so there is
+ * nothing to set up: the flag only records whether the bridge still owes a
+ * deactivate. The blanked cells were painted into the frame buffer, so the
+ * glyphs underneath only return once the next frame redraws them.
+ */
+class NewBrainTranscribeDriver implements TranscribeDriver {
+  private on = false;
+  constructor(private readonly m: NewBrainMachine) {}
+
+  get active(): boolean { return this.on; }
+  activate(): void { this.on = true; }
+  deactivate(): void { this.on = false; }
+
+  run(): { text: string; html: string; grid: OcrGridName } {
+    const result = this.m.ocrScreenStyled();
+    this.m.blankTextCells(result);
+    return { text: result.text, html: result.html, grid: result.grid };
+  }
+}
+
 export class NewBrainFrameProbe implements FrameProbe {
   readonly panes: FramePaneProvider;
+  readonly transcribe: NewBrainTranscribeDriver;
 
   constructor(private readonly m: NewBrainMachine) {
-    this.panes = { memoryMap: () => newBrainMemoryMap(m) };
+    this.transcribe = new NewBrainTranscribeDriver(m);
+    this.panes = {
+      memoryMap: () => newBrainMemoryMap(m),
+      // BASIC keeps its program and symbol tables in the 32K of RAM.
+      basicListing: () => parseNewBrainBasic(m.memory.ram),
+      basicVars: () => parseNewBrainBasicVariables(m.memory.ram),
+    };
   }
 
   sample(out: FrameIndicators): void {

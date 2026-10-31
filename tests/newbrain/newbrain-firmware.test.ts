@@ -76,6 +76,43 @@ describe.skipIf(!HAVE_ROMS)('NewBrain firmware', () => {
     expect(rows).toContain('HELLO');
   });
 
+  it('lists the program and its variables out of the BASIC area the OS built', () => {
+    const m = boot();
+    type(m, '10 FOR I=1 TO 3\n');
+    type(m, '20 PRINT I;"A;B"\n');
+    type(m, '30 NEXT I\n');
+    type(m, 'N=42\n');
+    type(m, 'S$="HI"\n');
+    type(m, 'DIM A(3)\n');
+    const panes = m.services.probe.panes!;
+    expect(panes.basicListing!()).toEqual([
+      { lineNumber: 10, text: 'FOR I=1 TO 3' },
+      { lineNumber: 20, text: 'PRINT I;"A;B"' },
+      { lineNumber: 30, text: 'NEXT I' },
+    ]);
+    const vars = panes.basicVars!();
+    expect(vars).toContainEqual({ name: 'N', kind: 'number', value: '42' });
+    expect(vars).toContainEqual({ name: 'S$', kind: 'string', value: 'HI' });
+    expect(vars).toContainEqual({ name: 'A(3)', kind: 'array' });
+  });
+
+  it('transcribes the screen for the TEXT overlay and blanks the cells it takes over', () => {
+    const m = boot();
+    const t = m.services.probe.transcribe!;
+    const ink = () => {
+      let n = 0;
+      const px = new Uint32Array(m.pixels.buffer);
+      for (let y = 0; y < 20; y++) for (let x = 0; x < 640; x++) if (px[y * 640 + x] !== 0xff000000) n++;
+      return n;
+    };
+    expect(ink()).toBeGreaterThan(0);
+    t.activate();
+    const result = t.run();
+    expect(result.text.split('\n').slice(0, 2)).toEqual(['NEWBRAIN BASIC'.padEnd(40), 'READY'.padEnd(40)]);
+    expect(result.grid).toBe('40x25');
+    expect(ink()).toBe(0);                    // the two text rows are now overlay, not picture
+  });
+
   it('saves to cassette through the COP420 and loads the recording back into a fresh machine', () => {
     const a = boot();
     type(a, '10 PRINT "ROUND TRIP"\n');
