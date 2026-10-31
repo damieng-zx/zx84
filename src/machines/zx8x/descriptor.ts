@@ -12,7 +12,7 @@ const ZX80_ROM = 'sinclair/zx80.rom';
 const ZX81_ROM = 'sinclair/zx81-v2.rom';
 
 const UI: MachineUiCapabilities = {
-  hiddenPanes: ['drive-panel', 'microdrive-panel', 'tape-panel', 'sound-panel', 'joystick-panel', 'mouse-panel', 'font-panel', 'sysvar-panel', 'banks-panel'],
+  hiddenPanes: ['drive-panel', 'microdrive-panel', 'joystick-panel', 'mouse-panel', 'font-panel', 'sysvar-panel', 'banks-panel'],
   memoryLayout: false,
   trace: true,
   colorMap: 'mono',
@@ -24,18 +24,27 @@ const UI: MachineUiCapabilities = {
   cartridge: false,
   systemRomLabel: 'ROM',
   romPages: 0,
+  // No speaker of its own: sound comes from the optional ZON X-81 (an AY into
+  // one speaker, so no stereo layout) and the optional VSYNC sound (the MIC
+  // line, i.e. the vertical sync, mixed in like a beeper).
   beeper: false,
-  // No sound chip at all.
   psgControls: [],
-  // No sound chip, no disk, no joystick/mouse ports — only the keyboard and the
-  // screen-OCR overlay have activity to show.
-  statusLeds: ['kbd', 'text'],
+  soundDevices: [
+    { id: 'beeper', label: 'VSYNC sound', volumeSetting: 'beeper-volume', enabledSetting: 'zx8x-vsync-sound' },
+    { id: 'psg', label: 'ZON X-81', volumeSetting: 'psg-volume', enabledSetting: 'zx8x-zonx' },
+  ],
+  // No disk, no joystick/mouse ports. EAR/LOAD follow the cassette deck,
+  // CHIP the ZON X-81, TEXT the screen-OCR overlay.
+  statusLeds: ['kbd', 'ear', 'load', 'chip', 'text'],
   keyboardBus: 'ula',
-  tape: 'instant',
-  tapeExtensions: ['.o', '.80', '.p', '.81', '.p81', '.zip'],
+  // A pulse-level deck feeding the EAR bit, with the ROM's LOAD/SAVE trapped
+  // for instant loading unless "Fast ROM loading" is turned off.
+  tape: 'deck',
+  fastRomLoading: true,
+  tapeExtensions: ['.o', '.80', '.p', '.81', '.p81', '.tzx', '.wav', '.zip'],
   tapeSound: false,
-  // 'tape-tap' downloads the most recent SAVE as the program image the LOAD
-  // trap reads back (.p on the ZX81, .o on the ZX80).
+  // 'tape-tap' downloads the most recent SAVE as the program image LOAD
+  // reads back (.p on the ZX81, .o on the ZX80).
   saveMenu: ['snapshot-zx8xstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,

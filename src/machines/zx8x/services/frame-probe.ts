@@ -28,15 +28,22 @@ export class Zx8xFrameProbe implements FrameProbe {
   }
 
   sample(out: FrameIndicators): void {
-    out.keyboard = this.machine.activity.kbdReads;
-    out.joystick = out.mouse = out.tapeIn = out.tapeLoad = 0;
-    out.beeper = out.psg = out.videoFx = out.disk = 0;
-    out.tapeTurbo = false;
-    out.tapeLoaded = false;
-    out.tapePlaying = false;
-    out.tapePaused = true;
-    out.tapeFinished = false;
-    out.tapePosition = 0;
+    const m = this.machine;
+    const a = m.activity;
+    out.keyboard = a.kbdReads;
+    out.joystick = out.mouse = 0;
+    // EAR: the deck's signal read this frame; LOAD: the ROM's LOAD listening.
+    out.tapeIn = a.earReads;
+    out.tapeLoad = a.tapePolls;
+    out.beeper = out.videoFx = out.disk = 0;
+    out.psg = a.ayWrites;
+    out.tapeTurbo = m.tapeTurboActive;
+    const deck = m.cassette.deck;
+    out.tapeLoaded = deck.loaded;
+    out.tapePlaying = deck.playing;
+    out.tapePaused = deck.paused;
+    out.tapeFinished = deck.finished;
+    out.tapePosition = deck.position;
     out.casBlock = -1;
     out.fastRomLoading = false;
     out.tracingActive = this.machine.traceActive;
