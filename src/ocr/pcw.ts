@@ -75,7 +75,9 @@ export interface PcwOcrCells {
  * The full grid, untrimmed — the TEXT overlay needs every cell so its rows line
  * up with the picture underneath. `pcwScreenText` trims this for reading.
  */
-export function pcwScreenCells(read: PcwCellReader, font: Uint8Array): PcwOcrCells | null {
+export function pcwScreenCells(
+  read: PcwCellReader, font: Uint8Array, rows = PCW_OCR_ROWS,
+): PcwOcrCells | null {
   if (!looksLikeFont(font)) return null;
 
   // Index the font by its 8 bytes so each cell is one map lookup.
@@ -85,10 +87,10 @@ export function pcwScreenCells(read: PcwCellReader, font: Uint8Array): PcwOcrCel
     if (!glyphs.has(key)) glyphs.set(key, ch);
   }
 
-  const chars: string[] = new Array(PCW_OCR_COLS * PCW_OCR_ROWS);
-  const mask: boolean[] = new Array(PCW_OCR_COLS * PCW_OCR_ROWS);
+  const chars: string[] = new Array(PCW_OCR_COLS * rows);
+  const mask: boolean[] = new Array(PCW_OCR_COLS * rows);
   const cell = new Array<number>(8);
-  for (let row = 0; row < PCW_OCR_ROWS; row++) {
+  for (let row = 0; row < rows; row++) {
     for (let col = 0; col < PCW_OCR_COLS; col++) {
       const idx = row * PCW_OCR_COLS + col;
       let blank = true;
@@ -106,21 +108,24 @@ export function pcwScreenCells(read: PcwCellReader, font: Uint8Array): PcwOcrCel
       mask[idx] = printable;
     }
   }
-  return { chars, mask, cols: PCW_OCR_COLS, rows: PCW_OCR_ROWS };
+  return { chars, mask, cols: PCW_OCR_COLS, rows };
 }
 
-export function pcwScreenText(read: PcwCellReader, font: Uint8Array): string | null {
-  const cells = pcwScreenCells(read, font);
+/** `rows` is how many character rows are shown: 32, or 25 on a 60Hz PCW. */
+export function pcwScreenText(
+  read: PcwCellReader, font: Uint8Array, rows = PCW_OCR_ROWS,
+): string | null {
+  const cells = pcwScreenCells(read, font, rows);
   if (!cells) return null;
 
-  const rows: string[] = [];
+  const lines: string[] = [];
   for (let row = 0; row < cells.rows; row++) {
     const from = row * cells.cols;
-    rows.push(cells.chars.slice(from, from + cells.cols).join('').replace(/\s+$/, ''));
+    lines.push(cells.chars.slice(from, from + cells.cols).join('').replace(/\s+$/, ''));
   }
 
   // Trim trailing blank lines; leading ones are meaningful (they are screen
   // position) and are kept.
-  while (rows.length > 0 && rows[rows.length - 1] === '') rows.pop();
-  return rows.join('\n');
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  return lines.join('\n');
 }

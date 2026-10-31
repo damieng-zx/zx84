@@ -100,7 +100,8 @@ describe('PCW port decode', () => {
 
   it('reads the system status from &F8 and &F4, clearing the count only on &F4', () => {
     const m = new PcwMachine('pcw8256');
-    m.asic.beginLine(258);                     // one 300Hz tick pending
+    m.asic.beginLine(12);                      // one 300Hz tick pending
+    m.asic.syncTickBefore(2); m.asic.syncTickAfter(); // counted by the next opcode fetches
     expect(m.cpu.portIn(0xF8) & 0x0F).toBe(1);
     expect(m.cpu.portIn(0xF8) & 0x0F).toBe(1);
     expect(m.cpu.portIn(0xF4) & 0x0F).toBe(1);
@@ -217,7 +218,7 @@ describe('PCW 300Hz timer pulse', () => {
   // MAME pcw.cpp: the timer sets timer_irq_flag and a 100us pulse timer clears
   // it; the CPU taking the interrupt does not. 100us at 3.4MHz = 340 T-states.
   // The CPU runs NOPs from zeroed RAM with interrupts off until `enableAt`
-  // T-states into the frame; the first timer line of the field is 50.
+  // T-states into the frame; the first timer line of the field is 12.
   function firstInterrupt(enableAt: number): { at: number; count: number } {
     const m = new PcwMachine('pcw8256');
     m.cpu.iff1 = m.cpu.iff2 = false;
@@ -237,7 +238,7 @@ describe('PCW 300Hz timer pulse', () => {
     return { at, count };
   }
 
-  const LINE_50 = 50 * 218;
+  const LINE_50 = 12 * 218;
 
   it('is taken when interrupts are enabled within the ~100us pulse', () => {
     const { at } = firstInterrupt(LINE_50 + 300);
@@ -247,9 +248,9 @@ describe('PCW 300Hz timer pulse', () => {
 
   it('is lost (only counted) when interrupts stay disabled past the pulse', () => {
     const { at, count } = firstInterrupt(LINE_50 + 400);
-    // Not taken at line 50; the next pulse is line 102.
-    expect(at).toBeGreaterThanOrEqual(102 * 218);
-    expect(at).toBeLessThan(102 * 218 + 340);
+    // Not taken at line 12; the next pulse is line 64.
+    expect(at).toBeGreaterThanOrEqual(64 * 218);
+    expect(at).toBeLessThan(64 * 218 + 340);
     expect(count).toBe(2);                    // both ticks are in the &F4 counter
   });
 });

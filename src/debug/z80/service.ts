@@ -32,6 +32,7 @@ export interface Z80DebugTarget extends Machine {
   resolveMemoryRegion?(value: string): { data: Uint8Array; baseAddr: number } | null;
   screenExportBytes?(): Uint8Array | null;
   ramExportBytes?(): { data: Uint8Array; filename: string } | null;
+  printerExportBytes?(): { data: Uint8Array; filename: string } | null;
 }
 
 /** Family accessor: the Z80 CPU of a machine, or null for another family.
@@ -366,6 +367,7 @@ export class Z80DebugService implements DebugService {
 
   screenExport(): Uint8Array | null { return this.m.screenExportBytes?.() ?? null; }
   ramExport(): { data: Uint8Array; filename: string } | null { return this.m.ramExportBytes?.() ?? null; }
+  printerExport(): { data: Uint8Array; filename: string } | null { return this.m.printerExportBytes?.() ?? null; }
 
   panels(): DebugPanelDescriptor[] { return []; }
 }

@@ -7,9 +7,11 @@
  *   1. **Video.** A 720x256 monochrome bitmap fetched through *roller RAM* —
  *      a 256-entry table in main memory, one entry per scan line, each giving
  *      the physical address that line's pixels start at.
- *   2. **The 300Hz timer**, six interrupts per field, plus the counter of them
- *      that software reads back through port &F4.
- *   3. **The system status byte** read from &F4/&F8 (flyback, FDC interrupt).
+ *   2. **The 300Hz timer**, one interrupt every 52 scan lines, plus the counter
+ *      of them that software reads back through port &F4 — which is also what
+ *      holds /INT down.
+ *   3. **The system status byte** read from &F4/&F8 (frame flyback, FDC
+ *      interrupt, the 50/60Hz link, the counter).
  *   4. **Routing the uPD765A's interrupt** to /INT, /NMI or nowhere.
  *
  * Screen memory is stored as 8-byte character cells, so the 90 bytes of one
@@ -20,13 +22,43 @@
 import type { PcwMemory } from './pcw-memory.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import {
-  PCW_BYTES_PER_LINE, PCW_DISPLAY_HEIGHT, PCW_FIRST_INT_LINE, PCW_GREEN_INK,
-  PCW_GREEN_PAPER, PCW_INT_LINE_SPACING, PCW_LINE_BYTE_STRIDE, PCW_LINES_PER_FRAME,
+  PCW_BYTES_PER_LINE, PCW_DISPLAY_HEIGHT, PCW_DISPLAY_HEIGHT_60HZ, PCW_FLYBACK_LINES,
+  PCW_GREEN_INK, PCW_GREEN_PAPER, PCW_INT_LINE_PHASE, PCW_INT_LINE_SPACING,
+  PCW_LINE_BYTE_STRIDE, PCW_LINES_PER_FRAME, PCW_LINES_PER_FRAME_60HZ,
   PCW_ROLLER_BLOCK_SHIFT, PCW_ROLLER_OFFSET_MASK, PCW_ROLLER_OFFSET_UNIT,
-  PCW_SCREEN_HEIGHT, PCW_SCREEN_WIDTH, PCW_STATUS_32_LINE, PCW_STATUS_COUNT_MASK,
+  PCW_SCREEN_HEIGHT, PCW_SCREEN_WIDTH, PCW_STATUS_50HZ, PCW_STATUS_COUNT_MASK,
   PCW_STATUS_FDC_INT, PCW_STATUS_FLYBACK, PCW_VIDEO_ADDRESS_MASK, PCW_VIDEO_ENABLE,
-  PCW_VIDEO_REVERSE, PCW_BORDER_LEFT, PCW_BORDER_TOP,
+  PCW_VIDEO_REVERSE, PCW_BORDER_LEFT, PCW_BORDER_TOP, pcwFlybackStart,
 } from './constants.ts';
+
+/** Raster geometry for one setting of the 50/60Hz link. */
+export interface PcwFrameTiming {
+  readonly hz: 50 | 60;
+  readonly linesPerFrame: number;
+  /** Lines shown, from line 0: 256 at 50Hz, 200 at 60Hz. */
+  readonly displayHeight: number;
+  /** First line of the 26-line frame flyback signal. */
+  readonly flybackStart: number;
+}
+
+export const PCW_TIMING_50HZ: PcwFrameTiming = {
+  hz: 50, linesPerFrame: PCW_LINES_PER_FRAME, displayHeight: PCW_DISPLAY_HEIGHT,
+  flybackStart: pcwFlybackStart(PCW_LINES_PER_FRAME),
+};
+export const PCW_TIMING_60HZ: PcwFrameTiming = {
+  hz: 60, linesPerFrame: PCW_LINES_PER_FRAME_60HZ, displayHeight: PCW_DISPLAY_HEIGHT_60HZ,
+  flybackStart: pcwFlybackStart(PCW_LINES_PER_FRAME_60HZ),
+};
+
+/** Where a timer tick is on its way into the &F4 counter (see `PcwAsic.tickSync`). */
+export const enum TickSync {
+  None = 0,
+  /** Raised; the next instruction fetch (M1) latches it. */
+  Raised = 1,
+  /** Latched by one M1; the next M1 counts it, unless the counter is read
+   *  in between, which loses it. */
+  Latched = 2,
+}
 
 /** Where the uPD765A's interrupt line is connected (port &F8 commands 2/3/4). */
 export type FdcIntRoute = 'nmi' | 'int' | 'none';
@@ -79,14 +111,29 @@ export class PcwAsic {
    *  — see PCW_TIMER_PULSE_T). Taking the interrupt does not clear it. */
   timerPending = false;
   /** b3-0 of the status byte: timer interrupts since the counter was last read
-   *  through port &F4. Saturates at 15 — it is 4 bits wide. */
+   *  through port &F4. Saturates at 15 ("the counter will never increment
+   *  beyond a count of fifteen"). */
   intCount = 0;
+  /**
+   * A tick's progress into the counter. "The counter is synchronized by two
+   * CPU instruction fetch cycles (M1). If the M1 of a counter read command
+   * latches a new pending timer interrupt, the counter will not at the time of
+   * the read operation have been incremented, and therefore this new interrupt
+   * will be lost." (spec §4). The machine advances it around each instruction
+   * — see `syncTickBefore` / `syncTickAfter`.
+   */
+  tickSync: TickSync = TickSync.None;
   /** Where the FDC's interrupt goes. Nowhere until the BIOS routes it. */
   fdcRoute: FdcIntRoute = 'none';
   /** Live uPD765A interrupt line, refreshed by the machine each scan line. */
   fdcInt = false;
 
-  /** Current raster line, 0-311. Lines 256+ are frame flyback. */
+  /** The 50/60Hz link (a motherboard option): frame length, lines shown,
+   *  where flyback falls and status b4. */
+  timing: PcwFrameTiming = PCW_TIMING_50HZ;
+
+  /** Current raster line, 0 to linesPerFrame-1. Line 0 is the first one
+   *  displayed. */
   line = 0;
 
   constructor(mem: PcwMemory) {
@@ -100,6 +147,7 @@ export class PcwAsic {
     this.screenEnabled = true;
     this.timerPending = false;
     this.intCount = 0;
+    this.tickSync = TickSync.None;
     this.fdcRoute = 'none';
     this.fdcInt = false;
     this.line = 0;
@@ -107,50 +155,84 @@ export class PcwAsic {
 
   // ── Snapshot state ────────────────────────────────────────────────────────
 
-  /** Video registers, the timer pulse and counter, the FDC routing and line,
-   *  and the raster line. The phosphor colours are a display setting. */
+  /** Video registers, the timer counter and a tick in flight, the FDC
+   *  routing and line, and the raster line. The phosphor colours are a display
+   *  setting and the 50/60Hz link is configuration (the machine's CONF). */
   saveState(w: StateWriter): void {
     w.u8(this.rollerBase); w.u8(this.rollerOffset); w.u8(this.videoCtl);
     w.bool(this.screenEnabled);
-    w.bool(this.timerPending); w.u8(this.intCount);
+    w.bool(this.timerPending);
+    w.u8(this.intCount);
     w.u8(this.fdcRoute === 'nmi' ? 0 : this.fdcRoute === 'int' ? 1 : 2);
     w.bool(this.fdcInt);
     w.u16(this.line);
+    w.u8(this.tickSync);
   }
 
   loadState(r: StateReader): void {
     this.rollerBase = r.u8(); this.rollerOffset = r.u8(); this.videoCtl = r.u8();
     this.screenEnabled = r.bool();
-    this.timerPending = r.bool(); this.intCount = r.u8();
+    this.timerPending = r.bool();
+    this.intCount = r.u8() & PCW_STATUS_COUNT_MASK;
     const route = r.u8();
     this.fdcRoute = route === 0 ? 'nmi' : route === 1 ? 'int' : 'none';
     this.fdcInt = r.bool();
     this.line = r.u16();
+    // A state from before the counter drove /INT has no tick in flight.
+    this.tickSync = r.remaining > 0 ? (r.u8() as TickSync) : TickSync.None;
   }
 
   // ── Timing ────────────────────────────────────────────────────────────────
 
   /**
-   * True when a timer interrupt fires at the *start* of `line`.
-   *
-   * Six per field, two lines into frame flyback and every 52 lines after:
-   * 258, 310, 50, 102, 154, 206.
+   * True when a timer tick is raised at the *start* of `line`: 12 lines after
+   * the top of the picture and every 52 after, at either frame rate (see
+   * `PCW_INT_LINE_PHASE`). Six a field at 50Hz, five at 60Hz.
    */
   static isInterruptLine(line: number): boolean {
-    return ((line - PCW_FIRST_INT_LINE + PCW_LINES_PER_FRAME) % PCW_LINES_PER_FRAME)
-      % PCW_INT_LINE_SPACING === 0;
+    return line % PCW_INT_LINE_SPACING === PCW_INT_LINE_PHASE;
   }
 
-  /** Advance to `line`, raising the timer interrupt when one falls there. */
+  /** Advance to `line`, raising a timer tick when one falls there. */
   beginLine(line: number): void {
     this.line = line;
     if (PcwAsic.isInterruptLine(line)) {
       this.timerPending = true;
-      // 4-bit counter of interrupts the CPU has not acknowledged by reading
-      // &F4. It saturates rather than wrapping, so a long DI cannot make a
-      // backlog of 16 look like none at all.
-      if (this.intCount < PCW_STATUS_COUNT_MASK) this.intCount++;
+      // A tick still on its way in when the next is raised 52 lines later
+      // means no instruction has been fetched since (the CPU is not being
+      // run); count the older one rather than drop it.
+      if (this.tickSync !== TickSync.None) this.countTick();
+      this.tickSync = TickSync.Raised;
     }
+  }
+
+  /**
+   * Before an instruction executes: a raised tick is latched by its first M1.
+   * `m1Cycles` is how many opcode fetches it makes before reaching its own
+   * operands (2 for a CB/DD/ED/FD-prefixed instruction), and a second one
+   * counts the tick at once. So `IN A,(&F4)` (one M1) loses a tick it latches,
+   * while `IN A,(C)` (ED-prefixed, two M1s) has already counted it.
+   */
+  syncTickBefore(m1Cycles: number): void {
+    if (this.tickSync !== TickSync.Raised) return;
+    if (m1Cycles >= 2) {
+      this.tickSync = TickSync.None;
+      this.countTick();
+    } else {
+      this.tickSync = TickSync.Latched;
+    }
+  }
+
+  /** After the instruction: the next M1 counts a latched tick, unless the
+   *  instruction read &F4 and so cleared it (`readMemCtlStatus`). */
+  syncTickAfter(): void {
+    if (this.tickSync !== TickSync.Latched) return;
+    this.tickSync = TickSync.None;
+    this.countTick();
+  }
+
+  private countTick(): void {
+    if (this.intCount < PCW_STATUS_COUNT_MASK) this.intCount++;
   }
 
   /** The ~100us timer pulse is over; drop /INT. The counter is NOT cleared
@@ -159,7 +241,8 @@ export class PcwAsic {
     this.timerPending = false;
   }
 
-  /** True while any source is asserting the Z80's /INT pin. */
+  /** True while any source is asserting the Z80's /INT pin: the timer pulse,
+   *  or a routed FDC interrupt. */
   get intPending(): boolean {
     return this.timerPending || (this.fdcInt && this.fdcRoute === 'int');
   }
@@ -169,33 +252,36 @@ export class PcwAsic {
     return this.fdcInt && this.fdcRoute === 'nmi';
   }
 
+  /** True during the 26-line frame flyback signal. */
+  get inFlyback(): boolean {
+    const start = this.timing.flybackStart;
+    return this.line >= start && this.line < start + PCW_FLYBACK_LINES;
+  }
+
   // ── Status ────────────────────────────────────────────────────────────────
 
   /**
    * The system status byte, read from &F8 (and, with the counter cleared
-   * afterwards, from &F4).
-   *
-   * b6 reports frame flyback only. The reference calls it "line flyback ...
-   * read twice in succession indicates frame flyback", but modelling the
-   * per-line pulse as well would make two reads a few T-states apart agree by
-   * coincidence for a large fraction of every displayed line — the idiom would
-   * report frame flyback in the middle of the picture. Reporting the frame
-   * period alone makes the documented idiom behave, at the cost of software
-   * that watches for the line pulse itself, which nothing is known to do.
+   * afterwards, from &F4): b7 undefined (reads 0), b6 frame flyback, b5 FDC
+   * interrupt, b4 set on a 50Hz machine, b3-0 the timer counter. The spec
+   * calls &F8's b3-0 and &F4's b7-4 "undefined"; on real machines they read
+   * as the counter and as &F8's bits respectively (Jacob Nevins' port notes),
+   * so both ports return the whole byte.
    */
   get status(): number {
     let value = this.intCount & PCW_STATUS_COUNT_MASK;
-    // A 50Hz machine has a 32-line (256-pixel) screen.
-    value |= PCW_STATUS_32_LINE;
+    if (this.timing.hz === 50) value |= PCW_STATUS_50HZ;
     if (this.fdcInt) value |= PCW_STATUS_FDC_INT;
-    if (this.line >= PCW_DISPLAY_HEIGHT) value |= PCW_STATUS_FLYBACK;
+    if (this.inFlyback) value |= PCW_STATUS_FLYBACK;
     return value;
   }
 
-  /** Port &F4 read: the status byte, then the interrupt counter clears. */
+  /** Port &F4 read: the status byte, then the interrupt counter clears,
+   *  taking with it a tick latched but not yet counted. */
   readMemCtlStatus(): number {
     const value = this.status;
     this.intCount = 0;
+    if (this.tickSync === TickSync.Latched) this.tickSync = TickSync.None;
     return value;
   }
 
@@ -231,13 +317,13 @@ export class PcwAsic {
   /**
    * Draw one scan line of the active area.
    *
-   * `line` is the raster line, 0-255; flyback lines draw nothing. The 90 bytes
+   * `line` is the raster line; only the first 256 (200 at 60Hz) are shown. The 90 bytes
    * are gathered with a stride of 8 (they are the same pixel row of 90
    * consecutive character cells) and expanded MSB first, so bit 7 of the first
    * byte is the leftmost pixel.
    */
   renderScanline(pixels: Uint32Array, line: number): void {
-    if (line >= PCW_DISPLAY_HEIGHT) return;
+    if (line >= this.timing.displayHeight) return;
 
     const row = PCW_BORDER_TOP + line;
     if (row < 0 || row >= PCW_SCREEN_HEIGHT) return;

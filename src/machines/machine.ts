@@ -381,7 +381,9 @@ export type SaveMenuItem =
   | 'snapshot-c64state'
   | 'screenshot-png'
   | 'screen-scr'
-  | 'ram-bin';
+  | 'ram-bin'
+  /** What the machine has sent its built-in printer, as text (`printerExport`). */
+  | 'printer-txt';
 
 export interface MachineUiCapabilities {
   /** Pane ids removed from the sidebar entirely for this machine. */
@@ -990,6 +992,10 @@ export interface DebugService {
   screenExport(): Uint8Array | null;
   /** RAM dump + suggested filename for the RAM export, or null. */
   ramExport(): { data: Uint8Array; filename: string } | null;
+  /** What the machine has sent its printer, as a file + suggested filename
+   *  for the Save menu's printer-output entry; null while nothing has been
+   *  printed. Only machines naming 'printer-txt' implement it. */
+  printerExport?(): { data: Uint8Array; filename: string } | null;
   panels(): DebugPanelDescriptor[];
 
   /* Family-formatted text for hosts that print CPU state (the MCP server's

@@ -35,7 +35,8 @@ import {
  * paper loaded and the bail bar in — b7, b6 and b2 set. **b6 matters**: the
  * XBIOS's printer handshake spins on `IN A,(&FD) / AND &41` waiting for either
  * "finished" or "fault", so a status that never reports finished wedges the
- * boot after the CP/M banner. Nothing is printed — see `PcwMachine.printerWrite`.
+ * boot after the CP/M banner. Nothing is printed; what is sent is logged — see
+ * `PcwMachine.printerWrite`.
  */
 const PRINTER_STATUS_READY = 0xC4;
 
@@ -105,8 +106,10 @@ export function wirePcwPortIO(m: PcwMachine): void {
 
       case PORT_SYSTEM: m.systemCommand(value); return;
 
-      case PORT_PRINTER_DATA: m.printerWrite(value, false); return;
-      case PORT_PRINTER_CTRL: m.printerWrite(value, true); return;
+      // The whole port goes to the log: the 9512's daisywheel controller
+      // tells a command byte (&01FC) from a data byte (&00FC) by A8.
+      case PORT_PRINTER_DATA:
+      case PORT_PRINTER_CTRL: m.printerWrite(port, value); return;
 
       default: return;
     }

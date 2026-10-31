@@ -179,6 +179,10 @@ describe('machine capabilities', () => {
           } else if (item === 'ram-bin') {
             expect(machine.services.debug.ramExport(), 'ram-bin needs ramExport')
               .not.toBeNull();
+          } else if (item === 'printer-txt') {
+            // The menu calls this; it answers null until something is printed.
+            expect(typeof machine.services.debug.printerExport, 'printer-txt needs printerExport')
+              .toBe('function');
           } else if (item === 'tape-tap') {
             // Naming the entry promises a tape service that records what the
             // machine writes to its cassette port; the menu calls this.
