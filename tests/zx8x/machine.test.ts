@@ -21,7 +21,7 @@ describe('ZX80/ZX81 machine family', () => {
     const zx80 = new Zx8xMachine('zx80');
     const zx81 = new Zx8xMachine('zx81');
     const programs = (m: Zx8xMachine) => m.services.media.accepts()
-      .filter(value => value.target === 'program').map(value => value.ext);
+      .filter(value => value.target === 'tape' && ![".tzx", ".wav"].includes(value.ext)).map(value => value.ext);
     expect(programs(zx80)).toEqual(['.o', '.80']);
     expect(programs(zx81)).toEqual(['.p', '.81', '.p81']);
   });

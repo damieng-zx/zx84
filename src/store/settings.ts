@@ -139,6 +139,10 @@ const DEFAULTS = {
   'zx81-wrx-hires': 'off',
   'zx81-memotech-hrg': 'off',
   'zx81-quicksilva-hrg': 'off',
+  'zx81-zx-printer': 'off',
+  'zx81-chroma81': 'off',
+  'zx8x-zonx':     'off',
+  'zx8x-vsync-sound': 'off',
   'ace-ram-pack':  '48k',
 } as const;
 
@@ -471,6 +475,14 @@ export const [zx81Udg128Ram, setZx81Udg128Ram] = signal(savedFlag('zx81-udg128-r
 export const [zx81WrxHires, setZx81WrxHires] = signal(savedFlag('zx81-wrx-hires'));
 export const [zx81MemotechHrg, setZx81MemotechHrg] = signal(savedFlag('zx81-memotech-hrg'));
 export const [zx81QuickSilvaHrg, setZx81QuickSilvaHrg] = signal(savedFlag('zx81-quicksilva-hrg'));
+/** ZX81 ZX Printer on port 0xFB. */
+export const [zx81ZxPrinter, setZx81ZxPrinter] = signal(savedFlag('zx81-zx-printer'));
+/** ZX81 Chroma 81 colour interface. */
+export const [zx81Chroma81, setZx81Chroma81] = signal(savedFlag('zx81-chroma81'));
+/** ZX80/ZX81 ZON X-81 AY sound interface. */
+export const [zx8xZonx, setZx8xZonx] = signal(savedFlag('zx8x-zonx'));
+/** ZX80/ZX81 vertical sync (the MIC line) mixed into the sound. */
+export const [zx8xVsyncSound, setZx8xVsyncSound] = signal(savedFlag('zx8x-vsync-sound'));
 
 /** Jupiter Ace RAM pack: 'none' (stock 3K), '16k' (16K pack, 19K total) or
  *  '48k' (48K pack, 51K total). The 48K pack is the default. */
@@ -620,6 +632,10 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'zx81-wrx-hires', set: setZx81WrxHires, type: 'bool' },
     { key: 'zx81-memotech-hrg', set: setZx81MemotechHrg, type: 'bool' },
     { key: 'zx81-quicksilva-hrg', set: setZx81QuickSilvaHrg, type: 'bool' },
+    { key: 'zx81-zx-printer', set: setZx81ZxPrinter, type: 'bool' },
+    { key: 'zx81-chroma81', set: setZx81Chroma81, type: 'bool' },
+    { key: 'zx8x-zonx', set: setZx8xZonx, type: 'bool' },
+    { key: 'zx8x-vsync-sound', set: setZx8xVsyncSound, type: 'bool' },
     { key: 'ace-ram-pack', set: setAceRamPack, type: 'string' },
   ],
   font: [

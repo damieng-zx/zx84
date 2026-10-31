@@ -91,6 +91,10 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'zx81-wrx-hires': () => settings.zx81WrxHires(),
   'zx81-memotech-hrg': () => settings.zx81MemotechHrg(),
   'zx81-quicksilva-hrg': () => settings.zx81QuickSilvaHrg(),
+  'zx81-zx-printer': () => settings.zx81ZxPrinter(),
+  'zx81-chroma81': () => settings.zx81Chroma81(),
+  'zx8x-zonx': () => settings.zx8xZonx(),
+  'zx8x-vsync-sound': () => settings.zx8xVsyncSound(),
   'ace-ram-pack': () => settings.aceRamPack(),
 };
 

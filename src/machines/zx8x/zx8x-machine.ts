@@ -18,6 +18,11 @@ import { Zx8xKeyboard } from './keyboard.ts';
 import { zx8xDescriptor } from './descriptor.ts';
 import { Zx8xScreenText } from './screen-text.ts';
 import { Zx81TapeShelf, zx81NameToAscii, type Zx81Program } from './tape-shelf.ts';
+import { Zx8xCassette } from './cassette.ts';
+import { ZxPrinter } from './zx-printer.ts';
+import { Chroma81, CHROMA_PALETTE, CHROMA_PORT, CHROMA_RAM_BASE } from './chroma81.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
+import { soundDeviceGains } from '@/machines/machine.ts';
 import { createZx8xServices, type Zx8xServices } from './services/index.ts';
 import {
   ZX8X_ACTIVE_HEIGHT, ZX8X_ACTIVE_WIDTH, ZX8X_BORDER_LEFT, ZX8X_BORDER_TOP,
@@ -97,6 +102,8 @@ const ZX80_TAPE: TapeRomMap = {
     [0x0222, [0x3e, 0x7f, 0xdb, 0xfe, 0x1f, 0x30, 0x24]],
   ],
 };
+/** The add-ons a `.zx8xstate` records, by bit of its PERI flags. */
+const PERIPHERAL_NAMES = ['ZON X-81', 'ZX Printer', 'Chroma 81'];
 const MEMOTECH_DFILE = 0x407b;
 const MEMOTECH_ROW_BYTES = 33;
 const MEMOTECH_PIXEL_BYTES = 31;
@@ -112,13 +119,38 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   readonly memory: Zx8xMemory;
   readonly keyboard = new Zx8xKeyboard();
   readonly screenText = new Zx8xScreenText();
-  readonly ay = new AY3891x(ZX8X_CPU_CLOCK, 48000, 'ABC');
+  /** The ZON X-81's AY-3-8912, clocked at the CPU clock / 2 into one speaker. */
+  readonly ay = new AY3891x(ZX8X_CPU_CLOCK / 2, 48000, 'MONO');
   readonly audio = new Audio();
   readonly mixer = new AudioMixer(ZX8X_CPU_CLOCK);
   readonly services: Zx8xServices;
-  readonly activity = { kbdReads: 0 };
-  /** Programs mounted (or SAVEd) this session, read by the ROM's LOAD. */
+  /** Per-frame activity for the status LEDs. */
+  readonly activity = { kbdReads: 0, earReads: 0, tapePolls: 0, ayWrites: 0 };
+  /** Programs SAVEd this session (and any put here directly), read by the
+   *  instant LOAD trap after the cassette in the deck. */
   readonly tapeShelf = new Zx81TapeShelf();
+  /** The cassette deck: its level is bit 7 of a keyboard read. */
+  readonly cassette: Zx8xCassette;
+  /** The MIC line (the ULA's vertical sync), edge by edge: what SAVE wrote. */
+  readonly micRecorder = new PulseRecorder();
+  readonly printer = new ZxPrinter();
+  readonly chroma = new Chroma81();
+  /** Instant LOAD/SAVE traps (the Tape pane's "Fast ROM loading"). */
+  tapeFastRom = true;
+  /** Turbo while the deck plays into a loader (the Tape pane's option). */
+  tapeTurboEnabled = true;
+  tapeTurboActive = false;
+  private tapeTurboCooldown = 0;
+  /** CPU time the deck has been run up to. */
+  private tapeLastT = 0;
+  zonxFitted = false;
+  printerFitted = false;
+  chromaFitted = false;
+  /** Mix the MIC/vertical-sync line into the sound (the TV-sync buzz). */
+  vsyncSound = false;
+  /** The ULA's vertical sync: started by a keyboard read, ended by any OUT.
+   *  The MIC output is low while it is on. */
+  private vsync = false;
   /** The most recent SAVE since the last reset — what the Save menu's
    *  "Saved tape" entry downloads (as a .p / .o image). */
   lastSave: Zx81Program | null = null;
@@ -171,6 +203,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.model = model;
     this.display = display;
     this.memory = new Zx8xMemory(model);
+    this.cassette = new Zx8xCassette(model);
     this.mixer.beeperGain = 0;
     this.mixer.ayGain = 0;
     this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
@@ -197,7 +230,11 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       }
       let value = this.memory.hasMemotechHrg && (this.cpu.i & 1) !== 0 && addr < 0x400
         ? this.memory.readMemotechOverlay(addr)
-        : this.memory.readByte(addr);
+        : this.chromaFitted && addr >= CHROMA_RAM_BASE && !m1
+          // The Chroma's RAM answers data reads; a display opcode fetch
+          // still sees the display file echoed from $4000.
+          ? this.chroma.ram[addr - CHROMA_RAM_BASE]
+          : this.memory.readByte(addr);
       // During an opcode fetch from the echoed display file the ULA presents a
       // NOP for a character byte; a 0x76 line terminator remains HALT.
       if (m1 && addr >= 0x8000) {
@@ -212,28 +249,58 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       if (this.memory.hasQuickSilvaHrg && addr >= 0x2000 && addr < 0x4000) {
         this.quickSilvaMode = false;
       }
-      this.memory.writeByte(addr, value);
+      if (this.chromaFitted && addr >= CHROMA_RAM_BASE) this.chroma.ram[addr - CHROMA_RAM_BASE] = value;
+      else this.memory.writeByte(addr, value);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr, value & 0xff, 'write');
     };
     this.cpu._contendAccurate = () => {};
     this.cpu.contend = () => {};
     this.cpu.portInHandler = (port: number): number => {
-      if (this.memory.hasMemotechHrg && (port & 0xff) === 0x5f) {
+      const low = port & 0xff;
+      if (this.memory.hasMemotechHrg && low === 0x5f) {
         this.memotechMode = (port >> 8) & 0xff;
         return 0xff;
       }
-      this.activity.kbdReads++;
-      const value = 0x60 | this.keyboard.read((port >> 8) & 0xff);
+      let value: number;
+      if (this.chromaFitted && (port & 0xffff) === CHROMA_PORT) {
+        value = this.chroma.read();
+      } else if (this.printerFitted && (low & 0x05) === 0x01) {
+        // A2 low selects the printer (A0 high: not the ULA's keyboard read).
+        value = this.printer.read(this.cpu.tStates);
+      } else {
+        this.activity.kbdReads++;
+        value = 0x60 | this.keyboard.read((port >> 8) & 0xff);
+        // The ULA's read (A0 low) starts vertical sync — on the ZX81 only
+        // while the NMI generator is off, as the ROM arranges before it.
+        if ((low & 0x01) === 0 && (this.model === 'zx80' || !this.nmiEnabled)) this.setVsync(true);
+        if (this.cassette.running) {
+          this.advanceTape();
+          this.activity.earReads++;
+          if (this.cassette.deck.earBit) value |= 0x80;
+        }
+      }
       if (this.portWatchpoints.size > 0) this.recordPortWatch(port & 0xffff, value, 'in');
       return value;
     };
     this.cpu.portOutHandler = (port: number, value: number): void => {
       const low = port & 0xff;
+      // Any OUT ends vertical sync.
+      this.setVsync(false);
       if (this.model === 'zx81') {
         this.observeZx81SyncStart();
         if (low === 0xfe) this.nmiEnabled = true;
         else if (low === 0xfd) this.nmiEnabled = false;
       }
+      // ZON X-81: A0-A3 high and A4 low select it, A7 picks register/data.
+      if (this.zonxFitted && (low & 0x1f) === 0x0f) {
+        if (low & 0x80) this.ay.selectRegister(value & 0xff);
+        else {
+          this.ay.writeRegister(this.ay.selectedReg, value & 0xff);
+          this.activity.ayWrites++;
+        }
+      }
+      if (this.printerFitted && (low & 0x04) === 0) this.printer.write(value & 0xff, this.cpu.tStates);
+      if (this.chromaFitted && (port & 0xffff) === CHROMA_PORT) this.chroma.write(value & 0xff);
       if (this.portWatchpoints.size > 0) this.recordPortWatch(port & 0xffff, value & 0xff, 'out');
     };
   }
@@ -282,12 +349,66 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     return zx81NameToAscii(codes).trim();
   }
 
-  /** Replace the ROM's cassette byte loops with a direct transfer of the
-   *  program image; on completion resume where LOAD/SAVE's end test goes (its
-   *  own return address already dropped: the ZX81's SLOW/FAST then returns
-   *  from the command, the ZX80 re-enters its editor). */
+  /** Vertical sync on or off; the MIC output (low during sync) is recorded. */
+  private setVsync(on: boolean): void {
+    if (on === this.vsync) return;
+    this.vsync = on;
+    this.micRecorder.observe(on ? 0 : 1, this.cpu.tStates);
+  }
+
+  /** The MIC line's level: high except during vertical sync. */
+  get micLevel(): number { return this.vsync ? 0 : 1; }
+
+  /** Run the deck up to the CPU's current T-state. */
+  private advanceTape(): void {
+    const delta = this.cpu.tStates - this.tapeLastT;
+    if (delta > 0) this.cassette.deck.advance(delta);
+    this.tapeLastT = this.cpu.tStates;
+  }
+
+  /** Start the deck in real time for a loader (the ROM's LOAD, or the user's
+   *  PLAY), from the current position. */
+  playTape(): void {
+    const deck = this.cassette.deck;
+    deck.paused = false;
+    if (!deck.playing) deck.startPlayback();
+    this.tapeLastT = this.cpu.tStates;
+  }
+
+  /** Copy a program image into RAM for LOAD, or say why it cannot. */
+  private deliverProgram(map: TapeRomMap, program: Zx81Program): boolean {
+    if (program.data.length > this.memory.ramSize - (map.base - 0x4000)) {
+      this.tapeStatus(`${program.name || 'Program'} needs 16KB RAM`);
+      return false;
+    }
+    for (let i = 0; i < program.data.length; i++) this.memory.writeByte(map.base + i, program.data[i]);
+    this.cpu.pc = map.resume;
+    this.lastTapeStatus = '';
+    this.tapeStatus(map.named ? `Loaded "${program.name}" (${program.data.length} bytes)` : `Loaded program (${program.data.length} bytes)`);
+    return true;
+  }
+
+  /**
+   * The ROM has reached its SAVE, or its LOAD is listening for a tape.
+   *
+   * With "Fast ROM loading" on, SAVE records the program image directly and
+   * LOAD reads the next program (or the named one) from the cassette's index,
+   * then from the SAVEd shelf — on completion resuming where LOAD/SAVE's end
+   * test goes (its own return address already dropped: the ZX81's SLOW/FAST
+   * then returns from the command, the ZX80 re-enters its editor). Whatever
+   * the trap cannot serve is left to the real routines: LOAD starts the deck
+   * playing (unless the user stopped it) and reads its pulses through the EAR
+   * bit; SAVE writes its pulses on the MIC line.
+   */
   private serviceTapeTrap(map: TapeRomMap, pc: number): void {
     if (pc === map.save) {
+      if (!this.tapeFastRom) {
+        // The real SAVE is about to write: start the MIC capture afresh, so
+        // what it holds is this program (a long real-time LOAD before it
+        // toggles sync at every sample and could have filled it).
+        this.micRecorder.reset();
+        return;
+      }
       const name = map.named ? this.readTapeName((this.cpu.d << 8) | this.cpu.e) : 'PROGRAM';
       const end = this.read16(map.eLine);
       if (end <= map.base || end > 0x8000) return;
@@ -295,30 +416,37 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       for (let i = 0; i < data.length; i++) data[i] = this.memory.readByte(map.base + i);
       this.tapeShelf.record(name, data);
       this.lastSave = { name, data };
+      // Nothing was written on the MIC line: an older capture is not newer
+      // than this SAVE.
+      this.micRecorder.reset();
       this.cpu.pc = map.resume;
       this.lastTapeStatus = '';
       this.tapeStatus(map.named ? `Saved "${name}" (${data.length} bytes)` : `Saved program (${data.length} bytes)`);
       return;
     }
+    this.activity.tapePolls++;
+    const cassette = this.cassette;
+    // The deck is already feeding the real LOAD: leave it to it.
+    if (cassette.running) return;
     // ZX81: D bit 7 marks LOAD "" (see LOAD at $0340: RL D / RRC D).
     const name = !map.named || (this.cpu.d & 0x80)
       ? null
       : this.readTapeName(((this.cpu.d & 0x7f) << 8) | this.cpu.e);
-    const program = this.tapeShelf.take(name);
+    if (this.tapeFastRom) {
+      const fromTape = cassette.take(name);
+      if (fromTape) { this.deliverProgram(map, fromTape); return; }
+    }
+    if (cassette.loaded && cassette.unplayed && !cassette.userHold) {
+      this.playTape();
+      return;
+    }
+    if (this.tapeFastRom) {
+      const shelved = this.tapeShelf.take(name);
+      if (shelved) { this.deliverProgram(map, shelved); return; }
+    }
     const label = !map.named ? 'LOAD' : name === null ? 'LOAD ""' : `LOAD "${name}"`;
-    if (!program) {
-      const ext = map.named ? '.p' : '.o';
-      this.tapeStatus(`${label}: waiting for tape - mount a ${ext} file (SPACE to break)`);
-      return;
-    }
-    if (program.data.length > this.memory.ramSize - (map.base - 0x4000)) {
-      this.tapeStatus(`${program.name} needs 16KB RAM`);
-      return;
-    }
-    for (let i = 0; i < program.data.length; i++) this.memory.writeByte(map.base + i, program.data[i]);
-    this.cpu.pc = map.resume;
-    this.lastTapeStatus = '';
-    this.tapeStatus(`Loaded "${program.name}" (${program.data.length} bytes)`);
+    const ext = map.named ? '.p' : '.o';
+    this.tapeStatus(`${label}: waiting for tape - insert a ${ext}, .tzx or .wav (SPACE to break)`);
   }
 
   applySettings(view: SettingsView): void {
@@ -335,6 +463,16 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       else if (view.get('zx81-udg128-ram', false)) this.memory.setUdg128Ram(true);
       else if (view.get('zx81-udg-ram', false)) this.memory.setUdgRam(true);
     }
+    this.printerFitted = this.model === 'zx81' && view.get('zx81-zx-printer', false);
+    this.chromaFitted = this.model === 'zx81' && view.get('zx81-chroma81', false);
+    this.zonxFitted = view.get('zx8x-zonx', false);
+    this.vsyncSound = view.get('zx8x-vsync-sound', false);
+    this.tapeFastRom = view.get('tape-instant-rom', true);
+    this.tapeTurboEnabled = view.get('tape-turbo-load', true);
+    if (!this.tapeTurboEnabled) this.tapeTurboActive = false;
+    const gains = soundDeviceGains(zx8xDescriptor(this.model).ui.soundDevices, view);
+    this.mixer.beeperGain = this.vsyncSound ? gains.beeper ?? 1 : 0;
+    this.mixer.ayGain = this.zonxFitted ? gains.psg ?? 1 : 0;
     this.audio.setVolume(view.get('volume', 70) / 100);
   }
 
@@ -442,6 +580,16 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.keyboard.reset();
     this.lastSave = null;
     this.nmiEnabled = false;
+    this.vsync = false;
+    this.micRecorder.reset();
+    this.ay.reset();
+    this.chroma.reset();
+    this.printer.reset(this.cpu.tStates);
+    // The tape stays in the deck, stopped where it was.
+    if (this.cassette.deck.playing) this.cassette.deck.stopPlayback();
+    this.tapeTurboActive = false;
+    this.tapeTurboCooldown = 0;
+    this.tapeLastT = this.cpu.tStates;
     this.audio.reset();
     this.mixer.reset();
     this.resetPseudoHires();
@@ -458,7 +606,8 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   }
 
   protected framePixels(): Uint8Array { return this.frame; }
-  protected inTurbo(): boolean { return this.turbo; }
+  /** Manual turbo, or the automatic turbo while the deck feeds a loader. */
+  protected inTurbo(): boolean { return this.turbo || this.tapeTurboActive; }
 
   // ── Beam ───────────────────────────────────────────────────────────────
 
@@ -490,8 +639,14 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     let resumed = this.openFrame(ZX8X_T_PER_FRAME);
     if (!resumed) {
       this.activity.kbdReads = 0;
+      this.activity.earReads = 0;
+      this.activity.tapePolls = 0;
+      this.activity.ayWrites = 0;
       this.fLine = 0;
     }
+    // A deck that is not running has nothing to catch up on.
+    if (!this.cassette.running) this.tapeLastT = this.cpu.tStates;
+    const skipAudio = this.turbo || this.tapeTurboActive;
     this.portWatchHit = null;
     this.memWatchHit = null;
     const lineT = ZX8X_T_PER_FRAME / ZX8X_LINES_PER_FRAME;
@@ -524,9 +679,11 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         // software always follows with EI, whose one-instruction delay hides it.)
         if (this.cpu.iff1 && !this.cpu.eiDelay && ((this.cpu.r - 1) & 0x40) === 0) this.cpu.interrupt();
         const elapsed = this.cpu.tStates - lastAudio;
-        if (!this.turbo && elapsed > 0) {
-          this.mixer.accumulate(0, elapsed);
-          this.mixer.generateSamples(this.audio, null, false);
+        if (!skipAudio && elapsed > 0) {
+          // The speaker path: the MIC/vertical-sync line when "VSYNC sound"
+          // is on (beeperGain is 0 otherwise), and the ZON X-81's AY.
+          this.mixer.accumulate(this.vsync ? 0 : 1, elapsed);
+          this.mixer.generateSamples(this.audio, this.zonxFitted ? this.ay : null, this.zonxFitted);
           lastAudio = this.cpu.tStates;
         }
         // Stop on the instruction that tripped a watchpoint once /INT has
@@ -547,6 +704,27 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.renderCurrentVideo();
     this.displayFetched = false;
     this.needsDisplay = true;
+    this.endFramePeripherals();
+  }
+
+  /** Bring the deck and printer up to the end of the frame and decide the
+   *  loading turbo: on while the deck plays into something polling the EAR
+   *  bit hard (a loader samples thousands of times a frame; the keyboard
+   *  scan a handful), off a little after it stops. */
+  private endFramePeripherals(): void {
+    if (this.cassette.running) this.advanceTape();
+    if (this.printerFitted) this.printer.advance(this.cpu.tStates);
+    const deck = this.cassette.deck;
+    const loading = this.cassette.running && !deck.finished && this.activity.earReads > 100;
+    if (loading) {
+      if (this.tapeTurboEnabled) this.tapeTurboActive = true;
+      this.tapeTurboCooldown = 25;
+    } else if (this.tapeTurboCooldown > 0) {
+      if (--this.tapeTurboCooldown === 0) { this.tapeTurboActive = false; this.mixer.reset(); }
+    } else if (this.tapeTurboActive) {
+      this.tapeTurboActive = false;
+      this.mixer.reset();
+    }
   }
 
   /** Capture the video byte selected during this M1 fetch.
@@ -849,12 +1027,14 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   private renderCurrentVideo(): void {
     if (this.renderMemotechHrg() || this.renderQuickSilvaHrg()) return;
     if (this.renderPseudoHires()) return;
+    const colour = this.chromaFitted && this.chroma.colourOn;
     if (this.model === 'zx81' && !this.displayFetched
         && (this.memory.readByte(ZX81_CDFLAG) & 0x80) === 0) {
-      this.frame32.fill(WHITE);
+      this.frame32.fill(colour ? this.chroma.border : WHITE);
       return;
     }
-    this.renderDisplayFile();
+    if (colour) this.renderDisplayFileChroma();
+    else this.renderDisplayFile();
   }
 
   private renderMemotechHrg(): boolean {
@@ -925,6 +1105,52 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     }
   }
 
+  /**
+   * The display file in Chroma 81 colour: the same walk as renderDisplayFile,
+   * each cell's pixels in its ink, the rest in its paper, from the character
+   * code table at $C000 (one byte per character line) or the attribute file
+   * 32K above the display file. Where no character is generated — the border,
+   * and the tail of a collapsed row — is the border colour.
+   */
+  private renderDisplayFileChroma(): void {
+    const chroma = this.chroma;
+    const ram = chroma.ram;
+    this.frame32.fill(chroma.border);
+    let ptr = this.read16(0x400c);
+    if (ptr < 0x4000 || ptr > 0x7fff) return;
+    if (this.memory.readByte(ptr) === 0x76) ptr++;
+    const fontPage = this.cpu.i || 0x1e;
+    const udg128 = this.memory.isUdg128PatternAddress(fontPage << 8);
+    const attributes = chroma.attributeMode;
+    for (let row = 0; row < 24; row++) {
+      let col = 0;
+      while (col < 32) {
+        const cell = ptr;
+        const code = this.memory.readByte(ptr++);
+        if (code === 0x76) break;
+        const inverse = (code & 0x80) !== 0 && !udg128;
+        const charIndex = (code & 0x3f) | (udg128 ? ((code & 0x80) >> 1) : 0);
+        const glyph = (fontPage << 8) + (charIndex << 3);
+        // Character code mode: normal codes first, inverse codes after them.
+        const table = ((code & 0x3f) | ((code & 0x80) >> 1)) << 3;
+        const attr = attributes ? ram[(cell | CHROMA_RAM_BASE) - CHROMA_RAM_BASE] : 0;
+        for (let gy = 0; gy < 8; gy++) {
+          const colours = attributes ? attr : ram[table + gy];
+          const ink = CHROMA_PALETTE[colours & 0x0f];
+          const paper = CHROMA_PALETTE[colours >> 4];
+          const bits = this.memory.readByte(glyph + gy);
+          const base = (ZX8X_BORDER_TOP + row * 8 + gy) * ZX8X_SCREEN_WIDTH + ZX8X_BORDER_LEFT + col * 8;
+          for (let gx = 0; gx < 8; gx++) {
+            const set = ((bits >> (7 - gx)) & 1) !== 0;
+            this.frame32[base + gx] = set !== inverse ? ink : paper;
+          }
+        }
+        col++;
+      }
+      if (col === 32 && this.memory.readByte(ptr) === 0x76) ptr++;
+    }
+  }
+
   // ── Snapshot state (.zx8xstate) ───────────────────────────────────────
 
   /** CRC-32s of the system ROM and of the HRG board's ROM (0 when none). */
@@ -950,6 +1176,13 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   saveState(w: StateWriter, _withMedia: boolean): void {
     this.completeFrame();
     w.section('CONF', () => { w.u8(this.memory.has16kExpansion ? 16 : 1); w.u8(this.memory.boardId); });
+    w.section('PERI', () => {
+      w.u8(this.peripheralFlags());
+      w.bool(this.vsync);
+      if (this.zonxFitted) this.ay.saveState(w);
+      if (this.printerFitted) this.printer.saveState(w);
+      if (this.chromaFitted) this.chroma.saveState(w);
+    });
     w.section('CPU ', () => this.cpu.saveState(w));
     w.section('MACH', () => {
       w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
@@ -974,7 +1207,24 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       const name = (id: number) => ['no graphics board', 'the UDG board', 'the UDG128 board', 'WRX RAM', 'the Memotech HRG', 'the QuickSilva HRG'][id] ?? 'an unknown board';
       throw new Error(`This snapshot was saved with ${name(board)} and this machine has ${name(this.memory.boardId)}; change it in the Hardware pane and load it again`);
     }
+    // Add-ons (ZON X-81, ZX Printer, Chroma 81): a state from before they
+    // existed has no PERI section and simply had none fitted.
+    const peri = r.peekSection('PERI') ? r.section('PERI') : null;
+    const flags = peri ? peri.u8() : 0;
+    const missing = flags & ~this.peripheralFlags();
+    if (missing) {
+      const names = PERIPHERAL_NAMES.filter((_, bit) => missing & (1 << bit)).join(' and ');
+      throw new Error(`This snapshot was saved with the ${names} fitted; fit it in the Hardware pane and load it again`);
+    }
+    this.vsync = peri ? peri.bool() : false;
+    this.ay.reset();
+    this.chroma.reset();
+    this.printer.reset(0);
+    if (flags & 1) this.ay.loadState(peri!);
+    if (flags & 2) this.printer.loadState(peri!);
+    if (flags & 4) this.chroma.loadState(peri!);
     this.cpu.loadState(r.section('CPU '));
+    if (!(flags & 2)) this.printer.syncClock(this.cpu.tStates);
     {
       const s = r.section('MACH');
       this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
@@ -988,11 +1238,22 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.midFrame = false;
     this.m1ReadPending = false;
     this.lastTapeStatus = '';
+    // The tape is not part of the state: the deck stops where it is.
+    if (this.cassette.deck.playing) this.cassette.deck.stopPlayback();
+    this.tapeLastT = this.cpu.tStates;
+    this.tapeTurboActive = false;
+    this.tapeTurboCooldown = 0;
+    this.micRecorder.reset();
     this.clearInterrupts();
     this.keyboard.reset();
     this.audio.reset();
     this.mixer.reset();
     this.needsDisplay = true;
+  }
+
+  /** Bit 0 ZON X-81, bit 1 ZX Printer, bit 2 Chroma 81 (see PERIPHERAL_NAMES). */
+  private peripheralFlags(): number {
+    return (this.zonxFitted ? 1 : 0) | (this.printerFitted ? 2 : 0) | (this.chromaFitted ? 4 : 0);
   }
 
   private savePseudoHires(w: StateWriter): void {

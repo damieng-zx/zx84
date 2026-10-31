@@ -8,6 +8,13 @@
  *   CONF  u8 RAM in KB (1, or 16 with the pack), u8 graphics board (0 none,
  *         1 UDG, 2 UDG128, 3 WRX, 4 Memotech HRG, 5 QuickSilva HRG) — a
  *         mismatch is refused
+ *   PERI  u8 add-ons fitted (bit 0 ZON X-81, bit 1 ZX Printer, bit 2 Chroma 81),
+ *         bool vertical sync (the MIC line) on, then the state of each fitted
+ *         add-on in that order: the AY (`AY3891x.saveState`), the printer
+ *         (stylus/motor/latches, belt phase, the printout so far) and the
+ *         Chroma 81 (control register, its 16K of RAM). A state that names an
+ *         add-on this machine does not have is refused. States from before the
+ *         add-ons existed have no PERI section and load as "none fitted".
  *   CPU   the Z80 (`Z80.saveState`)
  *   MACH  f64 frame start, f64 frame end, f64 frame number (the beam grid),
  *         bool NMI generator on, u8 Memotech HRG mode, bool QuickSilva mode,
@@ -17,8 +24,9 @@
  *         buffers and their timing, which span frames
  *
  * The HEAD carries two ROM CRCs: the system ROM and the HRG board's ROM (0
- * when there is none). The program shelf the LOAD trap reads (the "tape") is
- * not part of the state.
+ * when there is none). The cassette in the deck, the program shelf and the
+ * MIC recording of a SAVE are the session's media, not part of the state: a
+ * restore leaves the deck stopped where it is.
  */
 
 import type { NativeStateSpec } from '@/machines/shared/native-state.ts';
