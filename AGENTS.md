@@ -13,7 +13,7 @@ depcheck`, zero exceptions).
 
 - `src/cores/` — **commodity silicon only**: chips that shipped in more than one
   machine (Z80, AY-3-891x, TMS9918A, CRTC 6845, uPD765A, WD179x/1772/1793, Z80
-  CTC, i8255, MOS 6502, 6522 VIA, Intel 8271, SAA5050). Pure — imports only other cores, `src/media/` *types*, `src/utils/`.
+  CTC, i8255, MOS 6502, 6522 VIA, Intel 8271, SAA5050, COP420). Pure — imports only other cores, `src/media/` *types*, `src/utils/`.
   Custom silicon that only ever existed in one machine (the Spectrum's Ferranti
   ULA, the CPC's Amstrad gate array, the microdrive) is **not** here — it lives
   in that machine's folder.
