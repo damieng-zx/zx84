@@ -36,14 +36,17 @@ import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-lo
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
+import type { C64Program } from '@/media/tape/t64.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
-  BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
+  AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
+import { readVic20Expansion, vic20BasicStart } from './options.ts';
 import type { Vic20Model } from './models.ts';
 import { Vic20Memory, type Vic20RamExpansion } from './memory.ts';
 import { Vic20Keyboard } from './keyboard.ts';
 import { Vic } from './vic.ts';
+import { VicSound } from './vic-sound.ts';
 import { vic20Descriptor } from './descriptor.ts';
 import { vic20Chips } from './chip-dump.ts';
 import { createVic20Services, type Vic20Services } from './services/index.ts';
@@ -58,6 +61,18 @@ import {
 const JOY_VIA1: Readonly<Record<string, number>> = { up: 0x04, down: 0x08, left: 0x10, fire: 0x20 };
 const JOY_RIGHT = 0x80;
 
+/** BASIC's pointers, set when a program is loaded at the start of BASIC, and
+ *  the KERNAL's keyboard buffer (the same places as on the C64). */
+const TXTTAB = 0x2B;
+const VARTAB = 0x2D;
+const ARYTAB = 0x2F;
+const STREND = 0x31;
+const KEYBUF = 0x0277;
+const KEYBUF_COUNT = 0xC6;
+/** Frames after a reset by which BASIC is ready whatever the ROMs (the real
+ *  KERNAL gets there in under two seconds). */
+const BOOT_FRAMES = 300;
+
 /** The VIA's CA2/CB2 is an output held high (PCR mode 7) — through the
  *  inverter, its serial line is pulled low. */
 function ca2High(via: M6522): boolean { return ((via.pcr >> 1) & 7) === 7; }
@@ -66,12 +81,6 @@ function cb2High(via: M6522): boolean { return ((via.pcr >> 5) & 7) === 7; }
 /** A port's pins as the chip drives them: outputs as latched, inputs high. */
 function drivenA(via: M6522): number { return ((via.ora & via.ddra) | (~via.ddra & 0xFF)) & 0xFF; }
 function drivenB(via: M6522): number { return ((via.orb & via.ddrb) | (~via.ddrb & 0xFF)) & 0xFF; }
-
-/** The VIC-20 makes no sound until the VIC's voices are written (Phase 2);
- *  this only gives the frame loop a chip to size. */
-class NoSound {
-  setSampleRate(_rate: number): void {}
-}
 
 export class Vic20Machine extends BaseMachine implements Machine {
   readonly kind: MachineKind = 'vic20';
@@ -83,6 +92,8 @@ export class Vic20Machine extends BaseMachine implements Machine {
   readonly memory = new Vic20Memory();
   readonly timing: Vic20Timing;
   readonly vic: Vic;
+  /** The VIC's voices, run from its registers. */
+  readonly sound: VicSound;
   readonly via1 = new M6522();
   readonly via2 = new M6522();
   readonly keyboard = new Vic20Keyboard();
@@ -91,19 +102,27 @@ export class Vic20Machine extends BaseMachine implements Machine {
   readonly audio = new Audio();
   display: IScreenRenderer | null;
   private readonly _pixels: Uint8Array;
-  protected readonly audioChip = new NoSound();
+  protected get audioChip(): VicSound { return this.sound; }
 
-  readonly activity = { kbdReads: 0, joyReads: 0 };
+  readonly activity = { kbdReads: 0, joyReads: 0, soundWrites: 0 };
 
   /** Joystick directions held: `up`/`down`/`left`/`fire` bits for VIA 1 and
    *  the right bit for VIA 2, active high here. */
   private joyVia1 = 0;
   private joyRight = false;
+  /** Paddles in the control port (the host mouse turning them), and their
+   *  fire buttons: X's on the joystick-left line, Y's on joystick-right. */
+  private paddles = false;
+  private paddleButtons = 0;
 
   /** NMI is edge-triggered: VIA 1's interrupt output, last seen. */
   private nmiLevel = false;
   /** The cycle the VIAs have been brought up to. */
   private viaT = 0;
+
+  /** A program waiting for BASIC to be ready before it is put in memory. */
+  private pendingProgram: { prog: C64Program; run: boolean } | null = null;
+  private framesSinceReset = 0;
 
   // The instruction in progress, for timing its register accesses.
   private insnStart = 0;
@@ -116,8 +135,9 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.timing = vic20Timing(ntsc);
     this.mixer = new AudioMixer(this.timing.clockHz);
     this.mixer.beeperGain = 0;
-    this.mixer.psgGain = 0;
+    this.mixer.psgGain = 1;
     this.vic = new Vic(this.memory, this.timing);
+    this.sound = new VicSound(this.vic.regs, this.timing.clockHz);
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
     this.deferAccessStamps = true;
 
@@ -166,13 +186,13 @@ export class Vic20Machine extends BaseMachine implements Machine {
     let a1 = 0xFF;
     if (out & 2) a1 &= ~0x01;
     if (out & 4) a1 &= ~0x02;
-    a1 &= ~this.joyVia1;
+    a1 &= ~(this.joyVia1 | ((this.paddleButtons & 1) !== 0 ? JOY_VIA1.left : 0));
     via1.portAInput = a1;
     via1.portBInput = 0xFF;
     // VIA 2: the matrix between port B (columns) and port A (rows). The
     // joystick's right switch pulls PB7 low, which the keyboard sees as
     // column 7 driven.
-    const right = this.joyRight ? JOY_RIGHT : 0;
+    const right = this.joyRight || (this.paddleButtons & 2) !== 0 ? JOY_RIGHT : 0;
     const columns = drivenB(via2) & ~right;
     via2.portAInput = keyboard.rowsFor(columns);
     via2.portBInput = keyboard.columnsFor(drivenA(via2)) & ~right;
@@ -209,7 +229,15 @@ export class Vic20Machine extends BaseMachine implements Machine {
 
     memory.ioWrite = (addr, value) => {
       const t = this.accessT(addr, true);
-      if ((addr & 0x0300) === 0) { vic.write(addr, value, t); return; }
+      if ((addr & 0x0300) === 0) {
+        const reg = addr & 0x0F;
+        if (reg >= 10 && reg <= 14) {
+          this.sound.advanceTo(t);
+          this.activity.soundWrites++;
+        }
+        vic.write(addr, value, t);
+        return;
+      }
       this.syncVias(t);
       const reg = addr & 0x0F;
       if (addr & 0x10) via1.write(reg, value);
@@ -286,9 +314,16 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.setStatus(`VIC-20 ROMs loaded (${data.length} bytes)`);
   }
 
-  /** Fit expansion RAM; the machine starts over with it, as it must. */
+  /** Fit expansion RAM. Done with the power off: the next reset starts the
+   *  KERNAL over, and it sizes the RAM afresh. */
   setRamExpansion(exp: Vic20RamExpansion): void {
     this.memory.setExpansion(exp);
+  }
+
+  /** Fit the expansion RAM the Hardware pane asks for. No peripheral ROMs yet. */
+  prepare(view: SettingsView): AuxRomRequest[] {
+    this.setRamExpansion(readVic20Expansion(view));
+    return [];
   }
 
   reset(): void {
@@ -307,14 +342,70 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.joyVia1 = 0;
     this.joyRight = false;
     this.cpu.reset();
+    this.sound.reset();
+    this.sound.now = this.cpu.tStates;
     this.viaT = this.cpu.tStates;
     this.nmiLevel = false;
     this.midFrame = false;
+    this.framesSinceReset = 0;
+    this.pendingProgram = null;
     this.clearInterrupts();
     this.updatePins();
     this.mixer.reset();
     this.audio.reset();
     this.needsDisplay = true;
+  }
+
+  // ── Programs (.prg / .t64) ───────────────────────────────────────────────
+
+  /** Where BASIC starts with the RAM fitted: $1201 with BLK1 (the screen
+   *  moves to $1000 and the 3K, if fitted, is left out), $0401 with the 3K
+   *  alone, else $1001. */
+  get basicStart(): number { return vic20BasicStart(this.memory.expansion); }
+
+  /**
+   * Start a program the way LOAD and RUN would on a freshly switched-on
+   * VIC-20: the machine is reset and the program goes into memory once BASIC
+   * is at READY. A program at the start of BASIC gets BASIC's pointers set
+   * and, with `run`, RUN typed for it. Bytes that fall where no RAM is fitted
+   * are dropped, as the bus would drop them. Safe while running: it only
+   * touches the hardware between frames.
+   */
+  injectProgram(prog: C64Program, run: boolean): void {
+    this.resetHardware();
+    this.pendingProgram = { prog, run };
+  }
+
+  private basicReady(): boolean {
+    if (this.framesSinceReset >= BOOT_FRAMES) return true;
+    return this.framesSinceReset >= 10 && /(^|\n)READY\./.test(vic20ScreenText(this.memory, this.vic));
+  }
+
+  private applyPendingProgram(): void {
+    const pending = this.pendingProgram;
+    if (!pending) return;
+    this.pendingProgram = null;
+    const { prog, run } = pending;
+    const mem = this.memory;
+    const end = Math.min(0x10000, prog.start + prog.data.length);
+    for (let a = prog.start; a < end; a++) {
+      if (mem.isRam(a)) mem.ram[a] = prog.data[a - prog.start];
+    }
+    const ram = mem.ram;
+    if (prog.start === (ram[TXTTAB] | (ram[TXTTAB + 1] << 8))) {
+      for (const ptr of [VARTAB, ARYTAB, STREND]) {
+        ram[ptr] = end & 0xFF;
+        ram[ptr + 1] = end >> 8;
+      }
+      if (run) {
+        const keys = [0x52, 0x55, 0x4E, 0x0D];   // R U N <return>
+        ram.set(keys, KEYBUF);
+        ram[KEYBUF_COUNT] = keys.length;
+      }
+      this.setStatus(`Loaded "${prog.name}"${run ? ' — RUN' : ''}`);
+    } else {
+      this.setStatus(`Loaded "${prog.name}" at $${prog.start.toString(16).toUpperCase()} — start it with SYS`);
+    }
   }
 
   // ── Input ────────────────────────────────────────────────────────────────
@@ -329,6 +420,33 @@ export class Vic20Machine extends BaseMachine implements Machine {
 
   releaseJoysticks(): void { this.joyVia1 = 0; this.joyRight = false; }
 
+  // ── Paddles ──────────────────────────────────────────────────────────────
+
+  /** Plug a pair of paddles into the control port, or take them out. With
+   *  none, the VIC's POT inputs float up and read $FF. */
+  setPaddles(on: boolean): void {
+    this.paddles = on;
+    this.paddleButtons = 0;
+    this.vic.potX = this.vic.potY = on ? 0x80 : 0xFF;
+  }
+
+  /** Turn the paddles: X with the mouse's left-right, Y with its up-down. A
+   *  paddle turned clockwise (the mouse moved right or down) reads lower, as
+   *  its resistance falls and the VIC's count with it. */
+  turnPaddles(dx: number, dy: number): void {
+    if (!this.paddles) return;
+    const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+    this.vic.potX = clamp(this.vic.potX - dx);
+    this.vic.potY = clamp(this.vic.potY - dy);
+  }
+
+  /** A paddle's fire button: 0 for X's, 1 for Y's. */
+  setPaddleButton(index: 0 | 1, pressed: boolean): void {
+    if (!this.paddles) return;
+    const bit = 1 << index;
+    this.paddleButtons = pressed ? this.paddleButtons | bit : this.paddleButtons & ~bit;
+  }
+
   // ── Frame ────────────────────────────────────────────────────────────────
 
   protected framePixels(): Uint8Array { return this._pixels; }
@@ -337,9 +455,15 @@ export class Vic20Machine extends BaseMachine implements Machine {
 
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1;
+    if (this.sound.audible === skipAudio) {
+      // Turbo on or off: what was queued no longer lines up with the mixer.
+      this.sound.audible = !skipAudio;
+      this.sound.flush();
+    }
     if (!this.openFrame(this.timing.cyclesPerFrame)) {
       this.activity.kbdReads = 0;
       this.activity.joyReads = 0;
+      this.activity.soundWrites = 0;
       this.keyboard.reads = 0;
       this.vic.beginFrame(this.frameStartT);
     }
@@ -362,10 +486,10 @@ export class Vic20Machine extends BaseMachine implements Machine {
       const stopped = this.afterInsn();
       this.syncVias(cpu.tStates);
       this.updateInterrupts();
+      this.sound.advanceTo(cpu.tStates);
       if (!skipAudio) {
-        // Silence still has to be fed: the frame loop paces itself on the audio buffer.
         this.mixer.accumulate(0, cpu.tStates - before);
-        this.mixer.generateSamples(this.audio, null, false);
+        this.mixer.generateSamples(this.audio, this.sound, true);
       }
       if (stopped) {
         this.midFrame = true;
@@ -375,6 +499,8 @@ export class Vic20Machine extends BaseMachine implements Machine {
       }
     }
     this.vic.drawTo(endT);
+    this.framesSinceReset++;
+    if (this.pendingProgram && this.basicReady()) this.applyPendingProgram();
     this.needsDisplay = true;
   }
 
@@ -459,6 +585,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
     });
     w.section('MEM ', () => this.memory.saveState(w));
     w.section('VIC ', () => this.vic.saveState(w));
+    w.section('SND ', () => this.sound.saveState(w));
     w.section('VIA1', () => this.via1.saveState(w));
     w.section('VIA2', () => this.via2.saveState(w));
   }
@@ -488,10 +615,13 @@ export class Vic20Machine extends BaseMachine implements Machine {
     }
     this.memory.loadState(r.section('MEM '));
     this.vic.loadState(r.section('VIC '));
+    this.sound.loadState(r.section('SND '));
     this.via1.loadState(r.section('VIA1'));
     this.via2.loadState(r.section('VIA2'));
     this.viaT = this.cpu.tStates;
     this.midFrame = false;
+    this.pendingProgram = null;
+    this.framesSinceReset = BOOT_FRAMES;
     this.clearInterrupts();
     this.keyboard.reset();
     this.joyVia1 = 0;

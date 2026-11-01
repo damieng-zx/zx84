@@ -569,6 +569,9 @@ export interface MachineHost {
    *  that carries the board revision), so the panes and the next session agree
    *  with the running machine. Absent headless. */
   setFlagSetting?(key: string, on: boolean): void;
+  /** The same for a setting with a text value (the RAM expansion a program
+   *  needs, chosen before the machine is rebuilt for it). Absent headless. */
+  setTextSetting?(key: string, value: string): void;
   /** The operator's EPROM box: persistence + rebuild ops backing RomService.
    *  Provided by the shell (rom-manager + model switch); absent headless. */
   roms?: RomHostOps;

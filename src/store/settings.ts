@@ -131,6 +131,8 @@ const DEFAULTS = {
   'apple2-disk2':   'on',
   'c64-drive':      'on',
   'c64-sid':        '6581',
+  'vic20-ram':      'none',
+  'vic20-blk5':     'off',
   'drive-counts':   '{}',
   'drive-models':   '{}',
   'apple2-langcard': 'on',
@@ -470,6 +472,10 @@ export const [apple2eEightyCol, setApple2eEightyCol] = signal(savedFlag('apple2e
 export const [apple1Ram, setApple1Ram] = signal(
   savedText('apple1-ram') as '4k' | '8k' | '16k' | '32k' | '48k');
 
+export const [vic20Ram, setVic20Ram] = signal(
+  savedText('vic20-ram') as 'none' | '3k' | '8k' | '16k' | '24k' | '27k');
+export const [vic20Blk5, setVic20Blk5] = signal(savedFlag('vic20-blk5'));
+
 export const [apple1BasicRam, setApple1BasicRam] = signal(savedFlag('apple1-basic-ram'));
 export const [apple1Aci, setApple1Aci] = signal(savedFlag('apple1-aci'));
 export const [mtx512kRam, setMtx512kRam] = signal(savedFlag('mtx-512k-ram'));
@@ -654,6 +660,8 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'pcw-60hz', set: setPcw60Hz, type: 'bool' },
     { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
     { key: 'c64-drive', set: setC64Drive, type: 'bool' },
+    { key: 'vic20-ram', set: setVic20Ram, type: 'string' },
+    { key: 'vic20-blk5', set: setVic20Blk5, type: 'bool' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
     { key: 'apple2-joystick', set: setApple2Joystick, type: 'bool' },
     { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },
@@ -691,6 +699,23 @@ export function setFlagSetting(key: string, on: boolean): boolean {
       if (d.key !== key || d.type !== 'bool') continue;
       d.set(on);
       persistSetting(key, on ? 'on' : 'off');
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Set and persist a string setting by its key, for a change that starts in a
+ * machine rather than a pane (a program that needs other expansion RAM).
+ * Returns false, changing nothing, for a key that is not a known string setting.
+ */
+export function setTextSetting(key: string, value: string): boolean {
+  for (const defs of Object.values(PANE_SETTINGS)) {
+    for (const d of defs) {
+      if (d.key !== key || d.type !== 'string') continue;
+      d.set(value);
+      persistSetting(key, value);
       return true;
     }
   }

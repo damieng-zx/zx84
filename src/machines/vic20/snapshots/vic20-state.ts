@@ -11,6 +11,7 @@
  *   MACH  f64 frame start, f64 frame end, f64 frame number, bool NMI line
  *   MEM   the 64K RAM array and the colour RAM
  *   VIC   the VIC's registers, bus byte and the frame's text-row state
+ *   SND   the VIC's voices: counters, shift registers, noise LFSR, clock
  *   VIA1  VIA 1 (`M6522.saveState`)
  *   VIA2  VIA 2
  *

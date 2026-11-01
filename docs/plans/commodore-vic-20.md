@@ -1,9 +1,9 @@
 # Plan: Commodore VIC-20
 
-Status: **Phase 1 built** (the machine is registered, draws its screen, scans
-its keyboard and takes its interrupts), **not yet booted on the real ROMs**:
-the ROM host was unreachable from where it was written, so the boot test
-skips. Phase 0 (the shared Commodore parts) is done. This plan covers what to build,
+Status: **Phases 0-2 built** (shared Commodore parts; the machine with its
+screen, keyboard and interrupts; sound, expansion RAM, programs, paddles and
+the on-screen keyboard), **not yet booted on the real ROMs**: the ROM host
+was unreachable from where it was written, so the boot test skips. This plan covers what to build,
 the order to build it in, and the one decision that has to come first: how
 the VIC-20 gets the parts it shares with the C64.
 
@@ -246,7 +246,36 @@ Planned scope, for reference:
   decode table. Boots to `**** CBM BASIC V2 ****` / `3583 BYTES FREE` (PAL,
   unexpanded).
 
-### Phase 2: sound, input, RAM expansion, programs
+### Phase 2: sound, input, RAM expansion, programs — ✅ built
+
+Done:
+
+- `vic-sound.ts`: three voices (prescalers 16 / 8 / 4, a 7-bit counter from
+  X to 127, an 8-bit Johnson shift register: f = clock / (256 >> voice) /
+  (128 - X)), a noise voice (a 16-bit LFSR at the Guide's noise rate), the
+  4-bit volume with a level of its own (so volume-register samples play),
+  run lazily and queued for the mixer like the SID. Snapshot section `SND `.
+- `options.ts` + `ui/hardware-section.tsx`: the RAM select (Unexpanded, 3K,
+  8K, 16K, 24K, 3K + 24K) and a BLK5 checkbox (`vic20-ram`, `vic20-blk5`).
+- `.prg` / `.t64` drop: reset, wait for `READY.` on the screen, put the
+  program in, set VARTAB/ARYTAB/STREND, type RUN. `vic20ExpansionFor` fits
+  the RAM the load address asks for first ($1001 / $0401 / $1201 + as many
+  blocks as it reaches; RAM under machine code elsewhere) and tells the
+  panes through a new `MachineHost.setTextSetting` (the string twin of
+  `setFlagSetting`).
+- Paddles in the Mouse pane: POT X/Y follow the mouse (moving right or down
+  reads lower, as a paddle turned clockwise does — unverified against a
+  real paddle), the buttons on the joystick-left and -right lines.
+- The C64's on-screen keyboard moved to `shared/ui/cbm-keyboard/`
+  (`CbmKeyboardPane`, given the machine to reach); the C64 and the VIC-20
+  each wrap it. The caps press keys by name, so one layout serves both
+  matrices.
+
+Still to check with the real ROMs: the BASIC bytes-free figure per
+expansion (3583 / 6655 / 11775 / 19967 / 28159 bytes free); the noise
+voice's sequence and rate.
+
+Planned scope, for reference:
 - VIC sound: three square voices, each clocked an octave apart, the noise voice, and
   4-bit master volume, through `AudioMixer`.
 - Joystick (split across the two VIAs), paddles (`$9008`/`$9009` + fire lines).

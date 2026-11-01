@@ -12,14 +12,13 @@ import type {
 import type { MachineModel } from '@/models.ts';
 import { vic20IsNtsc, vic20RomSources, type Vic20Model } from './models.ts';
 import { Vic20Machine } from './vic20-machine.ts';
-import { VIC20_JOY_PORT } from './services/input.ts';
+import { VIC20_JOY_PORT, VIC20_MOUSE_PADDLES } from './services/input.ts';
 import { VIC20_ROM_SIZE, vic20PixelAspect, vic20Screen, vic20Timing } from './constants.ts';
 
 const VIC20_UI: MachineUiCapabilities = {
-  // No tape, disk, mouse or on-screen keyboard yet (later phases of the plan).
+  // No tape or disk yet (later phases of the plan).
   hiddenPanes: [
-    'microdrive-panel', 'sysvar-panel', 'font-panel', 'mouse-panel',
-    'tape-panel', 'drive-panel', 'keyboard-panel',
+    'microdrive-panel', 'sysvar-panel', 'font-panel', 'tape-panel', 'drive-panel',
   ],
   memoryLayout: true,
   trace: true,
@@ -34,13 +33,15 @@ const VIC20_UI: MachineUiCapabilities = {
   joystickTypes: [{ id: VIC20_JOY_PORT, label: 'Control port' }],
   joystickFireButtons: 1,
   joystickPlayers: 1,
-  mouseTypes: [],
+  // A pair of paddles in the control port, turned with the host mouse.
+  mouseTypes: [{ id: VIC20_MOUSE_PADDLES, label: 'Paddles' }],
   cartridge: false,
   systemRomLabel: 'BASIC + KERNAL + characters',
   romPages: 0,
   beeper: false,
+  soundChip: 'VIC',
   psgControls: [],
-  statusLeds: ['kbd', 'text'],
+  statusLeds: ['kbd', 'chip', 'text'],
   keyboardBus: 'matrix',
   tapeSound: false,
   tapeExtensions: [],

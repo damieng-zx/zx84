@@ -1,5 +1,5 @@
 /**
- * What pressing the on-screen caps does to the 64's keyboard, free of any
+ * What pressing the on-screen caps does to a Commodore keyboard, free of any
  * framework so it can be tested against a real machine.
  *
  * Caps press the same matrix keys the host keyboard does, counted, so a cap
@@ -10,21 +10,21 @@
  * pulls the NMI line while held.
  */
 
-import type { C64Keyboard } from '../../keyboard.ts';
-import type { C64KeyDef } from './layout.ts';
+import type { CbmKeyboard } from '@/machines/shared/cbm/keyboard.ts';
+import type { CbmKeyDef } from './layout.ts';
 
-export class C64OnScreenKeys {
+export class CbmOnScreenKeys {
   /** Modifier caps latched for the next keystroke. */
   private readonly latched = new Set<string>();
   /** Ordinary caps held under the pointer, by cap id, with the key each presses. */
   private readonly down = new Map<string, string>();
   private lock = false;
 
-  constructor(private readonly keyboard: C64Keyboard) {}
+  constructor(private readonly keyboard: CbmKeyboard) {}
 
   get shiftLocked(): boolean { return this.lock; }
 
-  press(key: C64KeyDef): void {
+  press(key: CbmKeyDef): void {
     const kb = this.keyboard;
     switch (key.action) {
       case 'modifier': {
@@ -48,7 +48,7 @@ export class C64OnScreenKeys {
     }
   }
 
-  release(key: C64KeyDef): void {
+  release(key: CbmKeyDef): void {
     const kb = this.keyboard;
     if (key.action === 'restore') {
       kb.restore = false;
@@ -61,7 +61,7 @@ export class C64OnScreenKeys {
   }
 
   /** Whether the cap should look pressed: held, latched, locked, or typed on the host keyboard. */
-  lit(key: C64KeyDef): boolean {
+  lit(key: CbmKeyDef): boolean {
     switch (key.action) {
       case 'shift-lock': return this.lock;
       case 'restore': return this.keyboard.restore;

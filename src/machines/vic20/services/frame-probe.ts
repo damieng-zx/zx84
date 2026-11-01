@@ -57,7 +57,7 @@ export class Vic20FrameProbe implements FrameProbe {
     out.tapeIn = 0;
     out.tapeLoad = 0;
     out.beeper = 0;
-    out.psg = 0;
+    out.psg = m.activity.soundWrites;
     out.videoFx = 0;
     out.disk = 0;
     out.tapeTurbo = false;

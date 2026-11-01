@@ -7,12 +7,12 @@
 import { describe, it, expect } from 'vitest';
 import { C64Machine } from '@/machines/c64/c64-machine.ts';
 import { C64_MATRIX } from '@/machines/c64/keyboard.ts';
-import { C64_KEYBOARD_SCENE, C64_KEYS, type C64KeyDef } from '@/machines/c64/ui/keyboard/layout.ts';
-import { C64OnScreenKeys } from '@/machines/c64/ui/keyboard/pad.ts';
+import { CBM_KEYBOARD_SCENE, CBM_KEYS, type CbmKeyDef } from '@/machines/shared/ui/cbm-keyboard/layout.ts';
+import { CbmOnScreenKeys } from '@/machines/shared/ui/cbm-keyboard/pad.ts';
 import { romImage } from '../snapshot/native-state-helpers.ts';
 
-const cap = (id: string): C64KeyDef => {
-  const key = C64_KEYS.find(k => k.id === id);
+const cap = (id: string): CbmKeyDef => {
+  const key = CBM_KEYS.find(k => k.id === id);
   if (!key) throw new Error(`no cap ${id}`);
   return key;
 };
@@ -20,27 +20,27 @@ const cap = (id: string): C64KeyDef => {
 describe('C64 keyboard layout', () => {
   it('has a cap for every matrix key exactly once, plus RESTORE and SHIFT LOCK', () => {
     const matrix = C64_MATRIX.flat();
-    const named = C64_KEYS.filter(k => k.name !== undefined).map(k => k.name);
+    const named = CBM_KEYS.filter(k => k.name !== undefined).map(k => k.name);
     expect([...named].sort()).toEqual([...matrix].sort());
-    expect(C64_KEYS.filter(k => k.action === 'restore')).toHaveLength(1);
-    expect(C64_KEYS.filter(k => k.action === 'shift-lock')).toHaveLength(1);
-    expect(C64_KEYS).toHaveLength(66);
-    expect(new Set(C64_KEYS.map(k => k.id)).size).toBe(C64_KEYS.length);
+    expect(CBM_KEYS.filter(k => k.action === 'restore')).toHaveLength(1);
+    expect(CBM_KEYS.filter(k => k.action === 'shift-lock')).toHaveLength(1);
+    expect(CBM_KEYS).toHaveLength(66);
+    expect(new Set(CBM_KEYS.map(k => k.id)).size).toBe(CBM_KEYS.length);
   });
 
   it('keeps every cap inside the scene, clear of its neighbours', () => {
-    const { width, height } = C64_KEYBOARD_SCENE;
-    for (const k of C64_KEYS) {
+    const { width, height } = CBM_KEYBOARD_SCENE;
+    for (const k of CBM_KEYS) {
       expect(k.box.x, k.id).toBeGreaterThanOrEqual(0);
       expect(k.box.y, k.id).toBeGreaterThanOrEqual(0);
       expect(k.box.x + k.box.width, k.id).toBeLessThanOrEqual(width);
       expect(k.box.y + k.box.height, k.id).toBeLessThanOrEqual(height);
     }
-    for (let i = 0; i < C64_KEYS.length; i++) {
-      for (let j = i + 1; j < C64_KEYS.length; j++) {
-        const a = C64_KEYS[i].box, b = C64_KEYS[j].box;
+    for (let i = 0; i < CBM_KEYS.length; i++) {
+      for (let j = i + 1; j < CBM_KEYS.length; j++) {
+        const a = CBM_KEYS[i].box, b = CBM_KEYS[j].box;
         const apart = a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
-        expect(apart, `${C64_KEYS[i].id} and ${C64_KEYS[j].id}`).toBe(true);
+        expect(apart, `${CBM_KEYS[i].id} and ${CBM_KEYS[j].id}`).toBe(true);
       }
     }
   });
@@ -94,11 +94,11 @@ describe('C64 keyboard layout', () => {
     // Neighbouring caps touch, and the case shows above the top row and below the space bar.
     expect(cap('1').box.x).toBe(cap('arrow-left').box.x + cap('arrow-left').box.width);
     expect(cap('arrow-left').box.y).toBeGreaterThan(0);
-    const left = Math.min(...C64_KEYS.map(k => k.box.x));
-    const rightmost = Math.max(...C64_KEYS.map(k => k.box.x + k.box.width));
+    const left = Math.min(...CBM_KEYS.map(k => k.box.x));
+    const rightmost = Math.max(...CBM_KEYS.map(k => k.box.x + k.box.width));
     expect(left).toBe(cap('arrow-left').box.y);
-    expect(C64_KEYBOARD_SCENE.width - rightmost).toBe(left);
-    expect(C64_KEYBOARD_SCENE.height - (cap('space').box.y + cap('space').box.height)).toBe(cap('arrow-left').box.y);
+    expect(CBM_KEYBOARD_SCENE.width - rightmost).toBe(left);
+    expect(CBM_KEYBOARD_SCENE.height - (cap('space').box.y + cap('space').box.height)).toBe(cap('arrow-left').box.y);
     // The space bar sits under the letters, not under the whole row.
     expect(cap('space').box.x).toBeGreaterThan(cap('lshift').box.x);
     expect(cap('space').box.y).toBeGreaterThan(cap('z').box.y);
@@ -108,9 +108,9 @@ describe('C64 keyboard layout', () => {
 });
 
 describe('pressing the caps', () => {
-  function pad(): { m: C64Machine; pad: C64OnScreenKeys } {
+  function pad(): { m: C64Machine; pad: CbmOnScreenKeys } {
     const m = new C64Machine('c64', null);
-    return { m, pad: new C64OnScreenKeys(m.keyboard) };
+    return { m, pad: new CbmOnScreenKeys(m.keyboard) };
   }
 
   it('holds a key while the pointer is down, and lights it', () => {
@@ -208,7 +208,7 @@ describe.skipIf(!basic || !kernal || !chargen)('typing on the caps with the real
     m.loadROM(rom);
     m.reset();
     for (let f = 0; f < 150; f++) m.tick();
-    const p = new C64OnScreenKeys(m.keyboard);
+    const p = new CbmOnScreenKeys(m.keyboard);
     const tap = (id: string): void => {
       p.press(cap(id));
       for (let f = 0; f < 4; f++) m.tick();

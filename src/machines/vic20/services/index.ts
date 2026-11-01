@@ -1,5 +1,5 @@
 /**
- * The VIC-20's service surface: the ROMs, snapshots through media, input,
+ * The VIC-20's service surface: the ROMs, programs and snapshots through media, input,
  * the frame probe and the 6502 debug family. The Datasette, the disk drives
  * and cartridges follow in the later phases of the plan.
  */
@@ -27,7 +27,7 @@ export interface Vic20Services extends MachineServices {
 export function createVic20Services(m: Vic20Machine): Vic20Services {
   const snapshots = new NativeSnapshotService(VIC20_STATE, m, () => m.host);
   return {
-    media: new Vic20MediaService(snapshots),
+    media: new Vic20MediaService(m, snapshots),
     roms: new Vic20RomService(m, () => m.host),
     tape: null,
     disks: null,

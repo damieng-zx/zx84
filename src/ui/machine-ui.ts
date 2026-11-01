@@ -90,6 +90,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/apple2/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  vic20: {
+    HardwareSection: lazy(() =>
+      import('@/machines/vic20/ui/hardware-section.tsx').then(m => ({ default: m.Vic20HardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/vic20/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
   apple1: {
     HardwareSection: lazy(() =>
       import('@/machines/apple1/ui/hardware-section.tsx').then(m => ({ default: m.Apple1HardwareSection }))),
