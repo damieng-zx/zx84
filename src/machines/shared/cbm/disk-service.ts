@@ -1,5 +1,5 @@
 /**
- * C64DiskService — the disk drives as the Drives pane sees them: up to four,
+ * CbmDiskService — a Commodore's serial-bus disk drives as the Drives pane sees them: up to four,
  * devices 8 to 11 (ids a to d), each a 1541 (`.d64` and `.g64` disks, given
  * back in the format they came in), a 1571 (those and `.d71`) or a 1581
  * (`.d81`). The Drives pane's
@@ -9,26 +9,28 @@
  */
 
 import { baseName } from '@/machines/shared/disk-save.ts';
-import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
+import type { DiskService, DriveDescriptor, DriveMedia, MachineHost } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import type { C64Machine } from '../c64-machine.ts';
-import { C64_MAX_DRIVES, isC64DriveModel } from '../drive/drive-unit.ts';
+import { CBM_MAX_DRIVES, isCbmDriveModel } from './drive/drive-unit.ts';
+import type { CbmSerialBus } from './serial-bus.ts';
 
-export const C64_DRIVE_IDS = 'abcd';
+export const CBM_DRIVE_IDS = 'abcd';
 
-export class C64DiskService implements DiskService {
-  constructor(private readonly m: C64Machine) {}
+export class CbmDiskService implements DiskService {
+  /** `host` reaches the shell, to rebuild the machine when a drive model
+   *  needs a DOS ROM no fitted drive has. */
+  constructor(private readonly m: CbmSerialBus, private readonly host: () => MachineHost | null) {}
 
   /** A drive's place on the bus from its pane id, or -1. */
   private indexOf(id: string): number {
-    const i = C64_DRIVE_IDS.indexOf(id);
+    const i = CBM_DRIVE_IDS.indexOf(id);
     return i >= 0 && i < this.m.drives.length ? i : -1;
   }
 
   /** The drives on the bus, or none while the Hardware pane has them unplugged. */
   get drives(): readonly DriveDescriptor[] {
     return this.m.drives.map((drive, i) => ({
-      id: C64_DRIVE_IDS[i],
+      id: CBM_DRIVE_IDS[i],
       label: `Drive ${8 + i}`,
       loaded: drive.loaded,
       mediaName: drive.mediaName,
@@ -46,13 +48,13 @@ export class C64DiskService implements DiskService {
    *  choice, to fetch the DOS ROM. */
   setDriveModel(index: number, model: string): void | Promise<void> {
     const m = this.m;
-    if (!isC64DriveModel(model) || index < 0 || index >= m.driveModels.length || m.driveModels[index] === model) return;
+    if (!isCbmDriveModel(model) || index < 0 || index >= m.driveModels.length || m.driveModels[index] === model) return;
     if (m.drives.length > 0 && m.replaceDriveAt(index, model)) return;
     const models = [...m.driveModels];
     models[index] = model;
     m.driveModels = models;
     m.drives[index]?.ejectDisk();
-    const roms = m.host?.roms;
+    const roms = this.host()?.roms;
     if (!roms) return;
     return new Promise(resolve => queueMicrotask(() => { roms.rebuild().then(resolve, resolve); }));
   }
@@ -61,7 +63,7 @@ export class C64DiskService implements DiskService {
    *  move down a device number. False at the limit. */
   addDrive(after: number): boolean {
     const m = this.m;
-    if (m.driveModels.length >= C64_MAX_DRIVES) return false;
+    if (m.driveModels.length >= CBM_MAX_DRIVES) return false;
     const at = Math.min(Math.max(after, -1), m.driveModels.length - 1) + 1;
     const model = m.driveModels[at - 1] ?? m.driveModels[0] ?? '1541';
     if (m.drives.length === 0) {

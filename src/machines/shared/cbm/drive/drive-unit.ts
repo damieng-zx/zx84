@@ -1,6 +1,7 @@
 /**
- * What the 64 and its panes need of a disk drive on the serial bus, whichever
- * drive it is. Each is a computer of its own (a 6502, RAM, the DOS ROM) and
+ * What a Commodore computer (the C64, the VIC-20) and its panes need of a
+ * disk drive on the serial bus, whichever drive it is. Each drive is a
+ * computer of its own (a 6502, RAM, the DOS ROM) and
  * differs inside: the 1541 turns a GCR track under its head bit by bit, the
  * 1581 has a floppy controller chip and 3.5" MFM disks. The bus, the
  * snapshots and the Drives pane see only this.
@@ -10,27 +11,37 @@ import type { M6502 } from '@/cores/m6502.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
-export type C64DriveModel = '1541' | '1571' | '1581';
+export type CbmDriveModel = '1541' | '1571' | '1581';
 
 /** The ROM pane's sockets follow this order (the 1571 came last, so the
  *  indexes of the others stay where they were). */
-export const C64_DRIVE_MODELS: readonly C64DriveModel[] = ['1541', '1581', '1571'];
+export const CBM_DRIVE_MODELS: readonly CbmDriveModel[] = ['1541', '1581', '1571'];
 
-export function isC64DriveModel(value: unknown): value is C64DriveModel {
+export function isCbmDriveModel(value: unknown): value is CbmDriveModel {
   return value === '1541' || value === '1571' || value === '1581';
 }
 
+/** Each drive's DOS ROM on the ROM host. The 1541's is 325302-01 ($C000)
+ *  then 901229-05 ($E000); the 1571's is the 32K 310654-05, the 1581's the
+ *  32K 318045-02. They sit under `c64/` on the host, where they were put
+ *  first, but serve every Commodore on the serial bus. */
+export const CBM_DRIVE_ROM_SOURCES: Readonly<Record<CbmDriveModel, string>> = {
+  '1541': 'c64/dos1541-325302-01-901229-05.rom',
+  '1571': 'c64/dos1571-310654-05.rom',
+  '1581': 'c64/dos1581-318045-02.rom',
+};
+
 /** Up to four drives share the bus, as devices 8 to 11. */
-export const C64_MAX_DRIVES = 4;
+export const CBM_MAX_DRIVES = 4;
 
 /** A drive list from a setting: one to four known models, else one 1541. */
-export function normalizeDriveModels(value: unknown): C64DriveModel[] {
-  const models = Array.isArray(value) ? value.filter(isC64DriveModel).slice(0, C64_MAX_DRIVES) : [];
+export function normalizeDriveModels(value: unknown): CbmDriveModel[] {
+  const models = Array.isArray(value) ? value.filter(isCbmDriveModel).slice(0, CBM_MAX_DRIVES) : [];
   return models.length > 0 ? models : ['1541'];
 }
 
-export interface C64DriveUnit {
-  readonly model: C64DriveModel;
+export interface CbmDriveUnit {
+  readonly model: CbmDriveModel;
   /** The drive's own 6502. */
   readonly cpu: M6502;
   /** The drive's time base, in Hz: its CPU clock, or for a drive that can change
@@ -68,8 +79,8 @@ export interface C64DriveUnit {
   reset(): void;
   /** Run the drive until its clock reaches `target`. */
   runTo(target: number): void;
-  /** The 64's side of the bus: the lines it holds low. */
-  setC64Lines(atn: boolean, clk: boolean, data: boolean): void;
+  /** The computer's side of the bus: the lines it holds low. */
+  setHostLines(atn: boolean, clk: boolean, data: boolean): void;
   /** What the drive holds low. */
   readonly clkAsserted: boolean;
   readonly dataAsserted: boolean;

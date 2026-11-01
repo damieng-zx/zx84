@@ -12,7 +12,7 @@ import type { C64Machine } from '../c64-machine.ts';
 import { C64_ROM_CHIP_SIZES, C64_ROM_SLOT_LABELS } from '../models.ts';
 import { C64_ROM_SIZE } from '../constants.ts';
 import { parseCrt } from '../cartridge.ts';
-import { C64_DRIVE_MODELS } from '../drive/drive-unit.ts';
+import { CBM_DRIVE_MODELS } from '@/machines/shared/cbm/drive/drive-unit.ts';
 
 class C64CartridgeSlot implements CartridgeSlot {
   constructor(private readonly m: C64Machine) {}
@@ -90,7 +90,7 @@ export class C64RomService implements RomService {
    *  override stays with its model whichever drives are fitted. */
   get sidewaysSlots(): readonly SidewaysRomSlot[] {
     const out: SidewaysRomSlot[] = [];
-    C64_DRIVE_MODELS.forEach((model, index) => {
+    CBM_DRIVE_MODELS.forEach((model, index) => {
       const drive = this.m.drives.find(d => d.model === model);
       if (!drive) return;
       out.push({
@@ -105,7 +105,7 @@ export class C64RomService implements RomService {
   }
 
   installSidewaysRom(index: number, data: Uint8Array): void {
-    const model = C64_DRIVE_MODELS[index];
+    const model = CBM_DRIVE_MODELS[index];
     if (model) this.m.installDriveRom(model, data);
   }
 

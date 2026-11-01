@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { C64Machine } from '@/machines/c64/c64-machine.ts';
-import { Drive1541 } from '@/machines/c64/drive/drive-1541.ts';
+import { Drive1541 } from '@/machines/shared/cbm/drive/drive-1541.ts';
 import { parseCrt } from '@/machines/c64/cartridge.ts';
 import { buildCrt, rom8k } from './crt-helper.ts';
 

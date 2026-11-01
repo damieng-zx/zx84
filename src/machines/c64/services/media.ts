@@ -23,17 +23,17 @@ import { isC64Tap } from '@/media/tape/c64-tap.ts';
 import { isT64, parsePrg, parseT64 } from '@/media/tape/t64.ts';
 import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import type { C64Machine } from '../c64-machine.ts';
-import type { C64DiskService } from './disks.ts';
-import type { C64TapeService } from './tape.ts';
+import type { CbmDiskService } from '@/machines/shared/cbm/disk-service.ts';
+import type { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
 import { C64_STATE } from '../snapshots/c64-state.ts';
-import type { C64DriveModel } from '../drive/drive-unit.ts';
+import type { CbmDriveModel } from '@/machines/shared/cbm/drive/drive-unit.ts';
 import { C64_CART_TYPE_NAMES, parseCrt } from '../cartridge.ts';
 
 export class C64MediaService implements MediaService {
   constructor(
     private readonly m: C64Machine,
-    private readonly tape: C64TapeService,
-    private readonly disks: C64DiskService,
+    private readonly tape: CbmTapeService,
+    private readonly disks: CbmDiskService,
     private readonly snapshots: NativeSnapshotService,
   ) {}
 
@@ -107,8 +107,8 @@ export class C64MediaService implements MediaService {
 
     if (/\.(d64|g64|g41|d71|d81)$/i.test(name)) {
       // The model a disk is made for; a 1571 also reads the 1541's.
-      const wants: C64DriveModel = /\.d81$/i.test(name) ? '1581' : /\.d71$/i.test(name) ? '1571' : '1541';
-      const reads = (model: C64DriveModel): boolean => (wants === '1541' ? model !== '1581' : model === wants);
+      const wants: CbmDriveModel = /\.d81$/i.test(name) ? '1581' : /\.d71$/i.test(name) ? '1571' : '1541';
+      const reads = (model: CbmDriveModel): boolean => (wants === '1541' ? model !== '1581' : model === wants);
       const drives = this.m.drives;
       // The shell names the drive a disk is meant for ('a'-'d', or 'unit:n');
       // otherwise the first drive that reads the format, an empty one first.

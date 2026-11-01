@@ -1,27 +1,41 @@
 /**
- * C64TapeService — the Datasette over the shared pulse deck.
+ * CbmTapeService — the Datasette over the shared pulse deck, for any
+ * Commodore with a cassette port (the C64, the VIC-20).
  *
  * The deck's `playing` is the PLAY button. A mounted tape starts with it up
  * and it goes down by itself when a program waits for it; an empty deck
  * stands for a blank cassette with RECORD and PLAY down, so SAVE just works.
- * With a button down the KERNAL drives the motor (6510 port bit 5), and the
- * motor is what moves the tape. Play/stop here are the deck's own buttons.
+ * With a button down the KERNAL drives the motor (the 6510's port bit 5 on
+ * the 64), and the motor is what moves the tape. Play/stop here are the deck's own buttons.
  */
 
 import type { TapeBlockInfo, TapeService, TapeStashState } from '@/machines/machine.ts';
-import type { TapeBlock } from '@/media/tape/tap.ts';
+import type { TapeBlock, TapeDeck } from '@/media/tape/tap.ts';
+import type { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
 import {
   encodeC64Tap, encodeKernalTap, halvesToPulses, isC64Tap, parseC64Tap, type C64TapeFile,
 } from '@/media/tape/c64-tap.ts';
 import { isT64, parsePrg, parseT64 } from '@/media/tape/t64.ts';
-import type { C64Machine } from '../c64-machine.ts';
 
-export class C64TapeService implements TapeService {
+/** What the tape service needs of the computer the Datasette is plugged into. */
+export interface CbmTapeHost {
+  /** The tape, played through the shared pulse deck. */
+  readonly tape: TapeDeck;
+  /** Edges of the cassette write line since the last reset (what SAVE wrote). */
+  readonly tapeRecorder: PulseRecorder;
+  /** The tape was mounted, ejected, played or stopped. */
+  tapeTransportChanged(): void;
+  /** Press PLAY the first time software sits waiting for it. */
+  armAutoPlay(): void;
+}
+
+export class CbmTapeService implements TapeService {
   private _name = '';
   private _files: readonly C64TapeFile[] = [];
 
-  constructor(private readonly m: C64Machine) {}
+  /** `fallbackName` names a recording whose first file has no name. */
+  constructor(private readonly m: CbmTapeHost, private readonly fallbackName: string) {}
 
   get loaded(): boolean { return this.m.tape.blocks.length > 0; }
   get name(): string { return this._name; }
@@ -53,7 +67,7 @@ export class C64TapeService implements TapeService {
 
   /** Mount a .tap (or the recording of a .t64 / .prg) at its start with PLAY
    *  up; it goes down when a program waits for it (see
-   *  `C64Machine.armAutoPlay`), and the motor moves it. */
+   *  `CbmTapeHost.armAutoPlay`), and the motor moves it. */
   mount(data: Uint8Array, name: string): boolean {
     const tap = this.asTap(data, name);
     if (!tap) return false;
@@ -122,7 +136,7 @@ export class C64TapeService implements TapeService {
     const data = encodeC64Tap(halvesToPulses(halves));
     const first = parseC64Tap(data).files[0]?.name ?? '';
     const name = first.replace(/[^A-Za-z0-9 _.-]/g, '').trim();
-    return { data, filename: `${name || 'c64'}.tap` };
+    return { data, filename: `${name || this.fallbackName}.tap` };
   }
 
   stashState(): TapeStashState | null {

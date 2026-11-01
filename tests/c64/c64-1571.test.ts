@@ -7,8 +7,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { C64Machine } from '@/machines/c64/c64-machine.ts';
-import { Drive1541 } from '@/machines/c64/drive/drive-1541.ts';
-import { Drive1571 } from '@/machines/c64/drive/drive-1571.ts';
+import { Drive1541 } from '@/machines/shared/cbm/drive/drive-1541.ts';
+import { Drive1571 } from '@/machines/shared/cbm/drive/drive-1571.ts';
 import {
   blankC64Disk, blankC64Disk71, blankD64, blankD71, c64DiskImage, decodeTrackSectors, exportD71, isD71, parseC64Disk,
   parseC64Disk71, parseD71, readC64Disk, serializeC64Disk, writeC64Disk,

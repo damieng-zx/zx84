@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { C64Machine } from '@/machines/c64/c64-machine.ts';
 import { c64Entry, c64Descriptor } from '@/machines/c64/descriptor.ts';
 import { c64Timing } from '@/machines/c64/constants.ts';
-import type { Drive1541 } from '@/machines/c64/drive/drive-1541.ts';
+import type { Drive1541 } from '@/machines/shared/cbm/drive/drive-1541.ts';
 import { parseD64 } from '@/media/floppy/c64-disk.ts';
 import { d64WithFiles, PRINT_B_PRG } from './d64-helper.ts';
 import { romImage } from '../snapshot/native-state-helpers.ts';

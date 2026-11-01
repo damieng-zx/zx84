@@ -1,6 +1,7 @@
 # Plan: Commodore VIC-20
 
-Status: **planning**. Nothing implemented yet. This plan covers what to build,
+Status: **Phase 0 done** (the Commodore parts are shared); the VIC-20 itself
+is not started. This plan covers what to build,
 the order to build it in, and the one decision that has to come first: how
 the VIC-20 gets the parts it shares with the C64.
 
@@ -91,8 +92,9 @@ serial shift register.
 | `.prg` / `.t64` parse | `src/media/tape/t64.ts` | ✅ |
 | C64 TAP (`C64-TAPE-RAW`) | `src/media/tape/c64-tap.ts` | ✅ header byte 13 is the platform (1 = VIC-20). Pulses are in 8-cycle units of the *VIC-20's* clock |
 | D64/G64/D71/D81 codecs | `src/media/floppy/c64-disk.ts`, `c64-d81.ts` | ✅ |
-| 1541/1571/1581 drives + `C64DriveUnit` | `src/machines/c64/drive/` | ✗ **island**: the VIC-20 can't import it |
-| Disk service, tape service | `src/machines/c64/services/{disks,tape}.ts` | ✗ island |
+| 1541/1571/1581 drives + `CbmDriveUnit` | `src/machines/shared/cbm/drive/` | ✅ (moved there in Phase 0) |
+| Serial bus + drive chain | `src/machines/shared/cbm/serial-bus.ts` (`CbmSerialBus`) | ✅ (Phase 0) |
+| Disk service, tape service | `src/machines/shared/cbm/{disk-service,tape-service}.ts` | ✅ (Phase 0) |
 | On-screen breadbin keyboard | `src/machines/c64/ui/keyboard/` | ✗ island. The VIC-20 has the same caps but a different matrix |
 | Screen OCR | `src/ocr/c64.ts` | ◐ same screen codes and character ROM, but 22 × 23 with a movable screen base |
 | Paddles | `src/machines/shared/analog-stick.ts` | ✅ probably |
@@ -162,8 +164,23 @@ Any change to a core is a separate commit with its own spec-derived tests.
 Each phase ends with all gates green (`npx tsc --noEmit`, `npx vitest run`,
 `npm run depcheck`) and something visible to try.
 
-### Phase 0: Commodore shared parts (refactor, no VIC-20 yet)
-Do §3 Option A. C64 behaviour is unchanged.
+### Phase 0: Commodore shared parts (refactor, no VIC-20 yet) — ✅ done
+§3 Option A, without the keyboard pane (that moves in Phase 2, when there is
+a second matrix to drive it). The C64 behaviour is unchanged:
+
+- `shared/cbm/drive/`: `Drive1541`/`1571`/`1581` and `CbmDriveUnit`
+  (`setC64Lines` is now `setHostLines`), with `CBM_DRIVE_ROM_SOURCES`
+  (still the `c64/dos*.rom` files on the ROM host).
+- `shared/cbm/serial-bus.ts`: `CbmSerialBus` owns the drives, the drive
+  chain (fit / insert / remove / replace, renumbering, ROM lending), syncing
+  them to the host clock, the open-collector lines, the DOS ROM requests and
+  the DRVM/DRV/MEDA snapshot sections. The host hands it a function that
+  reports which of ATN/CLK/DATA it pulls low.
+- `shared/cbm/disk-service.ts` (`CbmDiskService`, over a bus) and
+  `shared/cbm/tape-service.ts` (`CbmTapeService`, over a small
+  `CbmTapeHost`: deck, recorder, transport and auto-play hooks).
+- `C64Machine` keeps `drives`, `drive`, `driveModels`, `fitDrives`,
+  `installDrive` and `installDriveRom` as thin delegations to `iec`.
 
 ### Phase 1: boot to the READY prompt
 - `src/models.ts`: `Vic20Model = 'vic20'`, the union member and `isVic20Model`.

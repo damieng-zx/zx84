@@ -21,7 +21,7 @@
  * hardware itself pull DATA low while ATN is held, which is how a drive
  * acknowledges ATN before the DOS has run an instruction, and bit 6 reads the
  * disk's write-protect tab (high = writable). ATN also reaches the CIA's FLAG
- * input, so the DOS is interrupted when the 64 asks for the bus.
+ * input, so the DOS is interrupted when the computer asks for the bus.
  *
  * The controller is the shared WD177x model (`WD179x`): sector-level, with
  * the disk as a `DskImage`. It does not model a byte clock, so a transfer
@@ -36,7 +36,7 @@ import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import { D81_SIZE, parseD81, serializeD81 } from '@/media/floppy/c64-d81.ts';
 import { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
-import type { C64DriveUnit } from './drive-unit.ts';
+import type { CbmDriveUnit } from './drive-unit.ts';
 
 export const DRIVE_1581_CLOCK_HZ = 2_000_000;
 export const DRIVE_1581_ROM_SIZE = 0x8000;
@@ -44,7 +44,7 @@ export const DRIVE_1581_ROM_SIZE = 0x8000;
 /** Cycles between the controller's 20 ms ticks (it spins its motor down after a second). */
 const FDC_TICK_CYCLES = DRIVE_1581_CLOCK_HZ / 50;
 
-export class Drive1581 implements C64DriveUnit {
+export class Drive1581 implements CbmDriveUnit {
   readonly model = '1581' as const;
   readonly clockHz = DRIVE_1581_CLOCK_HZ;
   readonly romSize = DRIVE_1581_ROM_SIZE;
@@ -60,10 +60,10 @@ export class Drive1581 implements C64DriveUnit {
   writeProtected = false;
   dirty = false;
 
-  // The serial bus lines as the 64 holds them (true = pulled low).
+  // The serial bus lines as the computer holds them (true = pulled low).
   private atn = false;
-  private c64Clk = false;
-  private c64Data = false;
+  private hostClk = false;
+  private hostData = false;
 
   /** The disk was changed and the head has not stepped since: PA7 reads low. */
   private changed = false;
@@ -97,7 +97,7 @@ export class Drive1581 implements C64DriveUnit {
     this.ram.fill(0);
     this.cia.reset();
     this.fdc.masterReset();
-    this.atn = this.c64Clk = this.c64Data = false;
+    this.atn = this.hostClk = this.hostData = false;
     this.fdcCycles = 0;
     this.activity = 0;
     this.cpu.reset();
@@ -157,11 +157,11 @@ export class Drive1581 implements C64DriveUnit {
 
   // ── Serial bus ──────────────────────────────────────────────────────────
 
-  /** Tell the drive what the 64 is holding low on the bus. ATN is also the
+  /** Tell the drive what the computer is holding low on the bus. ATN is also the
    *  CIA's FLAG: asserting it is a falling edge. */
-  setC64Lines(atn: boolean, clk: boolean, data: boolean): void {
-    this.c64Clk = clk;
-    this.c64Data = data;
+  setHostLines(atn: boolean, clk: boolean, data: boolean): void {
+    this.hostClk = clk;
+    this.hostData = data;
     if (atn !== this.atn) {
       this.atn = atn;
       if (atn) { this.cia.advanceTo(this.cpu.tStates); this.cia.flag(); }
@@ -192,8 +192,8 @@ export class Drive1581 implements C64DriveUnit {
 
   private portBPins(driven: number): number {
     let inputs = 0;
-    if (this.c64Data || this.dataAsserted) inputs |= 0x01;
-    if (this.c64Clk || this.clkAsserted) inputs |= 0x04;
+    if (this.hostData || this.dataAsserted) inputs |= 0x01;
+    if (this.hostClk || this.clkAsserted) inputs |= 0x04;
     if (!this.writeProtected) inputs |= 0x40;
     if (this.atn) inputs |= 0x80;
     const out = this.cia.ddrb;
@@ -318,7 +318,7 @@ export class Drive1581 implements C64DriveUnit {
     this.cpu.saveState(w);
     w.raw(this.ram);
     this.cia.saveState(w);
-    w.bool(this.atn); w.bool(this.c64Clk); w.bool(this.c64Data);
+    w.bool(this.atn); w.bool(this.hostClk); w.bool(this.hostData);
     w.bool(this.changed); w.u32(this.fdcCycles);
     // The controller's own state goes in a parcel: it needs the disk mounted
     // before it can be read back.
@@ -331,7 +331,7 @@ export class Drive1581 implements C64DriveUnit {
     this.cpu.loadState(r);
     r.rawInto(this.ram);
     this.cia.loadState(r);
-    this.atn = r.bool(); this.c64Clk = r.bool(); this.c64Data = r.bool();
+    this.atn = r.bool(); this.hostClk = r.bool(); this.hostData = r.bool();
     this.changed = r.bool(); this.fdcCycles = r.u32();
     this.pendingFdc = r.bytes(1 << 20);
     if (this.loaded) this.applyPendingFdc();

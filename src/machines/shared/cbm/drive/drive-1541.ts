@@ -26,8 +26,9 @@
  *    how a drive acknowledges ATN within a microsecond, before the DOS has
  *    run a single instruction.
  *
- * The drive is brought up to the C64's time on demand (`runTo`), at every
- * access the 64 makes to the bus and at the end of each frame.
+ * The drive is brought up to the computer's time on demand (`runTo`), at
+ * every access the computer makes to the bus and at the end of each frame.
+ * It serves any Commodore with a serial bus (the C64, the VIC-20).
  */
 
 import { M6502, FLAG_V } from '@/cores/m6502.ts';
@@ -40,7 +41,7 @@ import {
   c64DiskImage, isC64DiskImage, parseC64Disk, serializeC64Disk,
 } from '@/media/floppy/c64-disk.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
-import type { C64DriveModel, C64DriveUnit } from './drive-unit.ts';
+import type { CbmDriveModel, CbmDriveUnit } from './drive-unit.ts';
 
 export const DRIVE_CLOCK_HZ = 1_000_000;
 export const DRIVE_ROM_SIZE = 0x4000;
@@ -52,8 +53,8 @@ const BIT_QUARTERS = [16, 15, 14, 13] as const;
  *  the two disks' tabs compare. */
 const SENSOR_FLIP_CYCLES = 40_000;
 
-export class Drive1541 implements C64DriveUnit {
-  readonly model: C64DriveModel = '1541';
+export class Drive1541 implements CbmDriveUnit {
+  readonly model: CbmDriveModel = '1541';
   readonly clockHz: number = DRIVE_CLOCK_HZ;
   readonly romSize: number = DRIVE_ROM_SIZE;
   readonly cpu = new M6502();
@@ -72,10 +73,10 @@ export class Drive1541 implements C64DriveUnit {
   /** The mounted disk has been written to since it was put in or saved. */
   dirty = false;
 
-  // The serial bus lines as the 64 holds them (true = pulled low).
+  // The serial bus lines as the computer holds them (true = pulled low).
   protected atn = false;
-  protected c64Clk = false;
-  protected c64Data = false;
+  protected hostClk = false;
+  protected hostData = false;
 
   // Mechanics.
   protected halfTrack = 34;
@@ -139,7 +140,7 @@ export class Drive1541 implements C64DriveUnit {
     this.sensorFlipUntil = 0;
     this.activity = 0;
     this.byteReady = false;
-    this.atn = this.c64Clk = this.c64Data = false;
+    this.atn = this.hostClk = this.hostData = false;
     this.cpu.reset();
   }
 
@@ -228,11 +229,11 @@ export class Drive1541 implements C64DriveUnit {
 
   // ── Serial bus ──────────────────────────────────────────────────────────
 
-  /** Tell the drive what the 64 is holding low on the bus. ATN reaches VIA 1's
+  /** Tell the drive what the computer is holding low on the bus. ATN reaches VIA 1's
    *  CA1 inverted, so asserting it is a rising edge. */
-  setC64Lines(atn: boolean, clk: boolean, data: boolean): void {
-    this.c64Clk = clk;
-    this.c64Data = data;
+  setHostLines(atn: boolean, clk: boolean, data: boolean): void {
+    this.hostClk = clk;
+    this.hostData = data;
     if (atn !== this.atn) {
       this.atn = atn;
       this.via1.setCA1(atn);
@@ -256,8 +257,8 @@ export class Drive1541 implements C64DriveUnit {
 
   protected via1Pins(): number {
     let v = (this.unit & 3) << 5;               // PB5/PB6: the device number, 8 + unit
-    if (this.c64Data || this.dataAsserted) v |= 0x01;
-    if (this.c64Clk || this.clkAsserted) v |= 0x04;
+    if (this.hostData || this.dataAsserted) v |= 0x01;
+    if (this.hostClk || this.clkAsserted) v |= 0x04;
     if (this.atn) v |= 0x80;
     return v;
   }
@@ -453,7 +454,7 @@ export class Drive1541 implements C64DriveUnit {
     w.raw(this.ram);
     this.via1.saveState(w);
     this.via2.saveState(w);
-    w.bool(this.atn); w.bool(this.c64Clk); w.bool(this.c64Data);
+    w.bool(this.atn); w.bool(this.hostClk); w.bool(this.hostData);
     w.u8(this.halfTrack); w.u32(this.bitPos); w.u32(this.quarters);
     w.bool(this.motor); w.bool(this.led); w.u8(this.zone); w.u8(this.lastPhase);
     w.f64(this.sensorFlipUntil);
@@ -466,7 +467,7 @@ export class Drive1541 implements C64DriveUnit {
     r.rawInto(this.ram);
     this.via1.loadState(r);
     this.via2.loadState(r);
-    this.atn = r.bool(); this.c64Clk = r.bool(); this.c64Data = r.bool();
+    this.atn = r.bool(); this.hostClk = r.bool(); this.hostData = r.bool();
     this.halfTrack = r.u8(); this.bitPos = r.u32(); this.quarters = r.u32();
     this.motor = r.bool(); this.led = r.bool(); this.zone = r.u8() & 3; this.lastPhase = r.u8() & 3;
     this.sensorFlipUntil = r.f64();
