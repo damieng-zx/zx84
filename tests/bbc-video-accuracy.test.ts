@@ -70,8 +70,12 @@ describe('BBC video accuracy', () => {
     const m = boot('high');
     const t = writeMidLine(m);
     // The STA's write is its 4th cycle, 5 cycles after the stop (LDA # takes
-    // 2); mode 4 shows a character every two cycles.
-    const first = Math.floor((t + 5 - 100 * LINE_T) / 2);
+    // 2). $FE21 is on the 1 MHz bus, so that 2 MHz cycle is held: one extra
+    // cycle when it starts in phase with the 1 MHz clock (an even cycle), two
+    // when it is half a cycle out (an odd one); the data lands at the end of
+    // that. Mode 4 shows a character every two cycles.
+    const start = t + 5;
+    const first = Math.floor((start + (start % 2 === 0 ? 1 : 2) - 100 * LINE_T) / 2);
     expect(first).toBeGreaterThan(10);
     expect(at(m, 99, 30)).toBe(WHITE);
     expect(at(m, 100, first - 1)).toBe(WHITE);

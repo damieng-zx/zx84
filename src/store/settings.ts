@@ -122,6 +122,7 @@ const DEFAULTS = {
   'mtx-floppy':     'on',
   'msx-floppy':     'off',
   'bbc-disk-system': '1770',
+  'bbc-swr':        '0',
   'electron-plus1': 'off',
   'electron-plus3': 'off',
   'electron-dfs':   'off',
@@ -481,6 +482,8 @@ export const [apple2Video, setApple2Video] = signal(
 
 export const [bbcDiskSystem, setBbcDiskSystem] = signal(
   savedText('bbc-disk-system') as 'none' | 'acorn' | '1770');
+/** Sideways-RAM sockets fitted, as a decimal bit mask (bit n = socket n). */
+export const [bbcSwr, setBbcSwr] = signal(savedText('bbc-swr'));
 
 export const [electronPlus1, setElectronPlus1] = signal(savedFlag('electron-plus1'));
 export const [electronPlus3, setElectronPlus3] = signal(savedFlag('electron-plus3'));
@@ -643,6 +646,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'mtx-floppy', set: setMtxFloppy, type: 'bool' },
     { key: 'msx-floppy', set: setMsxFloppy, type: 'bool' },
     { key: 'bbc-disk-system', set: setBbcDiskSystem, type: 'string' },
+    { key: 'bbc-swr', set: setBbcSwr, type: 'string' },
     { key: 'electron-plus1', set: setElectronPlus1, type: 'bool' },
     { key: 'electron-plus3', set: setElectronPlus3, type: 'bool' },
     { key: 'electron-dfs', set: setElectronDfs, type: 'bool' },

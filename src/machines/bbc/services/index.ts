@@ -1,5 +1,5 @@
 import { M6502DebugService } from '@/debug/m6502/service.ts';
-import type { MachineServices } from '@/machines/machine.ts';
+import type { MachineServices, PrinterCaptureService } from '@/machines/machine.ts';
 import type { BbcMachine } from '../bbc-machine.ts';
 import { BbcFrameProbe } from './frame-probe.ts';
 import { BbcInputService } from './input.ts';
@@ -18,6 +18,7 @@ export interface BbcServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: BbcInputService;
   readonly probe: BbcFrameProbe;
+  readonly printer: PrinterCaptureService | null;
 }
 
 export function createBbcServices(machine: BbcMachine): BbcServices {
@@ -34,5 +35,10 @@ export function createBbcServices(machine: BbcMachine): BbcServices {
     input: new BbcInputService(machine),
     probe: new BbcFrameProbe(machine),
     debug: new M6502DebugService(machine),
+    // The Model A has no User VIA, so no printer port.
+    printer: machine.hasUserPort ? {
+      capturedText: () => machine.printerExportBytes(),
+      clearCapture: () => machine.printer.clear(),
+    } : null,
   };
 }

@@ -17,7 +17,7 @@ import {
   BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_LAYOUT_1X, BBC_SCREEN_WIDTH, type BbcLayout,
 } from './constants.ts';
 
-const BBC_UI: MachineUiCapabilities = {
+const BBC_B_UI: MachineUiCapabilities = {
   hiddenPanes: [
     'microdrive-panel', 'mouse-panel',
     'sysvar-panel', 'font-panel', 'banks-panel',
@@ -48,7 +48,7 @@ const BBC_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ACORN_TAPE_EXTENSIONS,
   // 'tape-tap' downloads whatever the OS has SAVEd to the cassette port (.uef).
-  saveMenu: ['snapshot-bbcstate', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['snapshot-bbcstate', 'tape-tap', 'screenshot-png', 'ram-bin', 'printer-txt'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
@@ -56,6 +56,14 @@ const BBC_UI: MachineUiCapabilities = {
   memoryRegions: [],
   charset: 'bbc',
   memoryMappedIo: true,
+};
+
+/** The Model A leaves the User VIA (printer and user ports) and the analogue
+ *  port unfitted, so it offers no printer capture and no joystick. */
+const BBC_A_UI: MachineUiCapabilities = {
+  ...BBC_B_UI,
+  joystick: false,
+  saveMenu: BBC_B_UI.saveMenu.filter(item => item !== 'printer-txt'),
 };
 
 export function bbcDescriptor(
@@ -82,13 +90,13 @@ export function bbcDescriptor(
       borderLeft: BBC_BORDER_LEFT,
       borderTop: layout.borderTop,
     },
-    ui: BBC_UI,
+    ui: model === 'bbc-a' ? BBC_A_UI : BBC_B_UI,
   };
 }
 
 export const bbcEntry: MachineEntry = {
   kind: 'bbc',
-  models: ['bbc-b'],
+  models: ['bbc-b', 'bbc-a'],
   descriptor: bbcDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new BbcMachine(model as BbcModel, display);

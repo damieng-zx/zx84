@@ -1,8 +1,9 @@
 /**
  * BBC Micro Model B motherboard.
  *
- * A 2 MHz 6502 with 32K RAM, the MOS OS + BASIC ROMs and sixteen sideways ROM
- * sockets, two 6522 VIAs, the 6845 CRTC and the Video ULA / SAA5050 pair. The
+ * A 2 MHz 6502 with 32K RAM (16K on the Model A), the MOS OS + BASIC ROMs and
+ * sixteen sideways ROM sockets, two 6522 VIAs, the 6845 CRTC and the Video ULA
+ * / SAA5050 pair. The
  * frame loop interleaves CPU execution with the 1 MHz CRTC/VIA bus: the CRTC's
  * VSYNC drives the System VIA's CA1 (the 50 Hz event) and Timer 1 free-runs as
  * the 100 Hz system clock, both feeding the CPU's IRQ line.
@@ -30,13 +31,16 @@ import {
   BBC_MODE7_ORIGIN_X, BBC_MODE7_ROWS, bbcBitmapCols, ocrBbcBitmap,
   type BbcBitmapOcrInput,
 } from '@/ocr/bbc.ts';
-import type { BbcModel, BbcDiskSystem } from './models.ts';
+import { bbcRamSize, type BbcModel, type BbcDiskSystem } from './models.ts';
 import { BbcMemory } from './bbc-memory.ts';
 import { BbcKeyboard } from './bbc-keyboard.ts';
 import { BbcVideo, bitmapMode, wrapSubtract } from './bbc-video.ts';
 import { BbcDfs1770 } from './peripherals/wd1770-dfs.ts';
 import { BbcAcornDfs } from './peripherals/acorn-8271-dfs.ts';
 import { Upd7002 } from './peripherals/upd7002.ts';
+import { BbcPrinterPort } from './peripherals/printer-port.ts';
+import { BbcRs423Port } from './peripherals/rs423-port.ts';
+import { hasDummyWrite, instructionCycle, instructionCycles, onSlowBus, stretchAt } from './bus-timing.ts';
 import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { BbcDiscController } from './peripherals/disc-controller.ts';
@@ -89,9 +93,17 @@ export class BbcMachine extends BaseMachine implements Machine {
 
   readonly cpu = new M6502();
   readonly memory = new BbcMemory();
+  /** The Model B has the User VIA (user and printer ports), the analogue port
+   *  and the RS423 line drivers; the Model A leaves them unfitted, so those
+   *  addresses float and nothing is connected to the ACIA's RS423 side. */
+  readonly hasUserPort: boolean;
   readonly keyboard = new BbcKeyboard();
   readonly sysVia = new M6522();
   readonly userVia = new M6522();
+  /** The parallel printer on the User VIA (port A, CA1 acknowledge, CA2 strobe). */
+  readonly printer = new BbcPrinterPort(this.userVia);
+  /** The RS423 connector: transmitted bytes for download, host text to send. */
+  readonly rs423 = new BbcRs423Port();
   readonly crtc = new Crtc6845(0);
   readonly video = new BbcVideo();
   readonly fdc1770 = new BbcDfs1770((asserted) => { if (asserted) this.cpu.nmi(); });
@@ -159,16 +171,21 @@ export class BbcMachine extends BaseMachine implements Machine {
   constructor(model: BbcModel, display?: IScreenRenderer | null) {
     super();
     this.model = model;
+    this.hasUserPort = model !== 'bbc-a';
+    this.memory.mirror16k = bbcRamSize(model) === 0x4000;
     this.display = display ?? null;
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
     // The 6502 core makes its bus accesses before it counts the cycles.
     this.deferAccessStamps = true;
     this.cpu.read = (addr) => {
+      if (onSlowBus(addr)) this.holdForSlowBus(addr, false);
       const value = this.memory.readByte(addr);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
+      this.lastRead = value;
       return value;
     };
     this.cpu.write = (addr, val) => {
+      if (onSlowBus(addr)) this.holdForSlowBus(addr, true);
       // High accuracy: draw up to the beam with things as they were, so a
       // write to the screen, the palette, the ULA or the CRTC shows from the
       // character the beam has reached.
@@ -181,8 +198,10 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.mixer.psgGain = 1;
     wireBbcIo(this);
     this.acia.onTxByte = (value, startCycle) => {
-      // Only the cassette port records; RS423 output goes nowhere.
-      if ((this.serialUlaControl & 0x40) === 0 && this.cassette.motor) {
+      if ((this.serialUlaControl & 0x40) !== 0) {
+        // RS423 selected: out of the connector (the Model A has no line drivers).
+        if (this.hasUserPort) this.rs423.take(value);
+      } else if (this.cassette.motor) {
         this.cassette.recorder.setBaud(Math.round(this.acia.txBaud(BBC_CPU_CLOCK)));
         this.cassette.recorder.byte(value, startCycle);
       }
@@ -208,6 +227,7 @@ export class BbcMachine extends BaseMachine implements Machine {
   prepare(view: SettingsView): AuxRomRequest[] {
     this.setDiskSystem(view.get<BbcDiskSystem>('bbc-disk-system', '1770'));
     this.setDriveCount(resolveDriveCount(view, 'bbc', 2));
+    this.memory.setRamBanks(Number(view.get<string>('bbc-swr', '0')) || 0);
     if (this.diskSystem === 'none') return [];
     const acorn = this.diskSystem === 'acorn';
     return [{
@@ -379,6 +399,9 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.acorn8271.reset();
     this.sysVia.reset();
     this.userVia.reset();
+    this.printer.reset();
+    this.rs423.reset();
+    this.busExtra = 0;
     // Park the active-low handshake lines high so their active edge is a
     // genuine transition (VSYNC on CA1, ADC EOC on CB1).
     this.sysVia.setCA1(true);
@@ -437,9 +460,72 @@ export class BbcMachine extends BaseMachine implements Machine {
       this.acia.setRxLine(f.level, f.levelSince, f.startLevel);
       this.acia.setDcd(f.carrier);
     } else {
-      this.acia.setRxLine(1, 0);
+      // RS423: whatever the host is sending, else an idle (mark) line.
+      if (this.hasUserPort) {
+        const l = this.rs423.line(this.cpu.tStates, this.acia.rxBitCycles);
+        this.acia.setRxLine(l.level, l.since);
+      } else {
+        this.acia.setRxLine(1, 0);
+      }
       this.acia.setDcd(false);
     }
+  }
+
+  // ── The 1 MHz bus ──────────────────────────────────────────────────────
+
+  /** 2 MHz cycles the instruction in progress has been held so far by accesses
+   *  to the 1 MHz bus; added to the CPU's cycle count when it completes (the
+   *  6502 core counts an instruction's cycles after its bus accesses). */
+  private busExtra = 0;
+  /** The byte the last read returned, for the dummy write of a
+   *  read-modify-write. */
+  private lastRead = 0;
+
+  /** The CPU is making an access to &FC00-&FEFF: hold it until the 1 MHz clock
+   *  catches up (see `bus-timing.ts`), counting the extra cycles in
+   *  `busExtra`. The access falls on a cycle of the instruction worked out
+   *  from its opcode; a read-modify-write also writes the old value back
+   *  first, and that is a second access to the device. */
+  private holdForSlowBus(addr: number, write: boolean): void {
+    const pc = this.insnPc;
+    const op = this.peekOpcode(pc);
+    if (op < 0) {
+      // An instruction run from the hardware window itself: the access is
+      // charged where the instruction ends.
+      this.busExtra += stretchAt(this.cpu.tStates + this.busExtra);
+      return;
+    }
+    const peek = (a: number): number => this.memory.readByte(a);
+    const start = this.cpu.tStates;
+    if (write && hasDummyWrite(op)) {
+      const dummy = start + instructionCycles(op) - 2 + this.busExtra;
+      this.busExtra += stretchAt(dummy);
+      // The chip sees the unmodified byte, then the new one.
+      this.memory.writeByte(addr, this.lastRead);
+    }
+    const at = start + instructionCycle(op, pc, addr, write, peek) - 1 + this.busExtra;
+    this.busExtra += stretchAt(at);
+  }
+
+  /** Run the CPU for one instruction (or interrupt entry), holding it for
+   *  the 1 MHz bus accesses it made. */
+  private execCpu(): void {
+    this.busExtra = 0;
+    this.cpu.step();
+    if (this.busExtra !== 0) {
+      this.cpu.tStates += this.busExtra;
+      this.busExtra = 0;
+    }
+  }
+
+  /** Execute exactly one instruction (the debugger's step), with the chips
+   *  clocked and the bus held as in a run. */
+  stepInstruction(): void {
+    const before = this.cpu.tStates;
+    this.beforeInsn(this.cpu.pc);
+    this.execCpu();
+    this.afterInsn();
+    this.tickChips(this.cpu.tStates - before);
   }
 
   /** Advance the 1 MHz devices (VIAs) by the CPU cycles just executed and
@@ -456,9 +542,10 @@ export class BbcMachine extends BaseMachine implements Machine {
     const now = this.cpu.tStates;
     if (this.adc.doneAt >= 0 && now >= this.adc.doneAt) this.adc.tick(now);
     this.cassette.step(elapsed, now);
+    if (this.hasUserPort) this.printer.tick(now);
     this.updateSerialInputs();
     this.acia.tick(now);
-    this.cpu.setIRQ(this.sysVia.irq || this.userVia.irq || this.acia.irq);
+    this.cpu.setIRQ(this.sysVia.irq || (this.hasUserPort && this.userVia.irq) || this.acia.irq);
   }
 
   // ── Beam ───────────────────────────────────────────────────────────────
@@ -509,7 +596,9 @@ export class BbcMachine extends BaseMachine implements Machine {
   private catchUpVideo(addr: number): void {
     if (!this.frameOpen) return;
     const pc = this.insnPc;
-    const t = accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, true, false);
+    // `busExtra` holds the cycles earlier accesses of the instruction, and this
+    // one if it is on the 1 MHz bus, have been held for.
+    const t = accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, true, false) + this.busExtra;
     const lineStart = this.frameStartT + (this.fLine * BBC_TSTATES_PER_FRAME) / LINES_PER_FRAME;
     // A character a cycle in the 2MHz modes, every other cycle in the 1MHz ones.
     const perChar = (this.videoUlaControl & 0x10) !== 0 ? 1 : 2;
@@ -544,7 +633,7 @@ export class BbcMachine extends BaseMachine implements Machine {
         }
         const before = this.cpu.tStates;
         this.beforeInsn(this.cpu.pc);
-        this.cpu.step();
+        this.execCpu();
         const stopped = this.afterInsn();
         this.tickChips(this.cpu.tStates - before);
 
@@ -591,8 +680,15 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.needsDisplay = true;
   }
 
+  /** The printer port's captured output for the Save menu's printer entry (and
+   *  the Hardware pane), or null while nothing has been printed. */
+  printerExportBytes(): { data: Uint8Array; filename: string } | null {
+    return this.printer.length === 0 ? null : { data: this.printer.asText(), filename: 'bbc-printer.txt' };
+  }
+
   ramExportBytes(): { data: Uint8Array; filename: string } {
-    return { data: this.memory.ram.slice(), filename: `${this.model}-ram-32k.bin` };
+    const size = bbcRamSize(this.model);
+    return { data: this.memory.ram.slice(0, size), filename: `${this.model}-ram-${size >> 10}k.bin` };
   }
 
   /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
@@ -710,7 +806,20 @@ export class BbcMachine extends BaseMachine implements Machine {
   /** CRC-32s of the OS ROM and the sixteen sideways sockets (an empty socket
    *  reads as zeros), for the snapshot header. */
   stateRomCrcs(): number[] {
-    return [crc32(this.memory.osRom), ...this.memory.roms.map(rom => crc32(rom))];
+    // A socket fitted with RAM holds whatever the program put there, not
+    // firmware: it counts as empty (the state carries its contents).
+    const empty = crc32(new Uint8Array(this.memory.osRom.length));
+    return [
+      crc32(this.memory.osRom),
+      ...this.memory.roms.map((rom, n) => ((this.memory.ramBanks >> n) & 1 ? empty : crc32(rom))),
+    ];
+  }
+
+  /** Sideways RAM, as the Hardware pane names it. */
+  private static swrName(mask: number): string {
+    const banks: number[] = [];
+    for (let n = 0; n < 16; n++) if ((mask >> n) & 1) banks.push(n);
+    return banks.length === 0 ? 'none' : `banks ${banks.join(', ')}`;
   }
 
   /** A disc interface, as the Hardware pane names it. */
@@ -740,6 +849,12 @@ export class BbcMachine extends BaseMachine implements Machine {
     // The disc interface first, so a restore can refuse a mismatch before it
     // changes anything.
     w.section('CONF', () => { w.str(this.diskSystem); w.u8(this.driveCount); });
+    // Sideways RAM: which sockets are RAM, then their contents. Early in the
+    // file so a restore can refuse a mismatch before it changes anything.
+    w.section('SWR ', () => {
+      w.u16(this.memory.ramBanks);
+      for (let n = 0; n < 16; n++) if ((this.memory.ramBanks >> n) & 1) w.raw(this.memory.roms[n]);
+    });
     w.section('CPU ', () => this.cpu.saveState(w));
     w.section('MACH', () => {
       w.f64(this.frameNumber); w.f64(this.frameStartT); w.f64(this.frameEndT);
@@ -771,6 +886,10 @@ export class BbcMachine extends BaseMachine implements Machine {
       if (withMedia) this.services.disks.saveState(w);
     });
     w.section('DISC', () => this.disc?.saveState(w));
+    // The printer and RS423 ports: the lines and what is in flight (what has
+    // already been printed or sent is output, not machine state).
+    w.section('PRNT', () => this.printer.saveState(w));
+    w.section('RS42', () => this.rs423.saveState(w));
   }
 
   /**
@@ -791,9 +910,22 @@ export class BbcMachine extends BaseMachine implements Machine {
         throw new Error(`This snapshot was saved with ${drives} drives and this BBC has ${this.driveCount}; change it in the Drives pane and load it again`);
       }
     }
+    // A state from before sideways RAM existed has none.
+    let swr: StateReader | null = null;
+    let swrMask = 0;
+    if (r.peekSection('SWR ')) {
+      swr = r.section('SWR ');
+      swrMask = swr.u16();
+    }
+    if (swrMask !== this.memory.ramBanks) {
+      throw new Error(`This snapshot was saved with sideways RAM in ${BbcMachine.swrName(swrMask)} and this BBC has ${BbcMachine.swrName(this.memory.ramBanks)}; change it in the Hardware pane and load it again`);
+    }
     this.midFrame = false;
     this.fLine = 0;
     this.clearInterrupts();
+    if (swr !== null) {
+      for (let n = 0; n < 16; n++) if ((swrMask >> n) & 1) swr.rawInto(this.memory.roms[n]);
+    }
     this.cpu.loadState(r.section('CPU '));
     {
       const s = r.section('MACH');
@@ -833,6 +965,11 @@ export class BbcMachine extends BaseMachine implements Machine {
       const s = r.section('DISC');
       this.disc?.loadState(s);
     }
+    // States from before the ports were modelled end here: idle lines.
+    if (r.peekSection('PRNT')) this.printer.loadState(r.section('PRNT'));
+    else this.printer.settle();
+    if (r.peekSection('RS42')) this.rs423.loadState(r.section('RS42'));
+    else this.rs423.reset();
 
     // What the state does not hold: the host's keys are whatever they are
     // now, except the SHIFT a SHIFT+BREAK boot is still holding.
