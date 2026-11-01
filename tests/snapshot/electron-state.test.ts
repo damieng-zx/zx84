@@ -50,6 +50,7 @@ function firmware(read = true): Uint8Array {
   // conversion is done (/INTR low).
   a.abs(OP.LDA_ABS, 0xFE04).b(OP.STA_ZP, 0x7A);
   a.b(OP.LDA_ZP, 0x70).abs(OP.STA_ABS, 0xFE06);
+  a.b(OP.LDA_ZP, 0x70).abs(OP.STA_ABS, 0xFC71);        // a byte to the Plus 1's printer (and its BUSY)
   a.abs(OP.LDA_ABS, 0xFC72).b(OP.AND_IMM, 0x40).br(OP.BNE, 'noadc');
   a.abs(OP.LDA_ABS, 0xFC70).b(OP.STA_ZP, 0x7B, OP.LDA_ZP, 0x70, OP.AND_IMM, 0x03, OP.ORA_IMM, 0x04)
     .abs(OP.STA_ABS, 0xFC70);

@@ -15,10 +15,14 @@
  * and the Electron's ULA both do exactly that on the real hardware.
  *
  * Supported chunks: 0100 (8N1 data), 0102 (explicit bits), 0104 (defined
- * format), 0110/0111 (carrier, with dummy byte), 0112/0116 (integer and float
- * gap), 0113 (base frequency), 0117 (baud rate) and 0000 (origin text). The
- * remaining chunks (security cycles, phase change, markers, disc images) carry
- * nothing the receiver needs and are skipped.
+ * format, a negative stop-bit count adding the short wave after each packet),
+ * 0110/0111 (carrier, with dummy byte), 0112/0116 (integer and float gap), 0113
+ * (base frequency), 0114 (security cycles), 0117 (baud rate) and 0000 (origin
+ * text). 0115 (phase change) is read and has no effect: the receivers measure
+ * the length of each half-cycle whichever way up it is, so the phase of the
+ * waveform changes nothing they can see. Position markers (0120), tape set and
+ * side information (0130/0131), machine hints and disc images carry nothing
+ * the cassette receiver needs and are skipped.
  *
  * References: https://beebwiki.mdfs.net/UEF (chunk definitions), the BBC
  * Microcomputer User Guide (cassette format).
@@ -196,9 +200,15 @@ export function uefChunksToBlocks(chunks: readonly UefChunk[]): TapeBlock[] {
         if (data.length < 3) break;
         const bits = data[0];
         const parity = String.fromCharCode(data[1]);
-        const stop = Math.abs((data[2] << 24) >> 24) || 1;
+        const stopCount = (data[2] << 24) >> 24;
+        const stop = Math.abs(stopCount) || 1;
         const payload = data.subarray(3);
-        for (const byte of payload) frame(byte, bits, parity, stop);
+        // A negative stop count means that many stop bits and then one short
+        // wave (a cycle at twice the base frequency) after every packet.
+        for (const byte of payload) {
+          frame(byte, bits, parity, stop);
+          if (stopCount < 0) cycles(1, 2 * baseHz);
+        }
         flush({ role: 'data', label: 'Data', detail: `${payload.length} bytes` });
         break;
       }
@@ -219,10 +229,14 @@ export function uefChunksToBlocks(chunks: readonly UefChunk[]): TapeBlock[] {
       }
       case 0x0111: {                                  // carrier / dummy byte / carrier
         if (data.length < 4) break;
+        // Four bytes (cycles before, cycles after) with the dummy byte &AA
+        // implied; a five-byte form with the byte written out is read too.
         const before = data[0] | (data[1] << 8);
-        const after = data[2] | (data[3] << 8);
+        const explicit = data.length >= 5;
+        const dummy = explicit ? data[2] : 0xAA;
+        const after = explicit ? data[3] | (data[4] << 8) : data[2] | (data[3] << 8);
         carrier(before);
-        frame(0xAA, 8, 'N', 1);
+        frame(dummy, 8, 'N', 1);
         carrier(after);
         flush({ role: 'tone', label: `Carrier ${carrierSeconds(before + after)}`, detail: 'with dummy byte' });
         break;
@@ -239,6 +253,25 @@ export function uefChunksToBlocks(chunks: readonly UefChunk[]): TapeBlock[] {
         if (s > 0) { flush({}); gap(s); }
         break;
       }
+      case 0x0114: {                                  // security cycles
+        if (data.length < 5) break;
+        const count = data[0] | (data[1] << 8) | (data[2] << 16);
+        const firstPulse = data[3] === 0x50;            // 'P': the first cycle is a lone pulse
+        const lastPulse = data[4] === 0x50;             // 'P': so is the last
+        const n = Math.min(count, (data.length - 5) * 8);
+        for (let i = 0; i < n; i++) {
+          // Eight cycles to a byte, most significant bit first: 0 is a cycle
+          // at the base frequency, 1 one at twice it. A pulse is half of one.
+          const fast = (data[5 + (i >> 3)] >> (7 - (i & 7))) & 1;
+          const hz = fast ? 2 * baseHz : baseHz;
+          if ((i === 0 && firstPulse) || (i === n - 1 && lastPulse)) half(hz);
+          else cycles(1, hz);
+        }
+        flush({ role: 'tone', label: 'Security cycles', detail: `${n} cycles` });
+        break;
+      }
+      case 0x0115:                                    // phase change: no effect on a frequency receiver
+        break;
       case 0x0113:                                    // base frequency
         if (data.length >= 4) {
           const f = readFloat(data);

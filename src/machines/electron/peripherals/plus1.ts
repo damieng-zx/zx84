@@ -19,8 +19,13 @@
  *
  * The first slot (SK1) is paged as ROM 2/3 — the two 16K banks of a 32K
  * cartridge — and the second (SK2) as ROM 0/1. A plain cartridge is read-only
- * ROM and answers only those pages. Nothing is attached to the printer port,
- * so it never reports busy.
+ * ROM and answers only those pages.
+ *
+ * The printer port is a Centronics output: a write to &FC71 latches the byte
+ * and strobes it, and the printer holds BUSY (status b7) until it has taken it;
+ * the Plus 1 ROM's driver polls b7 before sending the next byte. The attached
+ * printer is a fast one that keeps BUSY up for PLUS1_PRINTER_BUSY_CYCLES after
+ * each strobe; what it is sent is kept for the Save menu.
  *
  * Reference: Acorn Electron Plus 1 User Guide; National Semiconductor ADC0844
  * data sheet; the Plus 1 Expansion ROM 1.00's ADC poll (BIT &FC72 / BVS) and
@@ -35,12 +40,19 @@ export const PLUS1_ROM_PAGE = 12;
 export const CART_PAGES = [2, 3] as const;
 
 const ADC_CENTRE = 0x80;
+/** How long the printer holds BUSY after a strobe: 50 µs in 2 MHz CPU cycles
+ *  (a real printer takes anything from this to milliseconds). */
+export const PLUS1_PRINTER_BUSY_CYCLES = 100;
+/** The most output kept; a longer run stops being captured. */
+export const PLUS1_PRINTER_CAPTURE_LIMIT = 0x10000;
 /** ADC0844 conversion time, 40 µs, in 2 MHz CPU cycles. */
 export const PLUS1_ADC_CONVERSION_CYCLES = 80;
 
 export class ElectronPlus1 {
   /** Bytes written to the printer port (the strobed data), most recent last. */
   printed: number[] = [];
+  /** CPU cycle the printer's BUSY drops, 0 when idle. */
+  printerBusyUntil = 0;
   /** Channel the last conversion was started on (0-3). */
   adcChannel = 0;
   /** The analogue input on each channel, as the byte it converts to. */
@@ -57,6 +69,7 @@ export class ElectronPlus1 {
   reset(): void {
     this.adcChannel = 0;
     this.printed = [];
+    this.printerBusyUntil = 0;
     // The joystick inputs (`adc`, `fire`) are the stick's, not the chip's:
     // a reset leaves them as the host holds them.
     this.result = ADC_CENTRE;
@@ -83,7 +96,8 @@ export class ElectronPlus1 {
         return this.result;
       case 0xFC72: {
         this.settle(now);
-        let v = 0x0F;                               // printer ready; b3-b0 high
+        let v = 0x0F;                               // b3-b0 high
+        if (now < this.printerBusyUntil) v |= 0x80; // printer BUSY
         if (!this.intr) v |= 0x40;
         if (!this.fire[0]) v |= 0x10;
         if (!this.fire[1]) v |= 0x20;
@@ -101,7 +115,8 @@ export class ElectronPlus1 {
         this.doneAt = now + PLUS1_ADC_CONVERSION_CYCLES;
         return true;
       case 0xFC71:
-        if (this.printed.length < 0x10000) this.printed.push(val);
+        if (this.printed.length < PLUS1_PRINTER_CAPTURE_LIMIT) this.printed.push(val);
+        this.printerBusyUntil = now + PLUS1_PRINTER_BUSY_CYCLES;
         return true;
       default: return false;
     }
@@ -118,7 +133,8 @@ export class ElectronPlus1 {
 
   /** Snapshot: the ADC (channel, latched result, conversion in progress,
    *  /INTR), the inputs and fire buttons the sticks drive, and what has been
-   *  printed. */
+   *  printed. The printer's BUSY deadline is written by the machine after the
+   *  rest of the Plus 1's section (`saveBusy`), so older states still load. */
   saveState(w: StateWriter): void {
     w.u8(this.adcChannel); w.u8(this.result); w.f64(this.doneAt); w.bool(this.intr);
     for (let ch = 0; ch < 4; ch++) w.u8(this.adc[ch]);
@@ -126,10 +142,15 @@ export class ElectronPlus1 {
     w.bytes(Uint8Array.from(this.printed));
   }
 
+  saveBusy(w: StateWriter): void { w.f64(this.printerBusyUntil); }
+
+  /** Present only in states saved after the printer port got its BUSY line. */
+  loadBusy(r: StateReader): void { this.printerBusyUntil = r.remaining >= 8 ? r.f64() : 0; }
+
   loadState(r: StateReader): void {
     this.adcChannel = r.u8() & 3; this.result = r.u8(); this.doneAt = r.f64(); this.intr = r.bool();
     for (let ch = 0; ch < 4; ch++) this.adc[ch] = r.u8();
     this.fire[0] = r.bool(); this.fire[1] = r.bool();
-    this.printed = Array.from(r.bytes(0x10000));
+    this.printed = Array.from(r.bytes(PLUS1_PRINTER_CAPTURE_LIMIT));
   }
 }

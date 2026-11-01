@@ -32,7 +32,7 @@ const ELECTRON_UI: MachineUiCapabilities = {
   traceModes: ['full', 'portio'],
   // The ULA's eight colours are the BBC's: share its PAL / Measured choice.
   colorMap: 'bbc',
-  accuracy: false,
+  accuracy: 'raster',
   // The Plus 3's disc drives and the Plus 1's cartridge slot are Hardware-pane
   // peripherals: the capabilities are declared here and the panes show them only
   // while the matching setting is on.
@@ -56,8 +56,9 @@ const ELECTRON_UI: MachineUiCapabilities = {
   tape: 'deck',
   tapeSound: false,
   tapeExtensions: ACORN_TAPE_EXTENSIONS,
-  // 'tape-tap' downloads whatever the OS has SAVEd to the cassette port (.uef).
-  saveMenu: ['snapshot-elkstate', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  // 'tape-tap' downloads whatever the OS has SAVEd to the cassette port (.uef);
+  // 'printer-txt' what was sent to the Plus 1's printer port.
+  saveMenu: ['snapshot-elkstate', 'tape-tap', 'printer-txt', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
