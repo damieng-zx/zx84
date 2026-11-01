@@ -1,7 +1,9 @@
 # Plan: Commodore VIC-20
 
-Status: **Phase 0 done** (the Commodore parts are shared); the VIC-20 itself
-is not started. This plan covers what to build,
+Status: **Phase 1 built** (the machine is registered, draws its screen, scans
+its keyboard and takes its interrupts), **not yet booted on the real ROMs**:
+the ROM host was unreachable from where it was written, so the boot test
+skips. Phase 0 (the shared Commodore parts) is done. This plan covers what to build,
 the order to build it in, and the one decision that has to come first: how
 the VIC-20 gets the parts it shares with the C64.
 
@@ -182,7 +184,33 @@ a second matrix to drive it). The C64 behaviour is unchanged:
 - `C64Machine` keeps `drives`, `drive`, `driveModels`, `fitDrives`,
   `installDrive` and `installDriveRom` as thin delegations to `iec`.
 
-### Phase 1: boot to the READY prompt
+### Phase 1: boot to the READY prompt — ◐ built, boot unverified
+
+Done: `src/machines/vic20/` (`models`, `constants`, `palette`, `memory`,
+`vic`, `keyboard`, `vic20-machine`, `descriptor`, `chip-dump`,
+`screen-text`, `services/`, `snapshots/`), registered in `registry.ts`,
+`models.ts` (three 8K-stride ROM sockets, as the C64's), `MachineKind`, the
+model menu (PAL/NTSC) and the Save menu (`.vic20state`); the MCP `type`
+tool types characters on it as on the C64. The C64's keyboard logic moved to
+`shared/cbm/keyboard.ts` (`CbmKeyboard`, given a matrix), so the VIC-20 has
+the same host mapping and RESTORE key. `tests/vic20/vic20-machine.test.ts`
+covers the memory map and the VIC's view of it, I/O decode, the keyboard
+matrix against the KERNAL's table, the joystick, IRQ/NMI wiring, the VIC's
+text area, colour modes, raster register and mid-frame writes, and exact
+snapshots.
+
+To check once the ROMs are on the host (or in `mcp/.cache` /
+`ZX84_ROM_DIR`): the boot test (`3583 BYTES FREE`), and these guesses:
+
+- The serial outputs' polarity (CA2/CB2 high = line pulled low through the
+  inverter) against what IOINIT writes to `$912C`.
+- VIA timer 1's period is latch + 1 in the shared core; the 6522's is
+  latch + 2 (plan §4). The jiffy rate is off by a cycle a period.
+- The visible window and the fetch-to-pixel delay (§6): characters are drawn
+  on the two cycles they are fetched in, from the origin cycle.
+- What the VIC reads in the I/O block (VIC `$1000-$1FFF`): `$FF` here.
+
+Planned scope, for reference:
 - `src/models.ts`: `Vic20Model = 'vic20'`, the union member and `isVic20Model`.
   `machine.ts`: add `'vic20'` to `MachineKind`. `registry.ts`: one entry.
   `model-menu.ts`: label `Commodore VIC-20`, locales `['uk', 'us']`.
