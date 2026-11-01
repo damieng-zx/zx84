@@ -7,8 +7,9 @@
  * The firmware is synthetic (assembled below, no Apple ROM needed): it keeps
  * drawing into hi-res memory while it reads the data register of a spinning
  * disk, steps the head, flips PAGE2, writes the language card's RAM, starts
- * the paddle timers, toggles the speaker, the cassette output and an
- * annunciator, and programs the Mockingboard; on the //e it also writes the
+ * the paddle timers and the utility strobe, reads the floating bus, toggles
+ * the speaker, the cassette output and an annunciator, and programs the
+ * Mockingboard; on the //e it also writes the
  * auxiliary RAM.
  */
 
@@ -24,7 +25,7 @@ import {
 const EXT = '.a2state';
 
 /** Zero page: $70 timer interrupts, $71 loop count, $72/$73 hi-res pointer,
- *  $74 the last disk byte, $75 disk bytes, $76 a paddle timer, $77 the keyboard. */
+ *  $74 the last disk byte, $75 disk bytes, $76 a paddle timer, $77 the keyboard, $78 the floating bus. */
 function firmware(iie: boolean): Uint8Array {
   const a = new Asm(0xD000);
   const sta = (v: number, addr: number): void => { a.b(OP.LDA_IMM, v).abs(OP.STA_ABS, addr); };
@@ -75,6 +76,8 @@ function firmware(iie: boolean): Uint8Array {
   }
   // Every 256th pass: move the head, one stepper magnet at a time.
   a.b(OP.LDA_ZP, 0x71).br(OP.BNE, 'loop');
+  touch(0xC040);                                        // game-port utility strobe
+  a.abs(OP.LDA_ABS, 0xC100).b(OP.STA_ZP, 0x78);         // an empty slot: the video scanner's byte
   touch(0xC0E0); touch(0xC0E2); touch(0xC0E4); touch(0xC0E6);
   a.b(OP.LDA_ZP, 0x70, OP.AND_IMM, 0x03, 0x0A /* ASL A */, 0xAA /* TAX */).abs(OP.LDA_ABSX, 0xC0E1);
   a.abs(OP.JMP, 'loop');

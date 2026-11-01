@@ -12,6 +12,7 @@ import type {
 import type { MachineModel } from '@/models.ts';
 import { apple2ModelInfo, type Apple2Model } from './models.ts';
 import { Apple2Machine } from './apple2-machine.ts';
+import { APPLE2_MOUSE_PADDLES } from './services/input.ts';
 import {
   APPLE2_ACTIVE_HEIGHT, APPLE2_ACTIVE_WIDTH, APPLE2_BORDER_LEFT, APPLE2_BORDER_TOP,
   APPLE2_PIXEL_ASPECT_X, APPLE2_SCREEN_HEIGHT, APPLE2_SCREEN_WIDTH,
@@ -19,7 +20,7 @@ import {
 
 const APPLE2_UI: MachineUiCapabilities = {
   hiddenPanes: [
-    'microdrive-panel', 'mouse-panel', 'sysvar-panel',
+    'microdrive-panel', 'sysvar-panel',
     'font-panel', 'banks-panel', 'basic-panel', 'basic-vars-panel',
   ],
   memoryLayout: false,
@@ -31,7 +32,8 @@ const APPLE2_UI: MachineUiCapabilities = {
   builtinDrives: 2,
   joystick: true,
   fixedJoystick: true,
-  mouseTypes: [],
+  // The host mouse can drive a pair of paddles (Mouse pane; pointer captured).
+  mouseTypes: [{ id: APPLE2_MOUSE_PADDLES, label: 'Mouse as paddles' }],
   cartridge: false,
   systemRomLabel: 'System ROM',
   romPages: 0,

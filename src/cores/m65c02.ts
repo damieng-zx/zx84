@@ -12,11 +12,28 @@
  *  - decimal-mode ADC/SBC produce valid N and Z (and take an extra cycle);
  *  - BRK and the interrupts clear the decimal flag.
  *
- * The Rockwell/WDC extras (RMB/SMB/BBR/BBS, WAI, STP) are not in the G65SC02 and
- * so are NOPs here too.
+ * Which silicon it is matters for the rest, because the 65C02 was made by
+ * several firms whose parts differ in what they do with the opcodes the
+ * original design left open:
+ *
+ *  - `g65sc02` (the default): the base CMOS set above, as made by GTE/CMD
+ *    (G65SC02) and Synertek (SY65C02). Every other opcode is a NOP.
+ *  - `r65c02`: the Rockwell part. Adds RMB0-7 and SMB0-7 (clear and set a bit
+ *    of a zero-page byte, `$x7`) and BBR0-7 and BBS0-7 (branch on a zero-page
+ *    bit clear or set, `$xF`). The Apple //c used this part.
+ *  - `w65c02s`: the WDC part. Everything the Rockwell one has, plus WAI (`$CB`)
+ *    and STP (`$DB`). No Apple II model had one.
+ *
+ * On a part without the instruction an opcode is a NOP of the length and
+ * time given in `NOP_FORM`: `$x7` and `$xF` are one-byte one-cycle NOPs on the
+ * g65sc02, where the others have an instruction.
  */
 
 import { M6502, FLAG_C, FLAG_D, FLAG_V, FLAG_Z } from './m6502.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
+/** The 65C02 silicon: see the file comment. */
+export type M65C02Part = 'g65sc02' | 'r65c02' | 'w65c02s';
 
 /**
  * NMOS-undocumented opcodes that the 65C02 turns into NOPs, packed as
@@ -38,6 +55,78 @@ const NOP_FORM = new Uint16Array(256);
 
 export class M65C02 extends M6502 {
   override readonly cmos: boolean = true;
+  readonly part: M65C02Part;
+  /** RMB, SMB, BBR and BBS (Rockwell and WDC parts). */
+  private readonly bitOps: boolean;
+  /** WAI and STP (WDC parts only). */
+  private readonly wdc: boolean;
+  /** WAI has stopped the CPU until an interrupt line is asserted. */
+  private waiting = false;
+  /** STP has stopped the CPU until it is reset. */
+  private stopped = false;
+
+  constructor(part: M65C02Part = 'g65sc02') {
+    super();
+    this.part = part;
+    this.bitOps = part !== 'g65sc02';
+    this.wdc = part === 'w65c02s';
+  }
+
+  override reset(): void {
+    super.reset();
+    this.waiting = false;
+    this.stopped = false;
+  }
+
+  // ── WAI and STP: the CPU idles instead of fetching ────────────────────────
+
+  override step(): void {
+    if (this.waiting || this.stopped) { this.idle(); return; }
+    super.step();
+  }
+
+  /** One cycle of a stopped CPU. STP waits for a reset. WAI wakes when NMI or
+   *  IRQ is asserted: with I clear the interrupt is then taken, with I set
+   *  execution simply carries on at the instruction after WAI. */
+  private idle(): void {
+    if (!this.stopped && (this.nmiPending || this.irqLine)) {
+      this.waiting = false;
+      super.step();
+      return;
+    }
+    this.tStates += 1;
+  }
+
+  /** RMBn/SMBn zp ($x7, 5 cycles, no flags) and BBRn/BBSn zp,rel ($xF, 5
+   *  cycles, one more when the branch is taken and another when it crosses a
+   *  page). Bit n is the opcode's bits 4-6; bit 7 picks the set/branch-if-set form. */
+  private bitOp(op: number): void {
+    const bit = 1 << ((op >> 4) & 7);
+    const zp = this.fetch();
+    const v = this.read(zp) & 0xFF;
+    if ((op & 8) === 0) {
+      this.write(zp, op >= 0x80 ? v | bit : v & ~bit);
+      this.tStates += 5;
+      return;
+    }
+    const off = this.fetch();
+    this.tStates += 5;
+    if (((v & bit) !== 0) === (op >= 0x80)) {
+      const target = (this.pc + (off < 0x80 ? off : off - 256)) & 0xFFFF;
+      this.tStates += (target & 0xFF00) !== (this.pc & 0xFF00) ? 2 : 1;
+      this.pc = target;
+    }
+  }
+
+  override saveState(w: StateSink): void {
+    super.saveState(w);
+    if (this.wdc) { w.bool(this.waiting); w.bool(this.stopped); }
+  }
+
+  override loadState(r: StateSource): void {
+    super.loadState(r);
+    if (this.wdc) { this.waiting = r.bool(); this.stopped = r.bool(); }
+  }
 
   // ── Interrupts: the decimal flag is cleared on entry ──────────────────────
 
@@ -164,6 +253,12 @@ export class M65C02 extends M6502 {
       case 0x7E: { const a = this.addrABSX(); this.write(a, this.ror(this.read(a))); this.tStates += 6 + (this.pageCross ? 1 : 0); return; }
 
       default: {
+        if (this.bitOps && (op & 7) === 7) { this.bitOp(op); return; }
+        if (this.wdc && (op === 0xCB || op === 0xDB)) {
+          if (op === 0xCB) this.waiting = true; else this.stopped = true;
+          this.tStates += 3;
+          return;
+        }
         const nop = NOP_FORM[op];
         if (nop === 0) { super.execute(op); return; }
         for (let i = (nop >> 8) - 1; i > 0; i--) this.fetch();

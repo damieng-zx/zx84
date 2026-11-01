@@ -147,6 +147,9 @@ export class M6502 {
   // ── Addressing modes ────────────────────────────────────────────────────
   /** Set true by a page-crossing absolute indexed access. Reset per step. */
   protected pageCross = false;
+  /** Whether the indexed address of the instruction in progress crossed a
+   *  page (read-only; a bus callback uses it to place its access in time). */
+  get pageCrossed(): boolean { return this.pageCross; }
 
   protected addrZP(): number { return this.fetch(); }
   protected addrZPX(): number { return (this.fetch() + this.x) & 0xFF; }

@@ -36,6 +36,9 @@
  * or all at the line's end (Mid), through `fetchLine` and `endLine`. A line
  * whose columns came from different modes (a switch flipped mid-line) is
  * decoded as one 560-dot composite stream.
+ *
+ * Lores has a double form on the //e (80COL on, AN3 off): 80 half-width
+ * blocks, auxiliary RAM's nibble left of main's in each pair.
  */
 
 import {
@@ -137,7 +140,8 @@ export interface Apple2VideoState {
   mode: Apple2VideoMode;
   /** IIe: auxiliary RAM (null or absent without the 80-column card / on a ][+). */
   aux?: Uint8Array | null;
-  /** IIe: 80-column text, and double hi-res when `dhires` is also set. */
+  /** IIe: 80-column text, and double hi-res or double lo-res when `dhires`
+   *  (AN3 off) is also set. */
   col80?: boolean;
   dhires?: boolean;
   /** IIe: the alternate character set (lowercase, no flashing). */
@@ -153,6 +157,7 @@ const COL_HIRES = 1;
 const COL_LORES = 2;
 const COL_TEXT80 = 3;
 const COL_DHIRES = 4;
+const COL_DLORES = 5;
 
 function pack(r: number, g: number, b: number): number {
   return (0xFF000000 | (b << 16) | (g << 8) | r) >>> 0;
@@ -231,6 +236,8 @@ export class Apple2Video {
    *  column's nibble. */
   private readonly colKind = new Uint8Array(40);
   private readonly colLores = new Uint8Array(40);
+  /** A double lo-res column's auxiliary nibble, already turned into the colour it shows. */
+  private readonly colLoresAux = new Uint8Array(40);
 
   /** Fetch columns [from, to) of display line `y` (0-191) with the switches and
    *  memory in `s`: the mode the line is in (mixed mode's last four text rows
@@ -272,6 +279,22 @@ export class Apple2Video {
       // Lores: 40×48 blocks of four lines; a byte's nibbles are two blocks.
       const addr = textRowBase(page, y >> 3);
       const high = ((y >> 2) & 1) === 1;
+      if (s.col80 && s.dhires) {
+        // Double lo-res: 80 blocks across, auxiliary RAM's on the left of each
+        // pair. The hardware serialises an auxiliary nibble one dot later than
+        // a main one, so its four bits show as the colour whose value is the
+        // nibble rotated left one place (aux $1 is the colour main $2 is).
+        const aux = s.aux ?? null;
+        for (let col = from; col < to; col++) {
+          const ab = aux ? aux[(addr + col) & 0xFFFF] : 0;
+          const a = (high ? (ab >> 4) : ab) & 0x0F;
+          const b = s.ram[(addr + col) & 0xFFFF];
+          this.colLoresAux[col] = ((a << 1) | (a >> 3)) & 0x0F;
+          this.colLores[col] = (high ? (b >> 4) : b) & 0x0F;
+          this.colKind[col] = COL_DLORES;
+        }
+        return;
+      }
       for (let col = from; col < to; col++) {
         const b = s.ram[(addr + col) & 0xFFFF];
         this.colLores[col] = (high ? (b >> 4) : b) & 0x0F;
@@ -329,6 +352,15 @@ export class Apple2Video {
       case COL_DHIRES:
         this.paintDots(s, y, true);
         return;
+      case COL_DLORES: {
+        const pal = s.mode === 'mono' ? LORES_LUMA : LORES;
+        const out = (ACTIVE_Y + y) * W + ACTIVE_X;
+        for (let col = 0; col < 40; col++) {
+          this.pixels32.fill(pal[this.colLoresAux[col]], out + col * 14, out + col * 14 + 7);
+          this.pixels32.fill(pal[this.colLores[col]], out + col * 14 + 7, out + col * 14 + 14);
+        }
+        return;
+      }
       default: {
         const pal = s.mode === 'mono' ? LORES_LUMA : LORES;
         const out = (ACTIVE_Y + y) * W + ACTIVE_X;
@@ -362,6 +394,17 @@ export class Apple2Video {
         case COL_LORES: {
           const n = this.colLores[col];
           for (let k = 0; k < 14; k++) this.dots[base + k] = (n >> ((base + k) & 3)) & 1;
+          break;
+        }
+        case COL_DLORES: {
+          // The two nibbles on the dot clock, as COL_LORES does for one: dot d
+          // shows bit d mod 4 of its half's nibble.
+          const a = this.colLoresAux[col];
+          const n = this.colLores[col];
+          for (let k = 0; k < 7; k++) {
+            this.dots[base + k] = (a >> ((base + k) & 3)) & 1;
+            this.dots[base + 7 + k] = (n >> ((base + 7 + k) & 3)) & 1;
+          }
           break;
         }
         default:

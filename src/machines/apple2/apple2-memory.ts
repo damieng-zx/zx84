@@ -55,6 +55,10 @@ export class Apple2Memory implements IMachineMemory {
   /** Auxiliary RAM, or null on machines without it. Only the IIe has any. */
   readonly aux: Uint8Array | null = null;
 
+  /** The byte on the data bus when nothing drives it, for a read of `addr`: the
+   *  one the video scanner has just fetched. The machine supplies it (it knows
+   *  the beam); a bare memory reads high. */
+  floatingBus: (addr: number) => number = () => 0xFF;
   /** $C0xx switch/slot hook; returns -1 for an address it does not claim. */
   ioRead: (addr: number) => number = () => -1;
   /** $C0xx switch/slot write hook. */
@@ -94,13 +98,13 @@ export class Apple2Memory implements IMachineMemory {
         if (v >= 0) return v & 0xFF;
       }
       const rom = this.slotRom[slot];
-      return rom ? rom[addr & 0xFF] : 0xFF;
+      return rom ? rom[addr & 0xFF] : latch ? this.floatingBus(addr) : 0xFF;
     }
     const card = this.expansionOwner ? this.cards[this.expansionOwner] : null;
     let v = -1;
     if (card?.expansionRead && latch) v = card.expansionRead(addr - 0xC800);
     if (addr === 0xCFFF && latch) this.expansionOwner = 0;
-    return v >= 0 ? v & 0xFF : 0xFF;
+    return v >= 0 ? v & 0xFF : latch ? this.floatingBus(addr) : 0xFF;
   }
 
   protected cxPeripheralWrite(addr: number, val: number): void {

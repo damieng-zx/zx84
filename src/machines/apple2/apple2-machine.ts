@@ -15,6 +15,7 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
+import type { M6502Isa } from '@/debug/m6502/disasm.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import { soundDeviceGains } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
@@ -36,6 +37,9 @@ import { Apple2Keyboard } from './apple2-keyboard.ts';
 import { Apple2Paddles } from './apple2-paddles.ts';
 import { Apple2Charset, Apple2eCharset, type Apple2Font } from './apple2-charset.ts';
 import { Apple2Video, type Apple2VideoMode, type Apple2VideoState } from './apple2-video.ts';
+import { scannerAddress } from './apple2-scanner.ts';
+import { apple2Chips } from './apple2-chips.ts';
+import type { ChipSection } from '@/debug/chip-state.ts';
 import { Apple2Cassette } from './apple2-cassette.ts';
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import { Disk2 } from './peripherals/disk2.ts';
@@ -84,8 +88,10 @@ export class Apple2Machine extends BaseMachine implements Machine {
   host: MachineHost | null = null;
   readonly services: Apple2Services;
 
-  /** An NMOS 6502, or on the Enhanced //e a CMOS 65C02. */
+  /** An NMOS 6502, or on the Enhanced //e and //c a CMOS 65C02 (see `ModelInfo.cpuPart`). */
   readonly cpu: M6502;
+  /** The CPU's instruction set, as the cycle tables name it. */
+  private readonly isa: M6502Isa;
   readonly memory: Apple2Memory;
   readonly keyboard: Apple2Keyboard;
   readonly paddles = new Apple2Paddles();
@@ -145,12 +151,14 @@ export class Apple2Machine extends BaseMachine implements Machine {
   /** The //e's memory (MMU switches, auxiliary RAM); only valid on that model. */
   get mmu(): Apple2eMemory { return this.memory as Apple2eMemory; }
   get isIie(): boolean { return this.modelInfo.iie; }
+  get isIic(): boolean { return this.modelInfo.iic; }
 
   constructor(model: Apple2Model, display?: IScreenRenderer | null) {
     super();
     this.model = model;
     this.modelInfo = apple2ModelInfo(model);
-    this.cpu = this.modelInfo.cmos ? new M65C02() : new M6502();
+    this.cpu = this.modelInfo.cpuPart ? new M65C02(this.modelInfo.cpuPart) : new M6502();
+    this.isa = this.modelInfo.cpuPart ?? false;
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
     // The 6502 core makes its bus accesses before it counts the cycles.
     this.deferAccessStamps = true;
@@ -178,6 +186,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
       this.memory.writeByte(addr, val);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
     };
+    this.memory.floatingBus = (addr) => this.floatingBus(addr);
     this.mixer.beeperGain = 1;
     this.mixer.psgGain = 0;
     if (this.modelInfo.iie) wireApple2eIo(this);
@@ -283,10 +292,54 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   // ── Frame probe / status inputs ────────────────────────────────────────
 
-  get vblActive(): boolean {
-    const line = (this.cpu.tStates % APPLE2_TSTATES_PER_FRAME) / APPLE2_CYCLES_PER_LINE;
-    return line >= APPLE2_VBL_LINE;
+  /** The CPU cycle of the bus access to `addr` that is in progress (the 6502
+   *  core makes an instruction's accesses before it counts its cycles, so the
+   *  access's own cycle is worked out from the opcode), or the current count
+   *  outside an instruction. */
+  accessCycle(addr: number, write: boolean): number {
+    if (!this.insnActive) return this.cpu.tStates;
+    const pc = this.insnPc;
+    return accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, write, this.isa, this.cpu.pageCrossed);
   }
+
+  /** Whether the beam is in vertical blanking on the cycle of the read of
+   *  `addr` in progress (RDVBLBAR is its inverse). */
+  vblAtAccess(addr: number): boolean {
+    const t = this.accessCycle(addr, false) % APPLE2_TSTATES_PER_FRAME;
+    return t >= APPLE2_VBL_LINE * APPLE2_CYCLES_PER_LINE;
+  }
+
+  /** Reading the opcode of the instruction that is itself reading the floating
+   *  bus must not come back here. */
+  private floating = false;
+
+  /** The byte on the data bus when a read of `addr` is not answered by
+   *  anything: whatever the video scanner fetched on that cycle (see
+   *  apple2-scanner.ts). Soft switches that only have a side effect, empty slots
+   *  and absent auxiliary RAM all read this. */
+  floatingBus(addr: number): number {
+    let t: number;
+    if (this.floating) {
+      t = this.cpu.tStates;
+    } else {
+      this.floating = true;
+      t = this.accessCycle(addr, false);
+      this.floating = false;
+    }
+    return this.memory.ram[this.scannerAddressAt(t)];
+  }
+
+  /** The RAM address the video scanner reads on CPU cycle `t`, with the display
+   *  switches as they are now. */
+  scannerAddressAt(t: number): number {
+    const iie = this.modelInfo.iie;
+    // With 80STORE the PAGE2 switch pages the CPU's RAM, not the picture's.
+    const page2 = this.page2 && !(iie && this.mmu.store80);
+    return scannerAddress(t % APPLE2_TSTATES_PER_FRAME, this.textMode, this.mixed, this.hires, page2, iie);
+  }
+
+  /** The game port and the video scanner, for the debugger's `chip_state`. */
+  chips(): readonly ChipSection[] { return apple2Chips(this); }
 
   get cassetteInputBit(): boolean {
     this.cassette.advanceTo(this.cpu.tStates / APPLE2_CPU_CLOCK);
@@ -304,10 +357,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
    *  menu, and counted for the activity readout. */
   pulseCassetteOutput(write: boolean): void {
     this.activity.cassetteToggles++;
-    const t = this.insnActive
-      ? accessTime(this.cpu.tStates, this.peekOpcode(this.insnPc), this.insnPc, 0xC020, write, this.modelInfo.cmos)
-      : this.cpu.tStates;
-    this.tapeRecorder.toggle(this.tapeClockBase + t);
+    this.tapeRecorder.toggle(this.tapeClockBase + this.accessCycle(0xC020, write));
   }
 
   /** The recorder's clock now: cycles since the machine was last reset. */
@@ -403,7 +453,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   // ── Beam ───────────────────────────────────────────────────────────────
 
-  /** The raster is a function of the cycle count (see `vblActive`), so frames
+  /** The raster is a function of the cycle count (see `vblAtAccess`), so frames
    *  sit on multiples of a frame's cycles and `t` is the cycle in it. */
   beam(): BeamPos { return this.gridBeam(); }
   beamInfo(): BeamInfo {
@@ -461,8 +511,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
    *  value. */
   private catchUpVideo(addr: number, write: boolean): void {
     if (!this.frameOpen) return;
-    const pc = this.insnPc;
-    const t = accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, write, this.modelInfo.cmos);
+    const t = this.accessCycle(addr, write);
     this.finishVideoLines(t);
     if (this.videoLine >= APPLE2_VBL_LINE) return;
     const lineStart = this.videoLineEndT - APPLE2_CYCLES_PER_LINE;
@@ -476,9 +525,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
    *  read-modify-write steps of an I/O access fall on a cycle that depends only
    *  on the opcode, not the address. */
   private busCycle(write: boolean): number {
-    if (!this.insnActive) return this.cpu.tStates;
-    const pc = this.insnPc;
-    return accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, 0xC0E0, write, this.modelInfo.cmos);
+    return this.accessCycle(0xC0E0, write);
   }
 
   protected runFrame(): void {
