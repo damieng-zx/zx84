@@ -8,6 +8,7 @@ import type {
 import { parseC64Basic, parseC64BasicVariables } from '@/basic/c64-basic-parser.ts';
 import { hex16 } from '@/utils/hex.ts';
 import type { Vic20Machine } from '../vic20-machine.ts';
+import { sampleCbmDrives } from '@/machines/shared/cbm/drive-services.ts';
 
 function vic20MemoryMap(m: Vic20Machine): MemoryMapSnapshot {
   const e = m.memory.expansion;
@@ -59,7 +60,6 @@ export class Vic20FrameProbe implements FrameProbe {
     out.beeper = 0;
     out.psg = m.activity.soundWrites;
     out.videoFx = 0;
-    out.disk = 0;
     const tape = m.tape;
     out.tapeTurbo = m.tapeTurboActive;
     out.tapeLoaded = tape.blocks.length > 0;
@@ -70,10 +70,8 @@ export class Vic20FrameProbe implements FrameProbe {
     out.casBlock = -1;
     out.fastRomLoading = false;
     out.tracingActive = m.traceActive;
-    for (let unit = 0; unit < 4; unit++) out.driveLed[unit] = -1;
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
-    out.floppySlot = -1;
-    out.floppyMotor = false;
+    sampleCbmDrives(out, m.drives);
   }
 }

@@ -1,11 +1,13 @@
 /**
- * The VIC-20's chips for the debugger's `chip_state`: the VIC and the two VIAs.
+ * The VIC-20's chips for the debugger's `chip_state`: the VIC, the two VIAs
+ * and the disk drives.
  */
 
 import type { ChipSection } from '@/debug/chip-state.ts';
 import type { M6522 } from '@/cores/m6522.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import { VIC20_COLOUR_NAMES } from './palette.ts';
+import { cbmDriveChips } from '@/machines/shared/cbm/drive-services.ts';
 import type { Vic20Machine } from './vic20-machine.ts';
 
 const hx = (v: number, digits = 2): string => `$${digits === 4 ? hex16(v) : hex8(v)}`;
@@ -59,7 +61,8 @@ export function vic20Chips(m: Vic20Machine): ChipSection[] {
       dump: () => {
         const out = m.serialOut;
         return dumpVia(m.via1, 0x9110, [
-          `        serial out: ATN ${out & 1 ? 'low' : 'high'}  CLK ${out & 2 ? 'low' : 'high'}  DATA ${out & 4 ? 'low' : 'high'}`,
+          `        serial out: ATN ${out & 1 ? 'low' : 'high'}  CLK ${out & 2 ? 'low' : 'high'}  DATA ${out & 4 ? 'low' : 'high'}` +
+            `${m.drives.length > 0 ? `   drives pull: CLK ${m.iec.clkLow ? 'low' : 'high'}  DATA ${m.iec.dataLow ? 'low' : 'high'}` : ''}`,
           `        RESTORE ${m.keyboard.restore ? 'down' : 'up'}`,
         ]);
       },
@@ -69,5 +72,6 @@ export function vic20Chips(m: Vic20Machine): ChipSection[] {
       description: 'VIA 2 ($9120): keyboard matrix, joystick right, cassette read and write, serial CLK/DATA out (IRQ)',
       dump: () => dumpVia(m.via2, 0x9120, []),
     },
+    ...cbmDriveChips(m.drives),
   ];
 }

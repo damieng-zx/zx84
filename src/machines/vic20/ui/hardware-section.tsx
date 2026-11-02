@@ -1,5 +1,6 @@
 /**
- * VIC-20 Hardware-pane options: the expansion RAM on the cartridge port.
+ * VIC-20 Hardware-pane options: the expansion RAM on the cartridge port, and
+ * the disk drive on the serial bus.
  * Contributed to the generic Hardware pane via the UI manifest.
  *
  * RAM is fitted with the power off, so each change rebuilds the machine.
@@ -56,6 +57,24 @@ export function Vic20HardwareSection() {
             }}
           />
           RAM at $A000 (BLK5)
+        </label>
+      </div>
+      <div class="multiface-row">
+        <label
+          class="mf-check"
+          title="Plug a disk drive (device 8) into the serial bus: a 1541, 1571 or 1581, chosen in the Drives pane"
+        >
+          <input
+            type="checkbox"
+            checked={settings.vic20Drive()}
+            onChange={(event) => {
+              const on = (event.target as HTMLInputElement).checked;
+              settings.setVic20Drive(on);
+              settings.persistSetting('vic20-drive', on ? 'on' : 'off');
+              rebuild();
+            }}
+          />
+          Disk drive (device 8)
         </label>
       </div>
     </>

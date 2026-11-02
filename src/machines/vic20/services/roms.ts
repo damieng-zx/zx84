@@ -5,7 +5,10 @@
  * Cartridges arrive in Phase 4 of the plan.
  */
 
-import type { CartridgeSlot, MachineHost, RomService, RomSlotInfo } from '@/machines/machine.ts';
+import type {
+  CartridgeSlot, MachineHost, RomService, RomSlotInfo, SidewaysRomSlot,
+} from '@/machines/machine.ts';
+import { cbmDriveRomSlots, installCbmDriveRom } from '@/machines/shared/cbm/drive-services.ts';
 import type { Vic20Machine } from '../vic20-machine.ts';
 import { VIC20_ROM_CHIP_SIZES, VIC20_ROM_SLOT_LABELS } from '../models.ts';
 import { VIC20_ROM_SIZE } from '../constants.ts';
@@ -45,6 +48,25 @@ export class Vic20RomService implements RomService {
     } else {
       await ops.persistPage(page, data.subarray(0, VIC20_ROM_CHIP_SIZES[page] ?? 0), label);
     }
+    await ops.rebuild();
+  }
+
+  /** The drives' DOS ROMs, one socket per drive model fitted. */
+  get sidewaysSlots(): readonly SidewaysRomSlot[] { return cbmDriveRomSlots(this.m.iec); }
+
+  installSidewaysRom(index: number, data: Uint8Array): void { installCbmDriveRom(this.m.iec, index, data); }
+
+  async setSidewaysRom(index: number, data: Uint8Array, label: string): Promise<void> {
+    const ops = this.host()?.roms;
+    if (!ops) return;
+    await ops.persistSideways(index, data, label);
+    await ops.rebuild();
+  }
+
+  async resetSidewaysRom(index: number): Promise<void> {
+    const ops = this.host()?.roms;
+    if (!ops) return;
+    await ops.clearSideways(index);
     await ops.rebuild();
   }
 

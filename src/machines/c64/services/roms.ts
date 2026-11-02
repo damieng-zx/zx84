@@ -12,7 +12,7 @@ import type { C64Machine } from '../c64-machine.ts';
 import { C64_ROM_CHIP_SIZES, C64_ROM_SLOT_LABELS } from '../models.ts';
 import { C64_ROM_SIZE } from '../constants.ts';
 import { parseCrt } from '../cartridge.ts';
-import { CBM_DRIVE_MODELS } from '@/machines/shared/cbm/drive/drive-unit.ts';
+import { cbmDriveRomSlots, installCbmDriveRom } from '@/machines/shared/cbm/drive-services.ts';
 
 class C64CartridgeSlot implements CartridgeSlot {
   constructor(private readonly m: C64Machine) {}
@@ -85,29 +85,10 @@ export class C64RomService implements RomService {
 
   readonly cartridge: CartridgeSlot = new C64CartridgeSlot(this.m);
 
-  /** The DOS ROMs are sockets of their own, one per drive model fitted (the
-   *  drives of a model share it). The index is the model's, so a stored
-   *  override stays with its model whichever drives are fitted. */
-  get sidewaysSlots(): readonly SidewaysRomSlot[] {
-    const out: SidewaysRomSlot[] = [];
-    CBM_DRIVE_MODELS.forEach((model, index) => {
-      const drive = this.m.drives.find(d => d.model === model);
-      if (!drive) return;
-      out.push({
-        index,
-        title: `${model} DOS`,
-        label: drive.hasRom ? `${model} DOS ROM` : '',
-        size: drive.hasRom ? drive.romSize : 0,
-        overridden: false,
-      });
-    });
-    return out;
-  }
+  /** The DOS ROMs are sockets of their own, one per drive model fitted. */
+  get sidewaysSlots(): readonly SidewaysRomSlot[] { return cbmDriveRomSlots(this.m.iec); }
 
-  installSidewaysRom(index: number, data: Uint8Array): void {
-    const model = CBM_DRIVE_MODELS[index];
-    if (model) this.m.installDriveRom(model, data);
-  }
+  installSidewaysRom(index: number, data: Uint8Array): void { installCbmDriveRom(this.m.iec, index, data); }
 
   async setSidewaysRom(index: number, data: Uint8Array, label: string): Promise<void> {
     const ops = this.host()?.roms;

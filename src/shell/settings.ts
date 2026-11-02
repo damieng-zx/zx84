@@ -83,6 +83,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'c64-sid': () => settings.c64Sid(),
   'vic20-ram': () => settings.vic20Ram(),
   'vic20-blk5': () => settings.vic20Blk5(),
+  'vic20-drive': () => settings.vic20Drive(),
   'apple2-langcard': () => settings.apple2LangCard(),
   'apple2-joystick': () => settings.apple2Joystick(),
   'apple2-mockingboard': () => settings.apple2Mockingboard(),

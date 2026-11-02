@@ -133,6 +133,7 @@ const DEFAULTS = {
   'c64-sid':        '6581',
   'vic20-ram':      'none',
   'vic20-blk5':     'off',
+  'vic20-drive':    'on',
   'drive-counts':   '{}',
   'drive-models':   '{}',
   'apple2-langcard': 'on',
@@ -475,6 +476,7 @@ export const [apple1Ram, setApple1Ram] = signal(
 export const [vic20Ram, setVic20Ram] = signal(
   savedText('vic20-ram') as 'none' | '3k' | '8k' | '16k' | '24k' | '27k');
 export const [vic20Blk5, setVic20Blk5] = signal(savedFlag('vic20-blk5'));
+export const [vic20Drive, setVic20Drive] = signal(savedFlag('vic20-drive'));
 
 export const [apple1BasicRam, setApple1BasicRam] = signal(savedFlag('apple1-basic-ram'));
 export const [apple1Aci, setApple1Aci] = signal(savedFlag('apple1-aci'));
@@ -662,6 +664,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'c64-drive', set: setC64Drive, type: 'bool' },
     { key: 'vic20-ram', set: setVic20Ram, type: 'string' },
     { key: 'vic20-blk5', set: setVic20Blk5, type: 'bool' },
+    { key: 'vic20-drive', set: setVic20Drive, type: 'bool' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
     { key: 'apple2-joystick', set: setApple2Joystick, type: 'bool' },
     { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },

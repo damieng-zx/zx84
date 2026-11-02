@@ -17,7 +17,10 @@
  *             CB2 serial DATA out
  *
  * The serial outputs go through inverters, so ATN, CLK or DATA is pulled low
- * while its output is high. The inputs read the lines as they are.
+ * while its output is high. The inputs read the lines as they are: low while
+ * the VIC-20 or any drive pulls them. The drives (the shared 1541, 1571 and
+ * 1581, `shared/cbm/`) are brought up to the VIC-20's clock at every access
+ * to the VIAs' serial pins and at frame end.
  *
  * The Datasette: a mounted tape counts as PLAY pressed (PA6 low), the motor
  * runs while VIA 1 holds CA2 low and moves the tape, the read line's level
@@ -43,6 +46,8 @@ import type { ChipSection } from '@/debug/chip-state.ts';
 import type { C64Program } from '@/media/tape/t64.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
+import { normalizeDriveModels, type CbmDriveUnit } from '@/machines/shared/cbm/drive/drive-unit.ts';
+import { CbmSerialBus } from '@/machines/shared/cbm/serial-bus.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -112,6 +117,15 @@ export class Vic20Machine extends BaseMachine implements Machine {
   readonly via1 = new M6522();
   readonly via2 = new M6522();
   readonly keyboard = new Vic20Keyboard();
+  /** The serial bus and the disk drives on it; the VIC-20's side of it is
+   *  `serialOut` (bits ATN 1, CLK 2, DATA 4, as the bus counts them). */
+  readonly iec = new CbmSerialBus(() => this.serialOut);
+  /** The disk drives on the serial bus, device 8 first; none while unplugged. */
+  get drives(): readonly CbmDriveUnit[] { return this.iec.drives; }
+  /** A state without its disks (the browser-refresh copy) was restored: the
+   *  shell then puts the persisted disk back, which must not look like a disk
+   *  change to the drive. Cleared by any reset. */
+  refreshResumed = false;
   /** The Datasette's tape, played through the shared pulse deck. */
   readonly tape: TapeDeck;
   /** Edges of the cassette write line since the last reset (what SAVE wrote). */
@@ -221,8 +235,8 @@ export class Vic20Machine extends BaseMachine implements Machine {
     // sense (low while a button is down), ATN out reads as driven.
     const out = this.serialOut;
     let a1 = this.tapeSense ? 0xBF : 0xFF;
-    if (out & 2) a1 &= ~0x01;
-    if (out & 4) a1 &= ~0x02;
+    if ((out & 2) !== 0 || this.iec.clkLow) a1 &= ~0x01;
+    if ((out & 4) !== 0 || this.iec.dataLow) a1 &= ~0x02;
     a1 &= ~(this.joyVia1 | ((this.paddleButtons & 1) !== 0 ? JOY_VIA1.left : 0));
     via1.portAInput = a1;
     via1.portBInput = 0xFF;
@@ -249,8 +263,10 @@ export class Vic20Machine extends BaseMachine implements Machine {
       const sel1 = (addr & 0x10) !== 0, sel2 = (addr & 0x20) !== 0;
       if (!sel1 && !sel2) { vic.drawTo(t); return vic.busValue; }
       this.syncVias(t);
-      this.updatePins();
       const reg = addr & 0x0F;
+      // VIA 1's port A reads the serial bus: the drives first catch up.
+      if (sel1 && (reg === 1 || reg === 15)) this.syncDrives(t);
+      this.updatePins();
       let v = 0xFF;
       if (sel1) {
         if (reg === 1 || reg === 15) { this.activity.joyReads++; this.senseReads++; }
@@ -278,8 +294,13 @@ export class Vic20Machine extends BaseMachine implements Machine {
       }
       this.syncVias(t);
       const reg = addr & 0x0F;
+      // ATN is VIA 1's PA7 (ORA, DDRA); CLK and DATA out VIA 2's CA2 and CB2 (PCR).
+      const bus = this.iec.fitted && ((addr & 0x10) !== 0 && (reg === 1 || reg === 3 || reg === 15)
+        || (addr & 0x20) !== 0 && reg === 12);
+      if (bus) this.syncDrives(t);
       if (addr & 0x10) via1.write(reg, value);
       if (addr & 0x20) via2.write(reg, value);
+      if (bus) this.iec.update();
       this.cassettePortsChanged(t);
       this.updateInterrupts();
     };
@@ -292,6 +313,13 @@ export class Vic20Machine extends BaseMachine implements Machine {
       if (addr & 0x20) v &= peekVia(via2, reg);
       return v;
     };
+  }
+
+  // ── Disk drives ──────────────────────────────────────────────────────────
+
+  /** Bring the drives up to the VIC-20's cycle `t`. */
+  private syncDrives(t: number): void {
+    if (this.iec.fitted) this.iec.syncTo(t, this.timing.clockHz);
   }
 
   // ── Datasette ────────────────────────────────────────────────────────────
@@ -407,6 +435,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeTurbo = view.get('tape-turbo-load', true);
+    this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
   }
 
   /** The border is fully rendered; the setting crops it: Normal shows it
@@ -449,10 +478,19 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.memory.setExpansion(exp);
   }
 
-  /** Fit the expansion RAM the Hardware pane asks for. No peripheral ROMs yet. */
+  /** Fit the expansion RAM and the disk drives the Hardware pane and the
+   *  Drives pane ask for, and list the DOS ROMs the drives need (the same
+   *  files, and the same cache, as the C64's). */
   prepare(view: SettingsView): AuxRomRequest[] {
     this.setRamExpansion(readVic20Expansion(view));
-    return [];
+    const models = normalizeDriveModels(view.get<unknown>('drive-models:vic20', null));
+    this.iec.driveModels = models;
+    if (!view.get('vic20-drive', true)) {
+      this.iec.unplug();
+      return [];
+    }
+    this.iec.fitDrives(models);
+    return this.iec.romRequests('c64-dos');
   }
 
   reset(): void {
@@ -486,6 +524,8 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.tapeTurboCooldown = 0;
     this.tapeLastT = this.cpu.tStates;
     this.senseReads = this.ifrReads = 0;
+    this.iec.reset();
+    this.refreshResumed = false;
     this.clearInterrupts();
     this.updatePins();
     this.mixer.reset();
@@ -638,6 +678,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
       }
     }
     this.vic.drawTo(endT);
+    this.syncDrives(cpu.tStates);
     this.framesSinceReset++;
     if (this.pendingProgram && this.basicReady()) this.applyPendingProgram();
     this.checkAutoPlay();
@@ -710,7 +751,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
   }
 
   /** The machine's state between frames. */
-  saveState(w: StateWriter, _withMedia: boolean): void {
+  saveState(w: StateWriter, withMedia: boolean): void {
     this.completeFrame();
     const e = this.memory.expansion;
     // The fitted memory first, so a restore can refuse a mismatch before it
@@ -729,6 +770,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
     w.section('SND ', () => this.sound.saveState(w));
     w.section('VIA1', () => this.via1.saveState(w));
     w.section('VIA2', () => this.via2.saveState(w));
+    this.iec.saveState(w, withMedia);
   }
 
   loadState(r: StateReader): void {
@@ -759,10 +801,13 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.sound.loadState(r.section('SND '));
     this.via1.loadState(r.section('VIA1'));
     this.via2.loadState(r.section('VIA2'));
+    // One DRVM, DRV and MEDA section for each drive, device 8 first.
+    const withMedia = this.iec.loadState(r);
     this.viaT = this.cpu.tStates;
     this.midFrame = false;
     this.pendingProgram = null;
     this.framesSinceReset = BOOT_FRAMES;
+    this.refreshResumed = !withMedia;
     this.motorWasOn = this.motorOn;
     this.tapeLastT = this.cpu.tStates;
     this._tapeTurboActive = false;

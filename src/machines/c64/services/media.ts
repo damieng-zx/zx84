@@ -26,7 +26,7 @@ import type { C64Machine } from '../c64-machine.ts';
 import type { CbmDiskService } from '@/machines/shared/cbm/disk-service.ts';
 import type { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
 import { C64_STATE } from '../snapshots/c64-state.ts';
-import type { CbmDriveModel } from '@/machines/shared/cbm/drive/drive-unit.ts';
+import { CBM_DISK_PATTERN, CBM_DISK_TYPES, mountCbmDisk } from '@/machines/shared/cbm/drive-services.ts';
 import { C64_CART_TYPE_NAMES, parseCrt } from '../cartridge.ts';
 
 export class C64MediaService implements MediaService {
@@ -44,14 +44,7 @@ export class C64MediaService implements MediaService {
       // them), so the Tape pane names them and LOAD finds them.
       { ext: '.t64', target: 'tape' },
       { ext: '.prg', target: 'tape' },
-      // Every disk format, whichever drives are set up: a ZIP or a file picker
-      // filters by these, and a disk for a model that is not fitted gets a
-      // message saying which drive to set up rather than being passed over.
-      { ext: '.d64', target: 'a' },
-      { ext: '.d71', target: 'a' },
-      { ext: '.g64', target: 'a' },
-      { ext: '.g41', target: 'a' },
-      { ext: '.d81', target: 'a' },
+      ...CBM_DISK_TYPES,
       { ext: '.crt', target: 'cartridge' },
       { ext: C64_STATE.ext, target: 'snapshot' },
     ];
@@ -105,45 +98,8 @@ export class C64MediaService implements MediaService {
       return { ok: true, target: 'tape', message: `Loaded ${name}` };
     }
 
-    if (/\.(d64|g64|g41|d71|d81)$/i.test(name)) {
-      // The model a disk is made for; a 1571 also reads the 1541's.
-      const wants: CbmDriveModel = /\.d81$/i.test(name) ? '1581' : /\.d71$/i.test(name) ? '1571' : '1541';
-      const reads = (model: CbmDriveModel): boolean => (wants === '1541' ? model !== '1581' : model === wants);
-      const drives = this.m.drives;
-      // The shell names the drive a disk is meant for ('a'-'d', or 'unit:n');
-      // otherwise the first drive that reads the format, an empty one first.
-      const named = /^(?:unit:)?([0-3a-d])$/.exec(target ?? '');
-      const asked = named ? (/\d/.test(named[1]) ? Number(named[1]) : 'abcd'.indexOf(named[1])) : -1;
-      let at = asked >= 0 && asked < drives.length ? asked : -1;
-      if (at < 0 && drives.length > 0) {
-        const fits = drives.map((_, i) => i).filter(i => reads(drives[i].model));
-        at = fits.find(i => !drives[i].loaded) ?? fits[0] ?? -1;
-        // None reads it: the first empty drive, else the first, is set to the model
-        // that does (see needsDriveModel), so a .d81 on a stock 1541 machine just works.
-        if (at < 0 && asked < 0) at = Math.max(0, drives.findIndex(d => !d.loaded));
-      }
-      const drive = drives[at];
-      if (drive && !reads(drive.model)) {
-        const have = drive.model;
-        const formats = have === '1541' ? '.d64 and .g64' : have === '1571' ? '.d64, .g64 and .d71' : '.d81';
-        return {
-          ok: false,
-          needsDriveModel: { index: at, model: wants },
-          message: `Drive ${8 + at} is a ${have}, which reads ${formats} disks: set it to a ${wants} in the Drives pane (the drive's ... menu, Model) or add a ${wants} drive there, to use ${name}`,
-        };
-      }
-      // The shell remounting the persisted disk after a browser-refresh restore
-      // names the drive; the restored drive is already running, so the disk
-      // goes back in without the drive noticing a change.
-      const reattach = named !== null && this.m.refreshResumed;
-      const id = 'abcd'[at] ?? 'a';
-      try {
-        this.disks.mountImage(id, data, name, reattach);
-      } catch (e) {
-        return { ok: false, message: `Disk error: ${e instanceof Error ? e.message : String(e)}` };
-      }
-      if (reattach) return { ok: true, target: id, message: `Drive ${8 + at} loaded: ${name}` };
-      return { ok: true, target: id, message: `Drive ${8 + at} loaded: ${name} (try LOAD"*",${8 + at},1)` };
+    if (CBM_DISK_PATTERN.test(name)) {
+      return mountCbmDisk(this.m.iec, this.disks, data, name, target, this.m.refreshResumed);
     }
 
     if (/\.crt$/i.test(name)) {

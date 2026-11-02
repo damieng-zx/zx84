@@ -10,6 +10,7 @@ import { parseC64Basic, parseC64BasicVariables } from '@/basic/c64-basic-parser.
 import { hex8 } from '@/utils/hex.ts';
 import type { C64Machine } from '../c64-machine.ts';
 import { C64_CART_TYPE_NAMES } from '../cartridge.ts';
+import { sampleCbmDrives } from '@/machines/shared/cbm/drive-services.ts';
 
 function c64MemoryMap(m: C64Machine): MemoryMapSnapshot {
   const mem = m.memory;
@@ -87,7 +88,6 @@ export class C64FrameProbe implements FrameProbe {
     out.beeper = 0;
     out.psg = m.activity.sidWrites;
     out.videoFx = 0;
-    out.disk = 0;
     const tape = m.tape;
     out.tapeTurbo = m.tapeTurboActive;
     out.tapeLoaded = tape.blocks.length > 0;
@@ -98,28 +98,8 @@ export class C64FrameProbe implements FrameProbe {
     out.casBlock = -1;
     out.fastRomLoading = false;
     out.tracingActive = m.traceActive;
-    for (let unit = 0; unit < 4; unit++) out.driveLed[unit] = -1;
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
-    out.floppySlot = -1;
-    out.floppyMotor = false;
-    // 0 off, 1 motor, 2 reading, 3 writing: a drive's LED is lit while it works.
-    m.drives.forEach((drive, unit) => {
-      out.driveLed[unit] = !drive.motorOn ? 0 : drive.isWriting ? 3 : drive.ledOn ? 2 : 1;
-      out.driveTrack[unit] = drive.currentTrack;
-      out.driveSector[unit] = -1;
-      out.driveDirty[unit] = drive.dirty ? 1 : 0;
-      if (drive.motorOn) out.disk = 1;
-    });
-    // The floppy sound follows the first drive running, else the first drive.
-    const running = m.drives.findIndex(d => d.motorOn);
-    const sounding = running >= 0 ? running : 0;
-    const drive = m.drives[sounding];
-    if (drive) {
-      out.floppySlot = sounding;
-      out.floppyMotor = drive.motorOn;
-      out.floppyTrack = drive.currentTrack;
-      out.floppyProfile = drive.model === '1581' ? 1 : 2;      // 3.5 inch, or 5.25 inch
-    }
+    sampleCbmDrives(out, m.drives);
   }
 }

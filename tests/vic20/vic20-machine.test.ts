@@ -23,6 +23,7 @@ import { VIC20_NTSC_TIMING, VIC20_PAL_TIMING } from '@/machines/vic20/constants.
 import { vic20Descriptor, vic20Entry } from '@/machines/vic20/descriptor.ts';
 import { expectExactFromFile, expectRefusedUntouched, romImage } from '../snapshot/native-state-helpers.ts';
 import { firmware, machine } from './firmware.ts';
+import { d64WithFiles } from '../c64/d64-helper.ts';
 
 
 // ── Memory map ─────────────────────────────────────────────────────────────
@@ -449,5 +450,27 @@ describe.skipIf(!basic || !kernalPal || !chargen)('VIC-20 with the Commodore ROM
     typeText(m, 'NEW\nLOAD\n');
     expect(runUntilReady(m, 4000)).toBeLessThan(4000);
     expect(m.ocrScreenForMcp()).toContain('FOUND B');
+  });
+});
+
+const dos1541 = romImage('dos1541-325302-01-901229-05.rom');
+
+describe.skipIf(!basic || !kernalPal || !chargen || !dos1541)('VIC-20 with a 1541 and the Commodore ROMs', () => {
+  it('lists a disk with LOAD"$",8', { timeout: 60_000 }, async () => {
+    const m = realVic20();
+    m.iec.fitDrives(['1541']);
+    m.iec.installDriveRom('1541', dos1541!);
+    m.reset();
+    for (let f = 0; f < 150; f++) m.tick();
+    const disk = d64WithFiles([{ name: 'HELLO', data: Uint8Array.from([0x01, 0x10, 0, 0]) }], 'VICDISK', '20');
+    const r = await m.services.media.mount(disk, 'test.d64');
+    expect(r.ok, r.message).toBe(true);
+    typeText(m, 'LOAD"$",8\n');
+    expect(runUntilReady(m, 3000)).toBeLessThan(3000);
+    typeText(m, 'LIST\n');
+    for (let f = 0; f < 30; f++) m.tick();
+    const screen = m.ocrScreenForMcp();
+    expect(screen).toContain('VICDISK');
+    expect(screen).toContain('"HELLO"');
   });
 });

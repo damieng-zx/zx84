@@ -1,13 +1,14 @@
 /**
- * The VIC-20's service surface: the ROMs, the Datasette, programs and
- * snapshots through media, input, the frame probe and the 6502 debug family.
- * The disk drives and cartridges follow in the later phases of the plan.
+ * The VIC-20's service surface: the ROMs, the Datasette, the serial-bus disk
+ * drives, programs and snapshots through media, input, the frame probe and
+ * the 6502 debug family.
  */
 
 import type { MachineServices } from '@/machines/machine.ts';
 import { M6502DebugService } from '@/debug/m6502/service.ts';
 import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
+import { CbmDiskService } from '@/machines/shared/cbm/disk-service.ts';
 import { tapFormat } from '@/media/tape/c64-tap.ts';
 import type { Vic20Machine } from '../vic20-machine.ts';
 import { VIC20_STATE } from '../snapshots/vic20-state.ts';
@@ -20,7 +21,7 @@ export interface Vic20Services extends MachineServices {
   readonly media: Vic20MediaService;
   readonly roms: Vic20RomService;
   readonly tape: CbmTapeService;
-  readonly disks: null;
+  readonly disks: CbmDiskService;
   readonly snapshots: NativeSnapshotService;
   readonly input: Vic20InputService;
   readonly probe: Vic20FrameProbe;
@@ -35,11 +36,12 @@ export function createVic20Services(m: Vic20Machine): Vic20Services {
     format: tapFormat(1, m.timing.ntsc ? 1 : 0),
     basicStarts: [0x0401, 0x1001, 0x1201],
   });
+  const disks = new CbmDiskService(m.iec, () => m.host);
   return {
-    media: new Vic20MediaService(m, tape, snapshots),
+    media: new Vic20MediaService(m, tape, disks, snapshots),
     roms: new Vic20RomService(m, () => m.host),
     tape,
-    disks: null,
+    disks,
     snapshots,
     input: new Vic20InputService(m),
     probe: new Vic20FrameProbe(m),

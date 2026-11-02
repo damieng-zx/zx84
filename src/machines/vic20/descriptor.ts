@@ -16,15 +16,26 @@ import { VIC20_JOY_PORT, VIC20_MOUSE_PADDLES } from './services/input.ts';
 import { VIC20_ROM_SIZE, vic20PixelAspect, vic20Screen, vic20Timing } from './constants.ts';
 
 const VIC20_UI: MachineUiCapabilities = {
-  // No disk drives yet (Phase 4 of the plan).
-  hiddenPanes: ['microdrive-panel', 'sysvar-panel', 'font-panel', 'drive-panel'],
+  hiddenPanes: ['microdrive-panel', 'sysvar-panel', 'font-panel'],
   memoryLayout: true,
   trace: true,
   traceModes: ['full', 'portio'],
   // The VIC's sixteen colours are fixed (palette.ts).
   colorMap: 'mono',
   accuracy: false,
-  builtinDisk: false,
+  // The drives are on the serial bus, as on the C64; the Hardware pane plugs
+  // them in or out and the Drives pane's "..." menu adds, removes and picks
+  // each one's model (devices 8 to 11).
+  builtinDisk: true,
+  requires: { builtinDisk: 'vic20-drive' },
+  builtinDrives: 4,
+  builtinDriveLabels: ['Drive 8', 'Drive 9', 'Drive 10', 'Drive 11'],
+  driveModels: [
+    { value: '1541', label: '1541', title: '5.25" GCR disks: .d64, .g64' },
+    { value: '1571', label: '1571', title: '5.25" double-sided GCR disks: .d71, and the 1541\'s .d64, .g64' },
+    { value: '1581', label: '1581', title: '3.5" 800K disks: .d81' },
+  ],
+  defaultDriveModels: ['1541'],
   // One control port: up, down, left and fire on VIA 1, right on VIA 2.
   joystick: true,
   fixedJoystick: false,
@@ -39,7 +50,7 @@ const VIC20_UI: MachineUiCapabilities = {
   beeper: false,
   soundChip: 'VIC',
   psgControls: [],
-  statusLeds: ['kbd', 'load', 'chip', 'text'],
+  statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
   tape: 'deck',
   tapeSound: false,
