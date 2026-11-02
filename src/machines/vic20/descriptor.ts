@@ -44,7 +44,10 @@ const VIC20_UI: MachineUiCapabilities = {
   joystickPlayers: 1,
   // A pair of paddles in the control port, turned with the host mouse.
   mouseTypes: [{ id: VIC20_MOUSE_PADDLES, label: 'Paddles' }],
-  cartridge: false,
+  // ROM in BLK1-3 and BLK5 on the expansion port; fitting one is a power cycle.
+  cartridge: true,
+  // A cartridge mounted from a file is kept across a reload.
+  bootCartridge: true,
   systemRomLabel: 'BASIC + KERNAL + characters',
   romPages: 0,
   beeper: false,

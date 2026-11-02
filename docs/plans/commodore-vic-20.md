@@ -1,8 +1,9 @@
 # Plan: Commodore VIC-20
 
-Status: **Phases 0-3 built** (shared Commodore parts; the machine with its
+Status: **Phases 0-4 built** (shared Commodore parts; the machine with its
 screen, keyboard and interrupts; sound, expansion RAM, programs, paddles and
-the on-screen keyboard; the Datasette), **not yet booted on the real ROMs**: the ROM host
+the on-screen keyboard; the Datasette; disk drives and cartridges), **not yet
+booted on the real ROMs**: the ROM host
 was unreachable from where it was written, so the boot test skips. This plan covers what to build,
 the order to build it in, and the one decision that has to come first: how
 the VIC-20 gets the parts it shares with the C64.
@@ -322,7 +323,30 @@ Planned scope, for reference:
 - A generated KERNAL tape for `.prg`/`.t64`, as on the C64.
 - Tests: load a known PAL VIC-20 TAP to the READY prompt with the right bytes in RAM.
 
-### Phase 4: disk drive and cartridges
+### Phase 4: disk drive and cartridges — ✅ built, unverified on the real ROMs
+
+Done:
+
+- The VIC-20 is on the shared `CbmSerialBus`: ATN out VIA 1 PA7, CLK/DATA
+  out VIA 2 CA2/CB2 (held high = line pulled low, matching the KERNAL's
+  CLKHI/DATAHI clearing the output bit), CLK/DATA in VIA 1 PA0/PA1. Drives
+  sync on each access to those pins and at frame end; reset and snapshots
+  include them. `vic20-drive` (Hardware pane) and `drive-models:vic20`
+  (Drives pane); the DOS ROMs share the C64's cache keys and files.
+- The C64's disk routing, DOS ROM sockets, drive LEDs and drive chip dumps
+  moved to `shared/cbm/drive-services.ts`.
+- `cartridge.ts`: VICE `.crt` (generic type 0), load-address images
+  ($2000/$4000/$6000/$A000, also as `.prg` when it loads at $A000 with
+  "A0CBM"), raw `.a0`/`.20`/`.40`/`.60`; 4K images mirrored in their block.
+  The ROM answers ahead of expansion RAM, is not on the VIC's bus, needs a
+  power cycle to change, sits in the ROM pane's cartridge slot, persists
+  across a reload, and rides in snapshots (`CART`).
+
+To check with the real ROMs (tests written, skipped here): `LOAD"$",8`
+listing a disk; a cartridge autostarting through "A0CBM". Not done:
+banked cartridge types (Mega-Cart, Final Expansion), Super Expander's RAM.
+
+Planned scope, for reference:
 - 1541 (and 1581/1571-as-1541) on the serial bus through the shared IEC
   helper: ATN out VIA 1 PA7, CLK/DATA out via VIA 2 CA2/CB2, CLK/DATA in
   VIA 1 PA0/PA1. Devices 8–11, the Drives pane exactly as on the C64.

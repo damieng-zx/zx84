@@ -6,6 +6,8 @@
  *  - `.t64`  a tape archive: its first program, likewise.
  *  - `.d64` / `.g64`  a 1541 disk, put in a drive (device 8 first); `.d71` a
  *    1571's, `.d81` a 1581's.
+ *  - `.crt`, `.a0`, `.20`, `.40`, `.60`  a cartridge (see `cartridge.ts`); so
+ *    is a `.prg` that loads at $A000 with the autostart signature.
  *  - `.vic20state`  a zx84 snapshot.
  *
  * `.prg` and `.t64` are also put on the Datasette as a KERNAL recording of
@@ -18,7 +20,6 @@
  * fitted does not suit it, the RAM it needs is fitted first (the Hardware
  * pane follows), then the machine starts over with the program.
  *
- * Cartridges follow in Phase 4 of the plan.
  */
 
 import type {
@@ -32,6 +33,7 @@ import { CBM_DISK_PATTERN, CBM_DISK_TYPES, mountCbmDisk } from '@/machines/share
 import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import type { Vic20Machine } from '../vic20-machine.ts';
 import { VIC20_STATE } from '../snapshots/vic20-state.ts';
+import { VIC20_CART_PATTERN, isCartridgePrg, parseVic20Cartridge } from '../cartridge.ts';
 import { VIC20_RAM_LABELS, vic20ExpansionFor, vic20RamChoiceFor } from '../options.ts';
 
 export class Vic20MediaService implements MediaService {
@@ -50,6 +52,11 @@ export class Vic20MediaService implements MediaService {
       { ext: '.prg', target: 'tape' },
       { ext: '.t64', target: 'tape' },
       ...CBM_DISK_TYPES,
+      { ext: '.crt', target: 'cartridge' },
+      { ext: '.a0', target: 'cartridge' },
+      { ext: '.20', target: 'cartridge' },
+      { ext: '.40', target: 'cartridge' },
+      { ext: '.60', target: 'cartridge' },
       { ext: VIC20_STATE.ext, target: 'snapshot' },
     ];
   }
@@ -100,6 +107,12 @@ export class Vic20MediaService implements MediaService {
       const more = programs.length > 1 ? ` (first of ${programs.length})` : '';
       return this.run(prog, `"${prog.name || name}"${more}`, data, name);
     }
+    if (VIC20_CART_PATTERN.test(name) || (/\.prg$/i.test(name) && isCartridgePrg(data))) {
+      const parsed = parseVic20Cartridge(data, name);
+      if ('error' in parsed) return { ok: false, message: `${parsed.error}: ${name}` };
+      this.m.mountCartridge(parsed.cart, name);
+      return { ok: true, target: 'cartridge', message: `Cartridge: ${name}` };
+    }
     if (/\.prg$/i.test(name)) {
       let prog: C64Program;
       try {
@@ -119,6 +132,6 @@ export class Vic20MediaService implements MediaService {
         ? { ok: true, target: 'snapshot', message: r.message }
         : { ok: false, message: r.message };
     }
-    return { ok: false, message: 'The VIC-20 loads .tap tapes, .prg and .t64 programs, .d64, .g64, .d71 and .d81 disks and .vic20state snapshots' };
+    return { ok: false, message: 'The VIC-20 loads .tap tapes, .prg and .t64 programs, .d64, .g64, .d71 and .d81 disks, .crt/.a0/.20/.40/.60 cartridges and .vic20state snapshots' };
   }
 }

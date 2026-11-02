@@ -2,13 +2,32 @@
  * Vic20RomService — one socket per ROM chip: BASIC, the KERNAL and the
  * character ROM, each independently overridable (at an 8K stride, as on the
  * C64; see `VIC20_ROM_SLOT_SIZE`). An override is cut to its chip's size.
- * Cartridges arrive in Phase 4 of the plan.
+ * The cartridge slot takes `.crt` files and raw or load-address ROM images;
+ * the drives' DOS ROMs are sockets of their own.
  */
+
+class Vic20CartridgeSlot implements CartridgeSlot {
+  constructor(private readonly m: Vic20Machine) {}
+
+  get name(): string {
+    const cart = this.m.cartridge;
+    return cart ? this.m.cartridgeFile || cart.name || 'Cartridge' : '';
+  }
+
+  insert(data: Uint8Array, name: string): void {
+    const parsed = parseVic20Cartridge(data, name);
+    if ('error' in parsed) { this.m.onStatus?.(parsed.error); return; }
+    this.m.mountCartridge(parsed.cart, name);
+  }
+
+  eject(): void { this.m.ejectCartridge(); }
+}
 
 import type {
   CartridgeSlot, MachineHost, RomService, RomSlotInfo, SidewaysRomSlot,
 } from '@/machines/machine.ts';
 import { cbmDriveRomSlots, installCbmDriveRom } from '@/machines/shared/cbm/drive-services.ts';
+import { parseVic20Cartridge } from '../cartridge.ts';
 import type { Vic20Machine } from '../vic20-machine.ts';
 import { VIC20_ROM_CHIP_SIZES, VIC20_ROM_SLOT_LABELS } from '../models.ts';
 import { VIC20_ROM_SIZE } from '../constants.ts';
@@ -70,8 +89,7 @@ export class Vic20RomService implements RomService {
     await ops.rebuild();
   }
 
-  /** No cartridge slot yet (Phase 4 of the plan). */
-  readonly cartridge: CartridgeSlot | null = null;
+  readonly cartridge: CartridgeSlot = new Vic20CartridgeSlot(this.m);
 
   async resetSystemRom(page?: number): Promise<void> {
     const ops = this.host()?.roms;

@@ -7,6 +7,8 @@
  *
  *   CONF  bool NTSC, then the expansion RAM fitted: RAM1-3, BLK1, BLK2,
  *         BLK3, BLK5 (a restore refuses a mismatch before changing anything)
+ *   CART  the cartridge: bool fitted, then its name and, for BLK1, BLK2,
+ *         BLK3 and BLK5, bool filled and 8K of ROM
  *   CPU   the 6502 (`M6502.saveState`)
  *   MACH  f64 frame start, f64 frame end, f64 frame number, bool NMI line
  *   MEM   the 64K RAM array and the colour RAM
@@ -14,6 +16,8 @@
  *   SND   the VIC's voices: counters, shift registers, noise LFSR, clock
  *   VIA1  VIA 1 (`M6522.saveState`)
  *   VIA2  VIA 2
+ *   DRVM, DRV, MEDA  each disk drive with a DOS ROM, device 8 first
+ *         (`CbmSerialBus.saveState`)
  *
  * The HEAD carries three ROM CRCs: BASIC, KERNAL, character ROM.
  */

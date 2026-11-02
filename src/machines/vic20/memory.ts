@@ -16,6 +16,9 @@
  *   $C000-$DFFF  BASIC ROM
  *   $E000-$FFFF  KERNAL ROM
  *
+ * A cartridge's ROM answers in the blocks it fills (`setCartridge`), ahead of
+ * any RAM there; writes there reach the RAM, if any, beneath it.
+ *
  * Nothing answers a read of a place with nothing in it, so the CPU reads what
  * the VIC last left on the data bus (the machine supplies it as `openBus`).
  * The colour RAM is four bits wide and its top four bits read the same way.
@@ -30,6 +33,7 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import { VIC20_BASIC_SIZE, VIC20_CHARGEN_SIZE, VIC20_KERNAL_SIZE } from './constants.ts';
+import type { Vic20Cartridge } from './cartridge.ts';
 
 /** Expansion RAM fitted on the cartridge port. */
 export interface Vic20RamExpansion {
@@ -63,6 +67,9 @@ export class Vic20Memory implements IMachineMemory {
   expansion: Vic20RamExpansion = VIC20_NO_EXPANSION;
   /** RAM present per 1K page (64 pages), from the board and the expansion. */
   private readonly ramPage = new Uint8Array(64);
+  /** The cartridge on the expansion port, and its ROM per 8K block (by A13-A15). */
+  cart: Vic20Cartridge | null = null;
+  private readonly cartBlock: (Uint8Array | null)[] = new Array(8).fill(null);
 
   /** The VIC (`$9000-$93FF` with A8 and A9 low) and the VIAs. */
   ioRead: IoRead = () => 0xFF;
@@ -100,6 +107,13 @@ export class Vic20Memory implements IMachineMemory {
     block(exp.blk5, 40);
   }
 
+  /** Plug a cartridge in (null takes it out). */
+  setCartridge(cart: Vic20Cartridge | null): void {
+    this.cart = cart;
+    this.cartBlock.fill(null);
+    if (cart) for (const [block, rom] of cart.blocks) this.cartBlock[block] = rom;
+  }
+
   /** Whether RAM answers at `addr`. */
   isRam(addr: number): boolean { return this.ramPage[(addr >> 10) & 63] === 1; }
 
@@ -121,8 +135,11 @@ export class Vic20Memory implements IMachineMemory {
         return this.openBus();
       case 0xC: case 0xD: return this.basic[addr - 0xC000];
       case 0xE: case 0xF: return this.kernal[addr - 0xE000];
-      default:
+      default: {
+        const rom = this.cartBlock[addr >> 13];
+        if (rom) return rom[addr & 0x1FFF];
         return this.ramPage[addr >> 10] === 1 ? this.ram[addr] : this.openBus();
+      }
     }
   }
 
@@ -149,8 +166,11 @@ export class Vic20Memory implements IMachineMemory {
         return 0xFF;
       case 0xC: case 0xD: return this.basic[addr - 0xC000];
       case 0xE: case 0xF: return this.kernal[addr - 0xE000];
-      default:
+      default: {
+        const rom = this.cartBlock[addr >> 13];
+        if (rom) return rom[addr & 0x1FFF];
         return this.ramPage[addr >> 10] === 1 ? this.ram[addr] : 0xFF;
+      }
     }
   }
 

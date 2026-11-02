@@ -62,6 +62,7 @@ import { vic20Descriptor } from './descriptor.ts';
 import { vic20Chips } from './chip-dump.ts';
 import { createVic20Services, type Vic20Services } from './services/index.ts';
 import { vic20ScreenText } from './screen-text.ts';
+import { loadCartridge, saveCartridge, type Vic20Cartridge } from './cartridge.ts';
 import {
   VIC20_BASIC_SIZE, VIC20_CHARGEN_SIZE, VIC20_KERNAL_SIZE, VIC20_PIXEL_DOUBLE, vic20Screen,
   vic20Timing, type Vic20Timing,
@@ -478,6 +479,37 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.memory.setExpansion(exp);
   }
 
+  // ── Cartridge ────────────────────────────────────────────────────────────
+
+  /** The cartridge on the expansion port, or null. */
+  get cartridge(): Vic20Cartridge | null { return this.memory.cart; }
+  /** The file the cartridge came from, for the ROM pane ('' when it came
+   *  with a snapshot). */
+  cartridgeFile = '';
+
+  /** Change what is on the expansion port the way a person must: with the
+   *  power off, so the machine starts over with it (and the KERNAL finds a
+   *  cartridge's autostart signature). */
+  private swapCartridge(change: () => void): void {
+    const wasActive = this.running || this.starting;
+    this.stop();
+    change();
+    this.reset();
+    if (wasActive) void this.start();
+  }
+
+  /** Plug a cartridge in and start over with it. */
+  mountCartridge(cart: Vic20Cartridge, file: string): void {
+    this.swapCartridge(() => { this.memory.setCartridge(cart); this.cartridgeFile = file; });
+    this.setStatus(`Cartridge: ${file || cart.name}`);
+  }
+
+  /** Take the cartridge out and start over without it. */
+  ejectCartridge(): void {
+    this.swapCartridge(() => { this.memory.setCartridge(null); this.cartridgeFile = ''; });
+    this.setStatus('Cartridge ejected');
+  }
+
   /** Fit the expansion RAM and the disk drives the Hardware pane and the
    *  Drives pane ask for, and list the DOS ROMs the drives need (the same
    *  files, and the same cache, as the C64's). */
@@ -760,6 +792,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
       w.bool(this.timing.ntsc);
       w.bool(e.ram123); w.bool(e.blk1); w.bool(e.blk2); w.bool(e.blk3); w.bool(e.blk5);
     });
+    w.section('CART', () => saveCartridge(w, this.memory.cart));
     w.section('CPU ', () => this.cpu.saveState(w));
     w.section('MACH', () => {
       w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
@@ -788,6 +821,13 @@ export class Vic20Machine extends BaseMachine implements Machine {
         && exp.blk3 === have.blk3 && exp.blk5 === have.blk5;
       if (!same) {
         throw new Error(`This snapshot was saved with ${Vic20Machine.expansionName(exp)} and this VIC-20 has ${Vic20Machine.expansionName(have)}`);
+      }
+    }
+    {
+      const cart = loadCartridge(r.section('CART'));
+      if (cart || this.memory.cart) {
+        this.memory.setCartridge(cart);
+        this.cartridgeFile = '';
       }
     }
     this.cpu.loadState(r.section('CPU '));
