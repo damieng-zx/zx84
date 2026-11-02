@@ -3,8 +3,9 @@
  */
 
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot,
+  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot, TranscribeDriver,
 } from '@/machines/machine.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
 import { parseC64Basic, parseC64BasicVariables } from '@/basic/c64-basic-parser.ts';
 import { hex16 } from '@/utils/hex.ts';
 import type { Vic20Machine } from '../vic20-machine.ts';
@@ -42,10 +43,33 @@ function vic20MemoryMap(m: Vic20Machine): MemoryMapSnapshot {
   };
 }
 
+/** TEXT overlay: read the character screen, then blank what it read. */
+class Vic20TranscribeDriver implements TranscribeDriver {
+  private _active = false;
+  constructor(private readonly m: Vic20Machine) {}
+  get active(): boolean { return this._active; }
+  activate(): void { this._active = true; }
+  deactivate(): void { this._active = false; }
+  run(): {
+    text: string; html: string; grid: OcrGridName;
+    field: { x: number; y: number; width: number; height: number };
+  } {
+    const m = this.m;
+    const result = m.ocrScreenStyled();
+    if (result.mask.some(Boolean)) {
+      m.blankCells(result.mask, result.paper);
+      m.display?.updateTexture(m.pixels);
+    }
+    return { text: result.text, html: result.html, grid: result.grid, field: m.textField };
+  }
+}
+
 export class Vic20FrameProbe implements FrameProbe {
   readonly panes: FramePaneProvider;
+  readonly transcribe: Vic20TranscribeDriver;
 
   constructor(private readonly m: Vic20Machine) {
+    this.transcribe = new Vic20TranscribeDriver(m);
     this.panes = {
       memoryMap: () => vic20MemoryMap(this.m),
       // BASIC V2 keeps its program and variable pointers where the C64's does.

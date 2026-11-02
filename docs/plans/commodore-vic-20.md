@@ -1,9 +1,8 @@
 # Plan: Commodore VIC-20
 
-Status: **Phases 0-4 built** (shared Commodore parts; the machine with its
-screen, keyboard and interrupts; sound, expansion RAM, programs, paddles and
-the on-screen keyboard; the Datasette; disk drives and cartridges), **not yet
-booted on the real ROMs**: the ROM host
+Status: **all five phases built** — the machine's sheet is
+[`docs/machines/commodore-vic-20.md`](../machines/commodore-vic-20.md) —
+**not yet booted on the real ROMs**: the ROM host
 was unreachable from where it was written, so the boot test skips. This plan covers what to build,
 the order to build it in, and the one decision that has to come first: how
 the VIC-20 gets the parts it shares with the C64.
@@ -356,7 +355,16 @@ Planned scope, for reference:
   into each block.
 - Tests: `LOAD"$",8` lists a D64 directory; an 8K `$A000` cart autostarts.
 
-### Phase 5: tools and polish
+### Phase 5: tools and polish — ✅ built
+
+Done: the TEXT overlay (`ocr/vic20.ts`, sharing the C64's glyph matching and
+text/HTML builder, now exported from `ocr/c64.ts`) over the VIC's own text
+area; the machine sheet; the README and developer-tools tables. BASIC
+listing, chip dump, beam log and run-to-beam, the Save menu and the generic
+MCP tools came with the earlier phases. The changelog entry waits for the
+release that ships this.
+
+Planned scope, for reference:
 - OCR (22 × 23, screen base from `$9002`/`$9005`), BASIC listing pane, chip
   dump for the debugger (VIC + both VIAs), beam log / run-to-beam, MCP
   `type`/`ocr`/`screenshot` work generically through services.

@@ -41,10 +41,14 @@ export type AceOcrGrid = '32x24';
  *  columns by 32 rows, or 25 rows in the gapped text modes 3 and 6. */
 export type BbcOcrGrid = `${20 | 40 | 80}x${25 | 32}`;
 
+/** VIC-20 grids: the VIC's own column and row counts (22×23 as the KERNAL
+ *  sets them; programs choose others). */
+export type Vic20OcrGrid = `${number}x${number}`;
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. */
 export type OcrGridName =
   SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | PcwOcrGrid
-  | LynxOcrGrid | AceOcrGrid | BbcOcrGrid;
+  | LynxOcrGrid | AceOcrGrid | BbcOcrGrid | Vic20OcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only

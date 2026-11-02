@@ -62,6 +62,9 @@ import { vic20Descriptor } from './descriptor.ts';
 import { vic20Chips } from './chip-dump.ts';
 import { createVic20Services, type Vic20Services } from './services/index.ts';
 import { vic20ScreenText } from './screen-text.ts';
+import { vic20OcrGrid } from '@/ocr/vic20.ts';
+import type { C64OcrResult } from '@/ocr/c64.ts';
+import { VIC20_PALETTE } from './palette.ts';
 import { loadCartridge, saveCartridge, type Vic20Cartridge } from './cartridge.ts';
 import {
   VIC20_BASIC_SIZE, VIC20_CHARGEN_SIZE, VIC20_KERNAL_SIZE, VIC20_PIXEL_DOUBLE, vic20Screen,
@@ -762,6 +765,49 @@ export class Vic20Machine extends BaseMachine implements Machine {
   /** The text screen as the VIC shows it. */
   ocrScreenForMcp(_mode?: string): string {
     return vic20ScreenText(this.memory, this.vic);
+  }
+
+  /** The TEXT-overlay grid over the VIC's text area. */
+  ocrScreenStyled(): C64OcrResult {
+    const mem = this.memory;
+    return vic20OcrGrid({
+      regs: this.vic.regs,
+      chargen: mem.chargen,
+      palette: VIC20_PALETTE,
+      vicRead: a => mem.vicRead(a),
+      colour: a => mem.vicColour(a),
+    });
+  }
+
+  /** Where the text area sits in the frame buffer: from the origins, in
+   *  doubled pixels across. */
+  get textField(): { x: number; y: number; width: number; height: number } {
+    const r = this.vic.regs;
+    const t = this.timing;
+    return {
+      x: ((r[0] & 0x7F) * 4 - t.firstPixel) * VIC20_PIXEL_DOUBLE,
+      y: r[1] * 2 - t.firstLine,
+      width: (r[2] & 0x7F) * 8 * VIC20_PIXEL_DOUBLE,
+      height: ((r[3] >> 1) & 0x3F) * ((r[3] & 1) !== 0 ? 16 : 8),
+    };
+  }
+
+  /** Paint the overlay's matched cells out of the frame, each in its `paper`. */
+  blankCells(mask: readonly boolean[], paper: readonly number[]): void {
+    const px = this.vic.pixels;
+    const w = this.vic.width, h = this.vic.height;
+    const field = this.textField;
+    const cols = this.vic.regs[2] & 0x7F;
+    for (let i = 0; i < mask.length; i++) {
+      if (!mask[i]) continue;
+      const left = field.x + (i % cols) * 8 * VIC20_PIXEL_DOUBLE;
+      const top = field.y + Math.floor(i / cols) * 8;
+      const colour = VIC20_PALETTE[paper[i] & 0x0F];
+      for (let y = Math.max(0, top); y < Math.min(h, top + 8); y++) {
+        const x0 = Math.max(0, left), x1 = Math.min(w, left + 8 * VIC20_PIXEL_DOUBLE);
+        if (x1 > x0) px.fill(colour, y * w + x0, y * w + x1);
+      }
+    }
   }
 
   // ── Snapshots (.vic20state) ──────────────────────────────────────────────

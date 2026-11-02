@@ -30,6 +30,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Apple I](docs/machines/apple-i.md) | Apple I | 6502 |
 | [Apple II](docs/machines/apple-ii.md) | Apple ][, ][+, //e, Enhanced //e, //c | 6502 / 65C02 |
 | [Commodore 64](docs/machines/commodore-64.md) | Commodore 64 (PAL and NTSC) | 6510 |
+| [Commodore VIC-20](docs/machines/commodore-vic-20.md) | VIC-20 (PAL and NTSC) | 6502 |
 
 ## Features
 
