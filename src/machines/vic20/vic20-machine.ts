@@ -19,6 +19,10 @@
  * The serial outputs go through inverters, so ATN, CLK or DATA is pulled low
  * while its output is high. The inputs read the lines as they are.
  *
+ * The Datasette: a mounted tape counts as PLAY pressed (PA6 low), the motor
+ * runs while VIA 1 holds CA2 low and moves the tape, the read line's level
+ * goes to VIA 2's CA1 (the KERNAL picks the edge), and SAVE drives PB3.
+ *
  * The frame loop runs instruction by instruction. The VIAs are brought up to
  * the cycle of each register access (`accessTime`) and to the end of each
  * instruction, and the VIC draws the picture up to each of its register
@@ -37,6 +41,8 @@ import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
 import type { C64Program } from '@/media/tape/t64.ts';
+import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -72,6 +78,15 @@ const KEYBUF_COUNT = 0xC6;
 /** Frames after a reset by which BASIC is ready whatever the ROMs (the real
  *  KERNAL gets there in under two seconds). */
 const BOOT_FRAMES = 300;
+/** Frames of quiet before tape turbo lets go. */
+const TAPE_TURBO_COOLDOWN = 25;
+/** Reads of the PLAY sense line (VIA 1 port A) in a frame that mean a program
+ *  is waiting for PLAY (the KERNAL's IRQ and the joystick read it a few times
+ *  a frame; PRESS PLAY ON TAPE reads it in a tight loop). */
+const AUTO_PLAY_POLLS = 100;
+/** Reads of VIA 2's interrupt flags in a frame that mean the tape is being
+ *  read: every pulse is an interrupt, where the jiffy alone reads it once. */
+const TURBO_IFR_READS = 10;
 
 /** The VIA's CA2/CB2 is an output held high (PCR mode 7) — through the
  *  inverter, its serial line is pulled low. */
@@ -97,6 +112,10 @@ export class Vic20Machine extends BaseMachine implements Machine {
   readonly via1 = new M6522();
   readonly via2 = new M6522();
   readonly keyboard = new Vic20Keyboard();
+  /** The Datasette's tape, played through the shared pulse deck. */
+  readonly tape: TapeDeck;
+  /** Edges of the cassette write line since the last reset (what SAVE wrote). */
+  readonly tapeRecorder = new PulseRecorder();
 
   readonly mixer: AudioMixer;
   readonly audio = new Audio();
@@ -104,7 +123,23 @@ export class Vic20Machine extends BaseMachine implements Machine {
   private readonly _pixels: Uint8Array;
   protected get audioChip(): VicSound { return this.sound; }
 
-  readonly activity = { kbdReads: 0, joyReads: 0, soundWrites: 0 };
+  readonly activity = { kbdReads: 0, joyReads: 0, soundWrites: 0, tapeEdges: 0 };
+
+  // Tape transport.
+  tapeTurbo = true;
+  private _tapeTurboActive = false;
+  private tapeTurboCooldown = 0;
+  private tapeLastT = 0;
+  private prevEar = 0;
+  private motorWasOn = false;
+  private autoPlayArmed = false;
+  /** This frame's reads of the PLAY sense line and of VIA 2's flags, and the
+   *  recorder's length at the last frame's end (for auto-play and turbo). */
+  private senseReads = 0;
+  private ifrReads = 0;
+  private recordedAtFrame = 0;
+
+  get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
   /** Joystick directions held: `up`/`down`/`left`/`fire` bits for VIA 1 and
    *  the right bit for VIA 2, active high here. */
@@ -138,6 +173,8 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.mixer.psgGain = 1;
     this.vic = new Vic(this.memory, this.timing);
     this.sound = new VicSound(this.vic.regs, this.timing.clockHz);
+    this.tape = new TapeDeck(this.timing.clockHz);
+    this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
     this.deferAccessStamps = true;
 
@@ -181,9 +218,9 @@ export class Vic20Machine extends BaseMachine implements Machine {
   private updatePins(): void {
     const { via1, via2, keyboard } = this;
     // VIA 1 port A: serial CLK/DATA in (high unless pulled), joystick, PLAY
-    // sense (no deck yet: no button down), ATN out reads as driven.
+    // sense (low while a button is down), ATN out reads as driven.
     const out = this.serialOut;
-    let a1 = 0xFF;
+    let a1 = this.tapeSense ? 0xBF : 0xFF;
     if (out & 2) a1 &= ~0x01;
     if (out & 4) a1 &= ~0x02;
     a1 &= ~(this.joyVia1 | ((this.paddleButtons & 1) !== 0 ? JOY_VIA1.left : 0));
@@ -216,11 +253,12 @@ export class Vic20Machine extends BaseMachine implements Machine {
       const reg = addr & 0x0F;
       let v = 0xFF;
       if (sel1) {
-        if (reg === 1 || reg === 15) this.activity.joyReads++;
+        if (reg === 1 || reg === 15) { this.activity.joyReads++; this.senseReads++; }
         v &= via1.read(reg);
       }
       if (sel2) {
         if (reg === 1 || reg === 15) { this.activity.kbdReads++; this.keyboard.reads++; }
+        if (reg === 13) this.ifrReads++;
         v &= via2.read(reg);
       }
       this.updateInterrupts();
@@ -242,6 +280,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
       const reg = addr & 0x0F;
       if (addr & 0x10) via1.write(reg, value);
       if (addr & 0x20) via2.write(reg, value);
+      this.cassettePortsChanged(t);
       this.updateInterrupts();
     };
 
@@ -253,6 +292,95 @@ export class Vic20Machine extends BaseMachine implements Machine {
       if (addr & 0x20) v &= peekVia(via2, reg);
       return v;
     };
+  }
+
+  // ── Datasette ────────────────────────────────────────────────────────────
+
+  /** The motor runs while VIA 1 holds CA2 low (PCR mode 6). */
+  get motorOn(): boolean { return ((this.via1.pcr >> 1) & 7) === 6; }
+  /** The cassette write line: VIA 2 PB3 as driven. */
+  get cassetteWrite(): boolean { return (drivenB(this.via2) & 0x08) !== 0; }
+
+  /** A button is down on the deck. A mounted tape has PLAY down until the
+   *  user stops it; an empty deck stands for a blank cassette with RECORD and
+   *  PLAY down, so SAVE goes straight to the recorder. */
+  get tapeSense(): boolean { return !this.tape.loaded || this.tape.playing; }
+
+  /** A VIA was written at cycle `t`: follow the motor and the write line. */
+  private cassettePortsChanged(t: number): void {
+    const motor = this.motorOn;
+    if (motor !== this.motorWasOn) {
+      this.motorWasOn = motor;
+      if (this.tape.loaded && this.tape.playing) {
+        if (motor) this.tapeLastT = this.cpu.tStates;
+        this.tape.paused = !motor;
+      }
+    }
+    if (motor) this.tapeRecorder.observe(this.cassetteWrite ? 1 : 0, t);
+  }
+
+  /** The tape was mounted, ejected, played or stopped: PLAY follows it, and
+   *  the deck runs only while the motor is on. */
+  tapeTransportChanged(): void {
+    this.motorWasOn = this.motorOn;
+    this.tapeLastT = this.cpu.tStates;
+    this.prevEar = this.tape.earBit;
+    if (this.tape.loaded && this.tape.playing) this.tape.paused = !this.motorWasOn;
+  }
+
+  /** Mounting a tape leaves PLAY up; it goes down by itself the first time
+   *  software sits waiting for it (PRESS PLAY ON TAPE). */
+  armAutoPlay(): void { this.autoPlayArmed = true; }
+
+  private checkAutoPlay(): void {
+    const polls = this.senseReads;
+    this.senseReads = 0;
+    if (!this.autoPlayArmed || !this.tape.loaded || this.tape.playing) return;
+    if (polls < AUTO_PLAY_POLLS) return;
+    this.autoPlayArmed = false;
+    this.tape.startPlayback();
+    this.tapeTransportChanged();
+    this.setStatus('PLAY pressed on the Datasette');
+  }
+
+  /** Move the tape to now, and give its read line's level to VIA 2's CA1. */
+  private stepTape(): void {
+    const tape = this.tape;
+    if (!tape.playing || tape.paused) return;
+    const now = this.cpu.tStates;
+    const gap = now - this.tapeLastT;
+    this.tapeLastT = now;
+    if (gap > 0) tape.advance(gap);
+    const ear = tape.earBit;
+    if (ear !== this.prevEar) {
+      this.prevEar = ear;
+      this.via2.setCA1(ear !== 0);
+      if (ear === 0) this.activity.tapeEdges++;
+    }
+  }
+
+  /** Turbo while the KERNAL (or a loader) reads the tape with the motor on,
+   *  or saves to the empty deck. */
+  private updateTapeTurbo(): void {
+    const reading = this.tape.playing && !this.tape.paused && this.ifrReads >= TURBO_IFR_READS;
+    const writing = this.tapeRecorder.count !== this.recordedAtFrame;
+    this.ifrReads = 0;
+    this.recordedAtFrame = this.tapeRecorder.count;
+    if (this.motorOn && (reading || writing)) {
+      this._tapeTurboActive = this.tapeTurbo;
+      this.tapeTurboCooldown = TAPE_TURBO_COOLDOWN;
+    } else if (this.tapeTurboCooldown > 0) {
+      if (--this.tapeTurboCooldown === 0) this.releaseTapeTurbo();
+    } else if (this._tapeTurboActive) {
+      this.releaseTapeTurbo();
+    }
+  }
+
+  private releaseTapeTurbo(): void {
+    if (!this._tapeTurboActive) return;
+    this._tapeTurboActive = false;
+    this.sound.flush();
+    this.mixer.reset();
   }
 
   /** Raise or drop the interrupt lines from the VIAs. */
@@ -278,6 +406,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
 
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
+    this.tapeTurbo = view.get('tape-turbo-load', true);
   }
 
   /** The border is fully rendered; the setting crops it: Normal shows it
@@ -349,6 +478,14 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.midFrame = false;
     this.framesSinceReset = 0;
     this.pendingProgram = null;
+    this.tapeRecorder.reset();
+    this.recordedAtFrame = 0;
+    this.motorWasOn = false;
+    if (this.tape.loaded) this.tape.paused = true;
+    this._tapeTurboActive = false;
+    this.tapeTurboCooldown = 0;
+    this.tapeLastT = this.cpu.tStates;
+    this.senseReads = this.ifrReads = 0;
     this.clearInterrupts();
     this.updatePins();
     this.mixer.reset();
@@ -450,11 +587,11 @@ export class Vic20Machine extends BaseMachine implements Machine {
   // ── Frame ────────────────────────────────────────────────────────────────
 
   protected framePixels(): Uint8Array { return this._pixels; }
-  protected inTurbo(): boolean { return this.turbo; }
+  protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
   protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   protected runFrame(): void {
-    const skipAudio = this.speedMultiplier !== 1;
+    const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
     if (this.sound.audible === skipAudio) {
       // Turbo on or off: what was queued no longer lines up with the mixer.
       this.sound.audible = !skipAudio;
@@ -464,6 +601,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
       this.activity.kbdReads = 0;
       this.activity.joyReads = 0;
       this.activity.soundWrites = 0;
+      this.activity.tapeEdges = 0;
       this.keyboard.reads = 0;
       this.vic.beginFrame(this.frameStartT);
     }
@@ -485,6 +623,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
       cpu.step();
       const stopped = this.afterInsn();
       this.syncVias(cpu.tStates);
+      this.stepTape();
       this.updateInterrupts();
       this.sound.advanceTo(cpu.tStates);
       if (!skipAudio) {
@@ -501,6 +640,8 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.vic.drawTo(endT);
     this.framesSinceReset++;
     if (this.pendingProgram && this.basicReady()) this.applyPendingProgram();
+    this.checkAutoPlay();
+    this.updateTapeTurbo();
     this.needsDisplay = true;
   }
 
@@ -622,6 +763,10 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.midFrame = false;
     this.pendingProgram = null;
     this.framesSinceReset = BOOT_FRAMES;
+    this.motorWasOn = this.motorOn;
+    this.tapeLastT = this.cpu.tStates;
+    this._tapeTurboActive = false;
+    this.tapeTurboCooldown = 0;
     this.clearInterrupts();
     this.keyboard.reset();
     this.joyVia1 = 0;

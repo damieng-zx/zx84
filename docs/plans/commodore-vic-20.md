@@ -1,8 +1,8 @@
 # Plan: Commodore VIC-20
 
-Status: **Phases 0-2 built** (shared Commodore parts; the machine with its
+Status: **Phases 0-3 built** (shared Commodore parts; the machine with its
 screen, keyboard and interrupts; sound, expansion RAM, programs, paddles and
-the on-screen keyboard), **not yet booted on the real ROMs**: the ROM host
+the on-screen keyboard; the Datasette), **not yet booted on the real ROMs**: the ROM host
 was unreachable from where it was written, so the boot test skips. This plan covers what to build,
 the order to build it in, and the one decision that has to come first: how
 the VIC-20 gets the parts it shares with the C64.
@@ -288,7 +288,34 @@ Planned scope, for reference:
 - Tests: voice frequency formula vs. the documented divider, and BASIC memory
   size per expansion (3583 / 6655 / 11775 / … bytes free).
 
-### Phase 3: Datasette
+### Phase 3: Datasette — ✅ built, KERNAL load/save unverified
+
+Done:
+
+- `c64-tap.ts` reads the header's platform and video bytes (`tapClock`,
+  `TapFormat`): a VIC-20 .tap counts VIC-20 cycles (PAL 1,108,405 Hz, NTSC
+  1,022,727 Hz), a C64 NTSC one NTSC cycles; anything else stays a PAL C64,
+  as before. The KERNAL decoder that names blocks compares pulses in C64
+  cycles whatever the clock. `encodeC64Tap` / `encodeKernalTap` take the
+  format to write (and where BASIC starts, for the relocatable type), and
+  `CbmTapeService` takes them as options. The C64 NTSC machine now labels its
+  own recordings NTSC.
+- `Vic20Machine`: the deck and recorder; PLAY sense on VIA 1 PA6, motor on
+  VIA 1 CA2 held low (PCR mode 6), the read line's level on VIA 2 CA1 (the
+  KERNAL's PCR picks the edge), SAVE on VIA 2 PB3; auto-play on 100 sense
+  reads in a frame; turbo while VIA 2's flags are read 10+ times a frame
+  with the motor on, or the recorder moves.
+- Media: `.tap` (refusing a Spectrum one), and `.prg`/`.t64` also put on the
+  tape as a KERNAL recording (relocatable at $0401/$1001/$1201). Tape pane,
+  `tape-tap` in the Save menu, the LOAD LED.
+
+To check with the real ROMs (tests written, skipped here): SAVE then LOAD
+through the KERNAL; LOAD of a dropped program's tape. If they fail, suspect
+first the motor polarity (CA2 low = on), the CA1 edge, and whether the
+VIC-20 KERNAL's pulse lengths match the C64's in time (the generated tapes
+assume they do).
+
+Planned scope, for reference:
 - Shared CBM TAP service from Phase 0. Read on VIA 2 CA1, sense on VIA 1 PA6,
   motor on VIA 1 CA2, write on VIA 2 PB3. Recording to `.tap` on SAVE.
 - TAP pulse units are scaled to the VIC-20 clock, using the platform byte when present.

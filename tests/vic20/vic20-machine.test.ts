@@ -16,6 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { Vic20Machine } from '@/machines/vic20/vic20-machine.ts';
 import { Vic20Memory, VIC20_NO_EXPANSION } from '@/machines/vic20/memory.ts';
+import { vic20Expansion } from '@/machines/vic20/options.ts';
 import { Vic } from '@/machines/vic20/vic.ts';
 import { VIC20_PALETTE } from '@/machines/vic20/palette.ts';
 import { VIC20_NTSC_TIMING, VIC20_PAL_TIMING } from '@/machines/vic20/constants.ts';
@@ -362,17 +363,91 @@ const basic = romImage('basic-901486-01.rom');
 const kernalPal = romImage('kernal-901486-07.rom');
 const chargen = romImage('characters-901460-03.rom');
 
+/** A PAL VIC-20 on the real ROMs, with `ram` expansion, run to READY. */
+function realVic20(ram: Parameters<typeof vic20Expansion>[0] = 'none'): Vic20Machine {
+  const rom = new Uint8Array(0x5000);
+  rom.set(basic!, 0);
+  rom.set(kernalPal!, 0x2000);
+  rom.set(chargen!, 0x4000);
+  const m = new Vic20Machine('vic20', null, false);
+  m.loadROM(rom);
+  m.setRamExpansion(vic20Expansion(ram, false));
+  m.reset();
+  for (let f = 0; f < 150; f++) m.tick();
+  return m;
+}
+
+function typeText(m: Vic20Machine, text: string): void {
+  for (const ch of text) {
+    const ev = ch === '\n'
+      ? { code: 'Enter', key: 'Enter', shift: false, ctrl: false, alt: false }
+      : { code: '', key: ch, shift: false, ctrl: false, alt: false };
+    m.services.input.keyDown(ev);
+    for (let f = 0; f < 3; f++) m.tick();
+    m.services.input.keyUp(ev);
+    for (let f = 0; f < (ch === '\n' ? 10 : 2); f++) m.tick();
+  }
+}
+
+function runUntilReady(m: Vic20Machine, maxFrames: number): number {
+  let frames = 0;
+  while (!/READY\.$/.test(m.ocrScreenForMcp()) && frames < maxFrames) { m.tick(); frames++; }
+  return frames;
+}
+
 describe.skipIf(!basic || !kernalPal || !chargen)('VIC-20 with the Commodore ROMs', () => {
   it('boots to READY with 3583 bytes free', () => {
-    const rom = new Uint8Array(0x5000);
-    rom.set(basic!, 0);
-    rom.set(kernalPal!, 0x2000);
-    rom.set(chargen!, 0x4000);
-    const m = machine(rom);
-    for (let f = 0; f < 150; f++) m.tick();
-    const text = m.ocrScreenForMcp();
+    const text = realVic20().ocrScreenForMcp();
     expect(text).toContain('**** CBM BASIC V2 ****');
     expect(text).toContain('3583 BYTES FREE');
     expect(text).toContain('READY.');
+  });
+
+  // The Programmer's Reference Guide's figures for each memory size.
+  it.each([
+    ['3k', '6655'],
+    ['8k', '11775'],
+    ['16k', '19967'],
+    ['24k', '28159'],
+  ] as const)('counts the bytes free with %s fitted', (ram, free) => {
+    expect(realVic20(ram).ocrScreenForMcp()).toContain(`${free} BYTES FREE`);
+  });
+
+  it('types and runs a program', () => {
+    const m = realVic20();
+    typeText(m, '10 PRINT "A";2*3\nRUN\n');
+    for (let f = 0; f < 20; f++) m.tick();
+    expect(m.ocrScreenForMcp()).toContain('A 6');
+  });
+
+  it('loads back what it saved to tape, through the KERNAL both ways', { timeout: 60_000 }, async () => {
+    const m = realVic20();
+    typeText(m, '10 PRINT "FROM TAPE"\nSAVE "T"\n');
+    runUntilReady(m, 3000);
+    const saved = m.services.tape.recordedBytes();
+    expect(saved).not.toBeNull();
+
+    const m2 = realVic20();
+    const r = await m2.services.media.mount(saved!.data, saved!.filename);
+    expect(r.ok, r.message).toBe(true);
+    expect(m2.services.tape.blocks[0].label).toBe('"T"');
+    typeText(m2, 'LOAD\n');
+    expect(runUntilReady(m2, 4000)).toBeLessThan(4000);
+    expect(m2.ocrScreenForMcp()).toContain('FOUND T');
+    typeText(m2, 'RUN\n');
+    for (let f = 0; f < 20; f++) m2.tick();
+    expect(m2.ocrScreenForMcp()).toMatch(/RUN\nFROM TAPE/);
+  });
+
+  it('LOADs a dropped program back from the tape it was put on', { timeout: 60_000 }, async () => {
+    const m = realVic20();
+    // 10 PRINT "B" at $1001: link $100A, line 10, PRINT ($99), "B", end, end link.
+    const prg = Uint8Array.from([0x01, 0x10, 0x0A, 0x10, 0x0A, 0x00, 0x99, 0x22, 0x42, 0x22, 0x00, 0x00, 0x00]);
+    const r = await m.services.media.mount(prg, 'b.prg');
+    expect(r.ok, r.message).toBe(true);
+    for (let f = 0; f < 200; f++) m.tick();
+    typeText(m, 'NEW\nLOAD\n');
+    expect(runUntilReady(m, 4000)).toBeLessThan(4000);
+    expect(m.ocrScreenForMcp()).toContain('FOUND B');
   });
 });

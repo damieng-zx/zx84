@@ -1,12 +1,14 @@
 /**
- * The VIC-20's service surface: the ROMs, programs and snapshots through media, input,
- * the frame probe and the 6502 debug family. The Datasette, the disk drives
- * and cartridges follow in the later phases of the plan.
+ * The VIC-20's service surface: the ROMs, the Datasette, programs and
+ * snapshots through media, input, the frame probe and the 6502 debug family.
+ * The disk drives and cartridges follow in the later phases of the plan.
  */
 
 import type { MachineServices } from '@/machines/machine.ts';
 import { M6502DebugService } from '@/debug/m6502/service.ts';
 import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
+import { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
+import { tapFormat } from '@/media/tape/c64-tap.ts';
 import type { Vic20Machine } from '../vic20-machine.ts';
 import { VIC20_STATE } from '../snapshots/vic20-state.ts';
 import { Vic20FrameProbe } from './frame-probe.ts';
@@ -17,7 +19,7 @@ import { Vic20RomService } from './roms.ts';
 export interface Vic20Services extends MachineServices {
   readonly media: Vic20MediaService;
   readonly roms: Vic20RomService;
-  readonly tape: null;
+  readonly tape: CbmTapeService;
   readonly disks: null;
   readonly snapshots: NativeSnapshotService;
   readonly input: Vic20InputService;
@@ -26,10 +28,17 @@ export interface Vic20Services extends MachineServices {
 
 export function createVic20Services(m: Vic20Machine): Vic20Services {
   const snapshots = new NativeSnapshotService(VIC20_STATE, m, () => m.host);
+  // A VIC-20 .tap counts VIC-20 cycles and says so (platform 1); a program at
+  // any of BASIC's three starting places is taped as relocatable.
+  const tape = new CbmTapeService(m, {
+    fallbackName: 'vic20',
+    format: tapFormat(1, m.timing.ntsc ? 1 : 0),
+    basicStarts: [0x0401, 0x1001, 0x1201],
+  });
   return {
-    media: new Vic20MediaService(m, snapshots),
+    media: new Vic20MediaService(m, tape, snapshots),
     roms: new Vic20RomService(m, () => m.host),
-    tape: null,
+    tape,
     disks: null,
     snapshots,
     input: new Vic20InputService(m),

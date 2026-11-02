@@ -14,7 +14,8 @@ import type { TapeBlock, TapeDeck } from '@/media/tape/tap.ts';
 import type { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
 import {
-  encodeC64Tap, encodeKernalTap, halvesToPulses, isC64Tap, parseC64Tap, type C64TapeFile,
+  C64_TAP_PAL, encodeC64Tap, encodeKernalTap, halvesToPulses, isC64Tap, parseC64Tap,
+  type C64TapeFile, type TapFormat,
 } from '@/media/tape/c64-tap.ts';
 import { isT64, parsePrg, parseT64 } from '@/media/tape/t64.ts';
 
@@ -30,12 +31,27 @@ export interface CbmTapeHost {
   armAutoPlay(): void;
 }
 
+/** How a machine's tapes are written: the .tap header (its clock), what a
+ *  recording with no file name is called, and where BASIC starts (a
+ *  program there is taped as relocatable). */
+export interface CbmTapeOptions {
+  readonly fallbackName: string;
+  readonly format?: TapFormat;
+  readonly basicStarts?: readonly number[];
+}
+
 export class CbmTapeService implements TapeService {
   private _name = '';
   private _files: readonly C64TapeFile[] = [];
+  private readonly fallbackName: string;
+  private readonly format: TapFormat;
+  private readonly basicStarts: readonly number[];
 
-  /** `fallbackName` names a recording whose first file has no name. */
-  constructor(private readonly m: CbmTapeHost, private readonly fallbackName: string) {}
+  constructor(private readonly m: CbmTapeHost, options: CbmTapeOptions) {
+    this.fallbackName = options.fallbackName;
+    this.format = options.format ?? C64_TAP_PAL;
+    this.basicStarts = options.basicStarts ?? [0x0801];
+  }
 
   get loaded(): boolean { return this.m.tape.blocks.length > 0; }
   get name(): string { return this._name; }
@@ -57,10 +73,11 @@ export class CbmTapeService implements TapeService {
     if (isC64Tap(data)) return data;
     if (isT64(data)) {
       const programs = parseT64(data).filter(p => p.data.length > 0);
-      return programs.length > 0 ? encodeKernalTap(programs) : null;
+      return programs.length > 0 ? encodeKernalTap(programs, this.format, this.basicStarts) : null;
     }
     if (/\.prg$/i.test(name)) {
-      return encodeKernalTap([parsePrg(data, name.replace(/^.*[\\/]/, '').replace(/\.prg$/i, ''))]);
+      const prog = parsePrg(data, name.replace(/^.*[\\/]/, '').replace(/\.prg$/i, ''));
+      return encodeKernalTap([prog], this.format, this.basicStarts);
     }
     return null;
   }
@@ -133,7 +150,7 @@ export class CbmTapeService implements TapeService {
   recordedBytes(): { data: Uint8Array; filename: string } | null {
     const halves = this.m.tapeRecorder.pulses();
     if (halves.length < 2) return null;
-    const data = encodeC64Tap(halvesToPulses(halves));
+    const data = encodeC64Tap(halvesToPulses(halves), this.format);
     const first = parseC64Tap(data).files[0]?.name ?? '';
     const name = first.replace(/[^A-Za-z0-9 _.-]/g, '').trim();
     return { data, filename: `${name || this.fallbackName}.tap` };

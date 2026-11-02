@@ -16,10 +16,8 @@ import { VIC20_JOY_PORT, VIC20_MOUSE_PADDLES } from './services/input.ts';
 import { VIC20_ROM_SIZE, vic20PixelAspect, vic20Screen, vic20Timing } from './constants.ts';
 
 const VIC20_UI: MachineUiCapabilities = {
-  // No tape or disk yet (later phases of the plan).
-  hiddenPanes: [
-    'microdrive-panel', 'sysvar-panel', 'font-panel', 'tape-panel', 'drive-panel',
-  ],
+  // No disk drives yet (Phase 4 of the plan).
+  hiddenPanes: ['microdrive-panel', 'sysvar-panel', 'font-panel', 'drive-panel'],
   memoryLayout: true,
   trace: true,
   traceModes: ['full', 'portio'],
@@ -41,11 +39,13 @@ const VIC20_UI: MachineUiCapabilities = {
   beeper: false,
   soundChip: 'VIC',
   psgControls: [],
-  statusLeds: ['kbd', 'chip', 'text'],
+  statusLeds: ['kbd', 'load', 'chip', 'text'],
   keyboardBus: 'matrix',
+  tape: 'deck',
   tapeSound: false,
-  tapeExtensions: [],
-  saveMenu: ['snapshot-vic20state', 'screenshot-png', 'ram-bin'],
+  tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
+  // 'tape-tap' downloads what the KERNAL has SAVEd to tape (as a VIC-20 .tap).
+  saveMenu: ['snapshot-vic20state', 'tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,

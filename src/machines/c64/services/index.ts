@@ -10,6 +10,7 @@ import type { C64Machine } from '../c64-machine.ts';
 import { C64_STATE } from '../snapshots/c64-state.ts';
 import { CbmDiskService } from '@/machines/shared/cbm/disk-service.ts';
 import { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
+import { tapFormat } from '@/media/tape/c64-tap.ts';
 import { C64FrameProbe } from './frame-probe.ts';
 import { C64InputService } from './input.ts';
 import { C64MediaService } from './media.ts';
@@ -26,7 +27,8 @@ export interface C64Services extends MachineServices {
 }
 
 export function createC64Services(m: C64Machine): C64Services {
-  const tape = new CbmTapeService(m, 'c64');
+  // An NTSC 64 records in its own cycles, and says so in the .tap's header.
+  const tape = new CbmTapeService(m, { fallbackName: 'c64', format: tapFormat(0, m.timing.ntsc ? 1 : 0) });
   const disks = new CbmDiskService(m.iec, () => m.host);
   const snapshots = new NativeSnapshotService(C64_STATE, m, () => m.host);
   return {
