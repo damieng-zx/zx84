@@ -140,7 +140,12 @@ function modelEntry(model: MachineModel): MenuItem {
   };
 }
 
-/** Model menu: every machine, behind a submenu for the make that built it. */
+/**
+ * Model menu: every machine, behind a submenu for the make that built it.
+ *
+ * The niche British machines each sold in small numbers, so they share one
+ * "British Obscure" group at the end rather than a one-model submenu apiece.
+ */
 export const MODEL_MENU: MenuItem[] = [
   {
     value: 'sinclair',
@@ -182,45 +187,12 @@ export const MODEL_MENU: MenuItem[] = [
     ],
   },
   {
-    value: 'tatung',
-    label: 'Tatung',
-    children: [
-      modelEntry('einstein-tc01'),
-      modelEntry('einstein-256'),
-    ],
-  },
-  {
     value: 'msx',
     label: 'MSX',
     children: [
       modelEntry('hx-10'),
       modelEntry('hb-55'),
       modelEntry('hb-55p'),
-    ],
-  },
-  {
-    value: 'memotech',
-    label: 'Memotech',
-    children: [
-      modelEntry('mtx500'),
-      modelEntry('mtx512'),
-      modelEntry('rs128'),
-    ],
-  },
-  {
-    value: 'camputers',
-    label: 'Camputers',
-    children: [
-      modelEntry('lynx48'),
-      modelEntry('lynx96'),
-      modelEntry('lynx128'),
-    ],
-  },
-  {
-    value: 'jupiter',
-    label: 'Jupiter Cantab',
-    children: [
-      modelEntry('jupiter-ace'),
     ],
   },
   {
@@ -245,14 +217,6 @@ export const MODEL_MENU: MenuItem[] = [
     ],
   },
   {
-    value: 'enterprise',
-    label: 'Enterprise',
-    children: [
-      modelEntry('ep64'),
-      modelEntry('ep128'),
-    ],
-  },
-  {
     value: 'atari',
     label: 'Atari',
     children: [
@@ -271,6 +235,28 @@ export const MODEL_MENU: MenuItem[] = [
     label: 'Commodore',
     children: [
       modelEntry('c64'),
+    ],
+  },
+  {
+    value: 'british-obscure',
+    label: 'British Obscure',
+    children: [
+      // Einstein — Tatung's UK division.
+      modelEntry('einstein-tc01'),
+      modelEntry('einstein-256'),
+      // Memotech MTX.
+      modelEntry('mtx500'),
+      modelEntry('mtx512'),
+      modelEntry('rs128'),
+      // Camputers Lynx.
+      modelEntry('lynx48'),
+      modelEntry('lynx96'),
+      modelEntry('lynx128'),
+      // Jupiter Cantab.
+      modelEntry('jupiter-ace'),
+      // Enterprise.
+      modelEntry('ep64'),
+      modelEntry('ep128'),
     ],
   },
 ];

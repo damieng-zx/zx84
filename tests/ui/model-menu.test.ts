@@ -39,4 +39,24 @@ describe('model menu', () => {
       }
     }
   });
+
+  it('files the niche British machines under one British Obscure group at the end', () => {
+    const british = MODEL_MENU.filter(group => group.label === 'British Obscure');
+    expect(british).toHaveLength(1);
+    expect(MODEL_MENU[MODEL_MENU.length - 1].label).toBe('British Obscure');
+    expect((british[0].children ?? []).map(item => item.value).sort()).toEqual([
+      'einstein-tc01', 'einstein-256',
+      'mtx500', 'mtx512', 'rs128',
+      'lynx48', 'lynx96', 'lynx128',
+      'jupiter-ace',
+      'ep64', 'ep128',
+    ].sort());
+  });
+
+  it('leaves no one-maker submenu for a machine folded into British Obscure', () => {
+    const labels = MODEL_MENU.map(group => group.label);
+    for (const maker of ['Tatung', 'Memotech', 'Camputers', 'Jupiter Cantab', 'Enterprise']) {
+      expect(labels).not.toContain(maker);
+    }
+  });
 });
