@@ -48,9 +48,9 @@ describe('.tap clocks', () => {
     expect(file[13]).toBe(1);
     // A program at the start of BASIC is relocatable (type 1).
     expect(parseC64Tap(file).files[0]).toEqual({ type: 1, name: 'GAME', start: 0x1001, end: 0x1004 });
-    // The KERNAL's short pulse is 0x30 × 8 C64 cycles: the same time in VIC-20 cycles.
+    // The VIC-20 KERNAL's short pulse: TAP byte $2C, 352 VIC-20 cycles.
     const shortest = Math.min(...readC64TapPulses(file).pulses);
-    expect(shortest).toBe(Math.round(0x30 * 8 * 1_108_405 / 985_248));
+    expect(shortest).toBe(0x2C * 8);
   });
 
   it('plays a VIC-20 pulse for as long as it lasted on the VIC-20', () => {

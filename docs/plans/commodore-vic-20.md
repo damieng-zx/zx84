@@ -2,8 +2,10 @@
 
 Status: **all five phases built** — the machine's sheet is
 [`docs/machines/commodore-vic-20.md`](../machines/commodore-vic-20.md) —
-**not yet booted on the real ROMs**: the ROM host
-was unreachable from where it was written, so the boot test skips. This plan covers what to build,
+and run on the real ROMs (VICE's copies): every real-ROM test passes,
+including tape SAVE/LOAD through the KERNAL and `LOAD"$",8`. Running them
+corrected one Phase 3 guess: the VIC-20 KERNAL's tape pulses match the C64's
+in cycles (TAP bytes $2C/$40/$54), not in time. This plan covers what to build,
 the order to build it in, and the one decision that has to come first: how
 the VIC-20 gets the parts it shares with the C64.
 

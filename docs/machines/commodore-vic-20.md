@@ -10,7 +10,7 @@ Commodore's 1980/81 6502-based home computer, the first computer to sell a milli
 | **zx84 kind** | `vic20` — [`src/machines/vic20/`](../../src/machines/vic20/) |
 | **Model ids** | `vic20` — the MCP `model` target and `?model=` value. The TV standard is the locale, as on the C64: the model menu offers PAL and NTSC |
 | **Accuracy** | Instruction-level CPU; the VIC is drawn lazily one cycle at a time, so mid-line register writes land where the beam is; VIA register accesses land on their own cycle. The VIC never holds the CPU. No user-selectable accuracy setting |
-| **Status** | New: built and tested against the hardware documentation with synthetic firmware; **not yet run on the real ROMs** (see Verification) |
+| **Status** | New: boots the real ROMs to BASIC, loads and saves tapes through the KERNAL, lists disks on a 1541, autostarts cartridges (see Verification) |
 
 **Legend:** ✅ supported · ◐ partial (see notes) · ✗ not emulated · — not applicable to this model
 
@@ -56,8 +56,8 @@ Each ROM is a file of its own on the ROM host and has its own socket in the ROM 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
 | Expansion RAM | Memory | all | ✅ | Hardware pane: Unexpanded, 3K, 8K, 16K, 24K, 3K + 24K, and RAM at BLK5. A power cycle. Dropping a program fits the RAM its load address asks for |
-| Datasette | Tape | all | ◐ | The shared Commodore deck: a mounted tape counts as PLAY, the motor moves it, auto-PLAY when PRESS PLAY ON TAPE polls, turbo while the KERNAL reads or writes. An empty deck is RECORD + PLAY, so SAVE just works and the result can be downloaded as a VIC-20 `.tap` |
-| Commodore 1541 / 1571 / 1581 | Disk | all | ◐ | The C64's drive-level drives, shared (`shared/cbm/`): up to four, devices 8-11, on the serial bus (ATN from VIA 1 PA7, CLK/DATA through inverters from VIA 2 CA2/CB2, read back on VIA 1 PA0/PA1). Hardware pane checkbox, Drives pane models |
+| Datasette | Tape | all | ✅ | The shared Commodore deck: a mounted tape counts as PLAY, the motor moves it, auto-PLAY when PRESS PLAY ON TAPE polls, turbo while the KERNAL reads or writes. An empty deck is RECORD + PLAY, so SAVE just works and the result can be downloaded as a VIC-20 `.tap` |
+| Commodore 1541 / 1571 / 1581 | Disk | all | ✅ | The C64's drive-level drives, shared (`shared/cbm/`): up to four, devices 8-11, on the serial bus (ATN from VIA 1 PA7, CLK/DATA through inverters from VIA 2 CA2/CB2, read back on VIA 1 PA0/PA1). Hardware pane checkbox, Drives pane models |
 | Cartridges | Expansion port | all | ✅ | ROM in BLK1-3 and BLK5, ahead of any RAM there; the KERNAL autostarts one with "A0CBM" at `$A004`. Plugging one in or out is a power cycle. Kept across a reload; carried by snapshots |
 | Paddles | Input | all | ◐ | Mouse pane: the mouse turns POT X/Y (`$9008`/`$9009`); the buttons are on the joystick left and right lines. Moving right lowers the value, as a paddle turned clockwise does (not checked against a real paddle) |
 
@@ -71,7 +71,7 @@ ZIP archives are unpacked; the first loadable entry is mounted, with a picker wh
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `.tap` | Tape | Datasette | ✅ | ✅ | Commodore TAP v0/v1; pulses timed in the clock the header names (a VIC-20 tape's own, a C64 tape's own) |
+| `.tap` | Tape | Datasette | ✅ | ✅ | Commodore TAP v0/v1; pulses timed in the clock the header names (a VIC-20 tape's own, a C64 tape's own). Tapes made from a `.prg`/`.t64` use the VIC-20 KERNAL's own pulse lengths (TAP bytes $2C/$40/$54, against the C64's $30/$42/$56) |
 | `.prg` | Program | Memory + Datasette | ✅ | — | Put in memory as LOAD leaves it and RUN; also taped. One at `$A000` with "A0CBM" is a cartridge |
 | `.t64` | Program | Memory + Datasette | ✅ | — | Its first program, as `.prg` |
 | `.d64` `.g64` `.d71` `.d81` | Disk | Drive 8-11 | ✅ | ✅ | As on the C64 |
@@ -111,7 +111,6 @@ ZIP archives are unpacked; the first loadable entry is mounted, with a picker wh
 
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
-| Not run on the real ROMs | all | high | The ROM host could not be reached where this was written. Tests against the real ROMs are written (boot, bytes free per expansion, typing, tape SAVE/LOAD, `LOAD"$",8`, cartridge autostart) and skip without them |
 | VIA timer 1 period | all | low | Latch + 1 in the shared core (latch + 2 on the chip): the jiffy runs a cycle a period fast |
 | VIC pipeline | all | low | Characters drawn on their fetch cycles; the visible window placed around the KERNAL's defaults, not measured |
 
@@ -126,6 +125,7 @@ ZIP archives are unpacked; the first loadable entry is mounted, with a picker wh
 - Expansion RAM is invisible to the VIC: a screen can only be in the board's RAM, which is why the KERNAL moves it to `$1000` with 8K or more.
 - With 8K or more fitted, the 3K block is left out of BASIC.
 - Joystick right pulls keyboard column 7: holding it reads as some keys being down.
+- PB3 is both keyboard column 3 and the cassette write line, so a SAVE's recording starts with a few short bursts from the keyboard scan, before the KERNAL takes over the interrupt and writes the leader.
 
 ---
 
@@ -133,5 +133,5 @@ ZIP archives are unpacked; the first loadable entry is mounted, with a picker wh
 
 | Reference | Result | Last checked |
 | --- | --- | --- |
-| `tests/vic20/` (synthetic firmware: memory map, I/O decode, keyboard against the KERNAL table, interrupts, VIC rendering, sound, programs, tape, serial bus, cartridges, OCR, snapshots) | Pass | 2026-11-02 |
-| Real-ROM tests in `tests/vic20/` | Not run (no ROMs available) | — |
+| `tests/vic20/` (synthetic firmware: memory map, I/O decode, keyboard against the KERNAL table, interrupts, VIC rendering, sound, programs, tape, serial bus, cartridges, OCR, snapshots) | Pass | 2026-11-05 |
+| Real-ROM tests in `tests/vic20/` (VICE's copies of 901486-01, -06, -07, 901460-03 and the 1541 DOS): boot to READY; bytes free with each expansion (3583, 6655, 11775, 19967, 28159); typing and RUN; KERNAL SAVE then LOAD; LOAD of a dropped program's tape; `LOAD"$",8` on a 1541; cartridge autostart | Pass | 2026-11-05 |

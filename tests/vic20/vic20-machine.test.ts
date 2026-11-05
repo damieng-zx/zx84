@@ -431,7 +431,10 @@ describe.skipIf(!basic || !kernalPal || !chargen)('VIC-20 with the Commodore ROM
     const m2 = realVic20();
     const r = await m2.services.media.mount(saved!.data, saved!.filename);
     expect(r.ok, r.message).toBe(true);
-    expect(m2.services.tape.blocks[0].label).toBe('"T"');
+    // PB3 is also keyboard column 3, so the keyboard scan puts a few edges on
+    // the tape before SAVE starts writing, as on the real machine: the header
+    // is the first block with a name, not necessarily the first block.
+    expect(m2.services.tape.blocks.map(b => b.label)).toContain('"T"');
     typeText(m2, 'LOAD\n');
     expect(runUntilReady(m2, 4000)).toBeLessThan(4000);
     expect(m2.ocrScreenForMcp()).toContain('FOUND T');
