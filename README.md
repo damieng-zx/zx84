@@ -58,16 +58,17 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Spectrum peripherals | Interface 2: `.rom`; Interface 1: `.mdr`, `.mdv`; MGT +D: `.mgt`, `.img`, `.hfe`, `.scp`; Beta Disk: `.trd`, `.scl`, `.hfe`, `.scp` |
 | CPC | Snapshots: `.sna`; tapes: `.cdt`, `.tzx`, `.tap`; disks: `.dsk`, `.hfe`, `.scp` on disk-capable models; Plus cartridges: `.cpr` |
 | Einstein | Disks: `.dsk`, `.hfe`, `.scp` |
-| MSX | Cartridges: `.rom`; cassettes: `.cas`; disks (interface fitted): `.dsk`, `.img`, `.dmk`, `.hfe`, `.scp`, `.td0`, `.edsk` |
+| ZX80 / ZX81 | Programs: `.o` (ZX80), `.p`, `.81`, `.p81` (ZX81); cassettes: `.tzx`, `.wav` |
+| MSX | Cartridges: `.rom`; cassettes: `.cas`, `.tsx`, `.tzx`, `.wav`; disks (interface fitted): `.dsk`, `.img`, `.dmk`, `.hfe`, `.scp`, `.td0`, `.edsk` |
 | Memotech MTX | ROM packs: `.rom`; logical cassettes: `.mtx`; FDX/SDX Type 03/07 disks: `.mfloppy`, `.mfloppy-03`, `.mfloppy-07` |
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
-| Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw` |
-| Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`; tapes: `.uef`, `.csw` |
-| Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, ADFS discs: `.adf`, `.ads`, `.adm`, `.adl`; with the Plus 1, cartridges: `.rom` |
+| Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw`; snapshots: `.ace` |
+| Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`, `.hfe`, `.scp`; tapes: `.uef`, `.csw` |
+| Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, discs: `.adf`, `.ads`, `.adm`, `.adl`, `.ssd`, `.dsd`, `.img`, `.dsk`, `.hfe`, `.scp`; with the Plus 1, cartridges: `.rom` |
 | Apple I | Listings typed in at the keyboard: `.txt`, `.hex`; with the cassette interface fitted, cassettes: `.wav` |
-| Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through); cassettes: `.wav` |
+| Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through), `.nib`, `.woz`, `.2mg`, `.d13`; cassettes: `.wav` |
 | Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
-| Enterprise | EXOS programs: `.com`, `.bas` (and multi-file `.zip` sets) through the FILE: device; with the EXDOS card, disks: `.img` |
+| Enterprise | EXOS programs: `.com`, `.bas` (and multi-file `.zip` sets) through the FILE: device; with the EXDOS card, disks: `.img`, `.dsk`, `.hfe`, `.scp` |
 
 The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
 
@@ -115,7 +116,9 @@ Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3
 
 ### Saving, Library, And Persistence
 
-- Export Spectrum `.szx` and `.z80` snapshots, CPC snapshots, screenshots, and supported screen/RAM exports.
+- Export Spectrum `.szx` and `.z80` snapshots and CPC `.sna` snapshots, and zx84's own exact save states on every other machine (`.acestate`, `.zx8xstate`, `.lynxstate`, `.mtxstate`, `.msxstate`, `.einstate`, `.pcwstate`, `.epstate`, `.bbcstate`, `.elkstate`, `.a1state`, `.a2state`, `.a8state`, `.c64state`), plus screenshots and supported screen/RAM exports.
+- Every machine resumes where it left off after a browser refresh.
+- Record what software SAVEs to cassette and download it as a tape the machine loads back (`.tzx` on the Spectrum, `.cdt` on the CPC, `.wav` on the Apple I and II, and the machine's own format elsewhere), and download what the BBC Micro, Electron and PCW sent to their printers as text.
 - Persist settings, pane layout, custom ROMs and fonts, and supported media in browser storage.
 - Spectrum and ZX80/ZX81 software libraries with ZXDB-derived search, screenshots, automatic model selection, and cached catalog data.
 
