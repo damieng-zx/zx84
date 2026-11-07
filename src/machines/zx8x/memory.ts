@@ -1,5 +1,6 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
 import type { Zx8xModel } from './models.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const ADDRESS_SPACE = 0x10000;
 const RAM_BASE = 0x4000;
@@ -204,5 +205,35 @@ export class Zx8xMemory implements IMachineMemory {
     this.hiresRam.fill(0);
     this.memotechRam.fill(0);
     this.quickSilvaRam.fill(0);
+  }
+
+  /** The fitted graphics board, as a snapshot records it: 0 none, 1 UDG,
+   *  2 UDG128, 3 WRX, 4 Memotech HRG, 5 QuickSilva HRG. */
+  get boardId(): number {
+    if (this.udgRam) return 1;
+    if (this.udg128Ram) return 2;
+    if (this.wrxRam) return 3;
+    if (this.memotechHrg) return 4;
+    if (this.quickSilvaHrg) return 5;
+    return 0;
+  }
+
+  /** CRC input for the snapshot header: the HRG board's ROM (empty if none). */
+  getHrgRom(): Uint8Array { return this.hrgRom; }
+
+  /** RAM and every board's RAM (the ROMs are not state; the caller has
+   *  checked the RAM size and board match). */
+  saveState(w: StateWriter): void {
+    w.raw(this.ram);
+    w.raw(this.hiresRam);
+    w.raw(this.memotechRam);
+    w.raw(this.quickSilvaRam);
+  }
+
+  loadState(r: StateReader): void {
+    r.rawInto(this.ram);
+    r.rawInto(this.hiresRam);
+    r.rawInto(this.memotechRam);
+    r.rawInto(this.quickSilvaRam);
   }
 }

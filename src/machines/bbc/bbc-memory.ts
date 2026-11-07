@@ -1,9 +1,11 @@
 /**
- * BBC Micro Model B memory map.
+ * BBC Micro Model A / B memory map.
  *
- *   0x0000-0x7FFF  32K RAM
- *   0x8000-0xBFFF  sideways ROM selected by the ROMSEL latch (0xFE30); ROM 15
- *                  is BASIC on a standard machine
+ *   0x0000-0x7FFF  32K RAM (Model A: 16K, the upper half a mirror of the lower
+ *                  because the RAM array does not decode address line A14)
+ *   0x8000-0xBFFF  sideways ROM selected by the ROMSEL latch (0xFE30-0xFE3F);
+ *                  ROM 15 is BASIC on a standard machine. A socket fitted with
+ *                  RAM (a sideways-RAM board, `ramBanks`) is also writeable
  *   0xC000-0xFBFF  OS ROM
  *   0xFC00-0xFEFF  memory-mapped hardware (1 MHz bus + "sheila"); addresses the
  *                  machine's IO decoder does not claim fall through to OS ROM
@@ -26,16 +28,25 @@ export class BbcMemory implements IMachineMemory {
   /** 0xC000-0xFFFF OS ROM. */
   readonly osRom = new Uint8Array(BBC_ROM_SIZE);
 
-  /** ROMSEL latch (0xFE30). Bit 7 enables the selected socket; low nibble is
+  /** ROMSEL latch (0xFE30-0xFE3F). The Model B latches only the low nibble,
    *  the ROM number. Defaults to BASIC in socket 15. */
   romsel = 0x0F;
+
+  /** Bit n set: sideways socket n holds RAM (a sideways-RAM board) rather than
+   *  a ROM, so writes to 0x8000-0xBFFF while it is selected land in it. */
+  ramBanks = 0;
+
+  /** Model A: the 16K of RAM answers at both 0x0000-0x3FFF and 0x4000-0x7FFF
+   *  (the A14 line is not decoded), so every write goes to both halves of the
+   *  array and reads, the video and the debugger all see the same bytes. */
+  mirror16k = false;
 
   /** Hardware window read hook; returns -1 for an address it does not claim. */
   ioRead: (addr: number) => number = () => -1;
   /** Hardware window write hook. */
   ioWrite: (addr: number, val: number) => void = () => {};
 
-  get ramBankCount(): number { return 2; }
+  get ramBankCount(): number { return this.mirror16k ? 1 : 2; }
 
   getRamBank(n: number): Uint8Array {
     const bank = n & 1;
@@ -56,8 +67,17 @@ export class BbcMemory implements IMachineMemory {
   writeByte(addr: number, val: number): void {
     addr &= 0xFFFF;
     val &= 0xFF;
-    if (addr < 0x8000) { this.ram[addr] = val; return; }
-    if (addr < 0xC000) return; // sideways ROM: writes ignored
+    if (addr < 0x8000) {
+      this.ram[addr] = val;
+      if (this.mirror16k) this.ram[addr ^ 0x4000] = val;
+      return;
+    }
+    if (addr < 0xC000) {
+      // Sideways ROM ignores writes; a socket fitted with RAM takes them.
+      const bank = this.romsel & 0x0F;
+      if ((this.ramBanks >> bank) & 1) this.roms[bank][addr & 0x3FFF] = val;
+      return;
+    }
     if (addr >= 0xFC00 && addr < 0xFF00) { this.ioWrite(addr, val); return; }
     // 0xC000-0xFBFF / 0xFF00-0xFFFF: OS ROM, writes ignored.
   }
@@ -96,7 +116,21 @@ export class BbcMemory implements IMachineMemory {
     }
   }
 
+  /** Fit sideways RAM in the sockets named by `mask` (bit n = socket n). A
+   *  socket that was ROM starts as blank RAM; one that already was RAM keeps
+   *  its contents. A socket going back to ROM is cleared (empty). */
+  setRamBanks(mask: number): void {
+    mask &= 0xFFFF;
+    for (let n = 0; n < ROM_SOCKETS; n++) {
+      const was = (this.ramBanks >> n) & 1;
+      const now = (mask >> n) & 1;
+      if (was !== now) this.roms[n].fill(0);
+    }
+    this.ramBanks = mask;
+  }
+
   reset(): void {
+    // The sideways RAM keeps its contents across BREAK, like the chips it is.
     this.romsel = 0x0F;
   }
 }

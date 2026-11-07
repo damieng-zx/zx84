@@ -96,6 +96,64 @@ function nextBlockOffset(d: Uint8Array, start: number): number {
   }
 }
 
+/**
+ * TZX block 0x4B, Kansas City Standard (TZX 1.20 — what MSX `.tsx` tapes are
+ * made of). Body after the DWORD length:
+ *
+ *   +0  WORD  pause after the block (ms)
+ *   +2  WORD  pilot pulse length (T-states)      +4  WORD  pilot pulse count
+ *   +6  WORD  ZERO-bit pulse length              +8  WORD  ONE-bit pulse length
+ *   +10 BYTE  bits 7-4: pulses per ZERO bit, bits 3-0: pulses per ONE bit (0 = 16)
+ *   +11 BYTE  bits 7-6: leading bits, bit 5: their value; bits 4-3: trailing
+ *             bits, bit 2: their value; bit 0: 1 = MSb first, 0 = LSb first
+ *   +12       the data bytes
+ *
+ * Each byte is sent as its leading bits, the 8 data bits and its trailing
+ * bits (an MSX byte: one 0 start bit, LSb first, two 1 stop bits), and every
+ * bit as that many equal pulses. It becomes a pulse run (a `csw` block in the
+ * 3.5 MHz T-states TZX timings are written in) the deck plays as is.
+ */
+function parseKansasCity(d: Uint8Array, o: number, len: number): { block: TapeBlock; pause: number } {
+  if (len < 12) throw new Error('Truncated TZX Kansas City block');
+  const pause = read16(d, o);
+  const pilotLen = pulse(read16(d, o + 2));
+  const pilotCount = read16(d, o + 4);
+  const zeroLen = pulse(read16(d, o + 6));
+  const oneLen = pulse(read16(d, o + 8));
+  const zeroPulses = (d[o + 10] >> 4) || 16;
+  const onePulses = (d[o + 10] & 0x0F) || 16;
+  const cfg = d[o + 11];
+  const leadCount = cfg >> 6;
+  const leadValue = (cfg >> 5) & 1;
+  const trailCount = (cfg >> 3) & 3;
+  const trailValue = (cfg >> 2) & 1;
+  const msbFirst = (cfg & 1) === 1;
+  const data = d.subarray(o + 12, o + len);
+  const bitPulses = (b: number) => (b ? onePulses : zeroPulses);
+  let total = pilotCount;
+  for (let i = 0; i < data.length; i++) {
+    total += leadCount * bitPulses(leadValue) + trailCount * bitPulses(trailValue);
+    for (let k = 0; k < 8; k++) total += bitPulses((data[i] >> k) & 1);
+  }
+  const pulses = new Uint32Array(total);
+  let n = 0;
+  for (let i = 0; i < pilotCount; i++) pulses[n++] = pilotLen;
+  const bit = (b: number): void => {
+    const count = b ? onePulses : zeroPulses;
+    const length = b ? oneLen : zeroLen;
+    for (let i = 0; i < count; i++) pulses[n++] = length;
+  };
+  for (let i = 0; i < data.length; i++) {
+    for (let k = 0; k < leadCount; k++) bit(leadValue);
+    for (let k = 0; k < 8; k++) bit((data[i] >> (msbFirst ? 7 - k : k)) & 1);
+    for (let k = 0; k < trailCount; k++) bit(trailValue);
+  }
+  return {
+    block: { kind: 'csw', pulses, role: 'data', label: 'Kansas City data', detail: `${data.length} bytes` },
+    pause,
+  };
+}
+
 function blockOffsets(d: Uint8Array): number[] {
   const starts: number[] = [];
   for (let o = 10; o < d.length;) {
@@ -435,6 +493,12 @@ export function parseTZX(fileData: Uint8Array): TapeBlock[] {
         if (pulse !== pulseCount) throw new Error('Truncated embedded TZX CSW recording');
         blocks.push({ kind: 'csw', pulses });
         if (pause > 0) blocks.push({ kind: 'pause', duration: pause });
+        break;
+      }
+      case 0x4B: { // Kansas City Standard (TZX 1.20; MSX TSX files)
+        const kcs = parseKansasCity(fileData, o + 4, read32(fileData, o));
+        blocks.push(kcs.block);
+        if (kcs.pause > 0) blocks.push({ kind: 'pause', duration: kcs.pause });
         break;
       }
       case 0x19: // Generalized Data Block

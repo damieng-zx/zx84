@@ -26,12 +26,13 @@ function writeTraceFile(prefix: string, contents: string): string {
 export function register(server: McpServer): void {
   server.registerTool(
     'trace',
-    { description: 'Start a trace. Modes: "full" (all instructions), "portio" (port I/O), "zxtl" (ZXTL V0001 standardised format with full register dumps, stored in-memory — use stop_trace then trace_read to retrieve chunks).', inputSchema: { mode: z.enum(['full', 'portio', 'zxtl']).default('full') } },
+    { description: 'Start an execution trace on the active machine. Modes: "full" (every instruction: address, disassembly, registers, cycle count, operand context; tight loops folded), "portio" (a tally of I/O accesses by port — on a 6502 machine, by memory-mapped I/O address), "zxtl" (Z80 machines only: ZXTL V0001 standardised format with full register dumps, stored in-memory — use stop_trace then trace_read to retrieve chunks). A trace stops capturing at 500,000 lines.', inputSchema: { mode: z.enum(['full', 'portio', 'zxtl']).default('full') } },
     async ({ mode }) => {
-      // Only the Spectrum implements startTrace today; the other machines'
-      // is a no-op stub, so starting there would silently trace nothing.
-      if (!activeSpectrum()) {
-        return text(`Execution tracing is Spectrum-only (active model: ${state.model.toUpperCase()}).`);
+      const ui = state.spec.descriptor.ui;
+      if (!ui.trace) return text(`Execution tracing is not available on ${state.model.toUpperCase()}.`);
+      const modes = ui.traceModes ?? ['full', 'portio', 'zxtl'];
+      if (!modes.includes(mode)) {
+        return text(`Trace mode "${mode}" is not available on ${state.model.toUpperCase()} (modes: ${modes.join(', ')}).`);
       }
       if (mode === 'zxtl') clearZxtlBuffer();
       state.spec.services.debug.startTrace(mode);
@@ -43,17 +44,14 @@ export function register(server: McpServer): void {
     'stop_trace',
     { description: 'Stop the current trace and return the results. Full/portio: large traces written to file. ZXTL: stored in-memory — returns line count, use trace_read to fetch chunks.' },
     async () => {
-      const spec = activeSpectrum();
-      if (!spec) return text(`Execution tracing is Spectrum-only (active model: ${state.model.toUpperCase()}).`);
-      if (!spec.tracing) return text('Not tracing');
-      const mode = spec.traceMode;
+      const debug = state.spec.services.debug;
+      const mode = debug.traceSession();
+      if (!mode) return text('Not tracing');
+      const traceText = debug.stopTrace();
       if (mode === 'zxtl') {
-        // Snapshot the buffer before stopTrace clears internal state
-        setZxtlBuffer(spec.traceBuffer);
-        spec.stopTrace();
+        setZxtlBuffer(traceText.split('\n'));
         return text(`ZXTL trace stopped: ${zxtlBufferSize()} lines stored in memory.\nUse trace_read to retrieve chunks by line range.`);
       }
-      const traceText = spec.stopTrace();
       const lines = traceText.split('\n');
       if (lines.length <= 200) return text(traceText);
       const outPath = writeTraceFile('trace', traceText);

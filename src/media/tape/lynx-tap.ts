@@ -190,3 +190,113 @@ export function isLynxTap(data: Uint8Array): boolean {
   const size = entrySize(data, at);
   return size !== null && at + size <= data.length + 8;
 }
+
+// ── Recording: what the ROM SAVEd, back to a .tap ─────────────────────────
+
+/** A leader must run at least this many half-cycles to count as one. The ROM
+ *  writes 555 zero bytes (8880 half-cycles); this only has to reject the odd
+ *  stray edge. */
+const MIN_LEADER_PULSES = 64;
+/** A leader half-cycle may stray this far from the leader's running mean. */
+const LEADER_TOLERANCE = 0.4;
+/** Half-cycles are classed against the leader's (a 0 bit's) half-cycle: below
+ *  1.5x is a 0 half, below 3x a 1 half (nominally 2x), and anything longer is
+ *  the silence after the block. */
+const ONE_THRESHOLD = 1.5;
+const GAP_THRESHOLD = 3;
+
+/**
+ * Decode a capture of the cassette output — the times between successive
+ * edges, in any clock unit — into the blocks the ROM wrote: each is the bytes
+ * after the leader's A5 sync byte.
+ *
+ * The decoder takes its bit timing from each leader rather than a fixed
+ * rate, so the 48K's 4kHz and the 128K's 8kHz tapes (and the ROM's other
+ * TAPE speeds) decode alike. A bit is one cycle — two equal half-cycles, a 1
+ * twice as wide as a 0 — so the first wide half-cycle after the leader is
+ * the first half of the sync byte's leading 1, which fixes the bit phase.
+ */
+export function decodeLynxSavePulses(pulses: ArrayLike<number>): Uint8Array[] {
+  const out: Uint8Array[] = [];
+  const n = pulses.length;
+  let i = 0;
+  while (i < n) {
+    // Leader: a run of near-equal half-cycles.
+    const start = i;
+    let sum = 0;
+    let count = 0;
+    while (i < n) {
+      const p = pulses[i];
+      if (count > 0) {
+        const mean = sum / count;
+        if (p < mean * (1 - LEADER_TOLERANCE) || p > mean * (1 + LEADER_TOLERANCE)) break;
+      }
+      sum += p;
+      count++;
+      i++;
+    }
+    if (count < MIN_LEADER_PULSES) {
+      i = start + Math.max(count, 1);
+      continue;
+    }
+    const half0 = sum / count;
+    const oneAt = half0 * ONE_THRESHOLD;
+    const gapAt = half0 * GAP_THRESHOLD;
+    const classify = (p: number): number => (p < oneAt ? 0 : p < gapAt ? 1 : -1);
+
+    // The leader must end on a wide half-cycle: the sync byte's first bit.
+    if (i >= n || classify(pulses[i]) !== 1) continue;
+
+    const bytes: number[] = [];
+    let acc = 0;
+    let bits = 0;
+    while (i < n) {
+      const a = classify(pulses[i]);
+      if (a < 0) break;                               // silence: block over
+      const b = i + 1 < n ? classify(pulses[i + 1]) : -1;
+      if (b >= 0 && b !== a) break;                   // halves disagree: not a bit
+      acc = ((acc << 1) | a) & 0xFF;
+      // A final half-cycle that nothing ended still finishes its bit.
+      i += b < 0 ? 1 : 2;
+      if (++bits === 8) {
+        bytes.push(acc);
+        acc = 0;
+        bits = 0;
+      }
+      if (b < 0) break;
+    }
+    if (bytes.length >= 2 && bytes[0] === SYNC_BYTE) out.push(Uint8Array.from(bytes.slice(1)));
+  }
+  return out;
+}
+
+/**
+ * Assemble decoded blocks into a .tap: a quoted name block is kept only when
+ * a data entry follows it, and each data entry is cut to the size its own
+ * header gives (the ROM may run the block on past it). Blocks that are
+ * neither — or an entry shorter than its header says — are dropped. Returns
+ * null when nothing usable remains.
+ */
+export function encodeLynxTap(blocks: readonly Uint8Array[]): Uint8Array | null {
+  const parts: Uint8Array[] = [];
+  let name: Uint8Array | null = null;
+  for (const b of blocks) {
+    if (b.length >= 2 && b[0] === QUOTE) {
+      const close = b.indexOf(QUOTE, 1);
+      name = close > 0 ? b.subarray(0, close + 1) : null;
+      continue;
+    }
+    const size = b.length >= 3 ? entrySize(b, 0) : null;
+    if (size !== null && size > 0 && size <= b.length) {
+      if (name) parts.push(name);
+      parts.push(b.subarray(0, size));
+    }
+    name = null;
+  }
+  if (parts.length === 0) return null;
+  const total = parts.reduce((s, p) => s + p.length, 0);
+  const tap = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) { tap.set(p, at); at += p.length; }
+  return tap;
+}

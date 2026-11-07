@@ -62,7 +62,10 @@ export async function assembleSystemRom(data: Uint8Array, model: MachineModel, k
   const result = new Uint8Array(data);
   const slotSize = romSlotSize(model);
   pages.forEach((p, page) => {
-    if (p) result.set(p.data.subarray(0, slotSize), page * slotSize);
+    // The last slot can be shorter than the stride (the C64's 4K character
+    // ROM ends a 20K image), so never write past the image.
+    const at = page * slotSize;
+    if (p) result.set(p.data.subarray(0, Math.min(slotSize, result.length - at)), at);
   });
   return result;
 }

@@ -11,8 +11,10 @@
  *   - Lower ROM (OS)    overlays slot 0 (0x0000–0x3FFF) when enabled.
  *   - Upper ROM (BASIC / AMSDOS / …) overlays slot 3 (0xC000–0xFFFF) when
  *     enabled; the active upper ROM is chosen by OUT &DFxx.
- *   - RAM banking (6128) remaps the four 16KB slots to physical banks via the
- *     Gate-Array %11xxxxxx command on port &7Fxx.
+ *   - RAM banking (6128, or any model with a Dk'tronics-style expansion)
+ *     remaps the four 16KB slots to physical banks via the Gate-Array
+ *     %11bbbccc command on port &7Fxx: ccc picks one of eight configurations
+ *     and bbb the 64KB block the configuration's banks 4–7 come from.
  *
  * The Gate Array reads display bytes straight from RAM (DMA) and never sees the
  * ROM overlays — `videoBank()` exposes the RAM bank for the video fetch.
@@ -25,9 +27,10 @@ const SLOT_SIZE = 0x4000; // 16KB
 
 /**
  * The eight standard 6128 RAM-bank configurations selected by the low 3 bits of
- * the Gate-Array %11xxxxxx command. Each entry lists the physical bank mapped
- * into Z80 slots 0–3. Banks 0–3 are the base 64KB; 4–7 are the expansion 64KB.
- * (Dk'tronics-compatible layout, as the 6128 PAL implements it.)
+ * the Gate-Array %11xxxxxx command. Each entry lists the bank mapped into Z80
+ * slots 0–3. Banks 0–3 are the base 64KB; 4–7 are the four banks of the
+ * selected 64KB block. (Dk'tronics-compatible layout, as the 6128 PAL
+ * implements it.)
  */
 const RAM_CONFIGS: ReadonlyArray<readonly [number, number, number, number]> = [
   [0, 1, 2, 3],
@@ -41,7 +44,9 @@ const RAM_CONFIGS: ReadonlyArray<readonly [number, number, number, number]> = [
 ];
 
 export class CpcMemory implements IMachineMemory {
-  /** Physical 16KB RAM banks (8 on the 6128). */
+  /** Physical 16KB RAM banks: the base 64KB (0–3), then four per 64KB block
+   *  (block n is banks 4+4n..7+4n). 8 on the 6128, 20 with a 256KB expansion,
+   *  36 with 512KB. */
   private readonly ram: Uint8Array[];
 
   /** Lower ROM (OS), overlays the slot chosen by `lowerRomSlot` when enabled. */
@@ -89,19 +94,46 @@ export class CpcMemory implements IMachineMemory {
    */
   private asicPage: Uint8Array | null = null;
 
-  private readonly ramBanks: number;
-  /** True when RAM beyond the base 64K exists to bank (6128, Plus, GX4000). */
-  private readonly hasBanking: boolean;
+  /** 64KB blocks beyond the base 64KB: 1 on the 6128 / Plus, 0 on the
+   *  464/664, 4 or 8 with a 256KB / 512KB expansion. */
+  private blocks: number;
+  /** The machine has its own banking logic (the 6128's PAL, the Plus ASIC),
+   *  which ignores the block bits: a block no expansion answers for falls
+   *  back to the internal block 0. Without it (464/664 + expansion) an
+   *  unanswered block leaves the base RAM mapped. */
+  private readonly internalBanking: boolean;
+  /** True when RAM beyond the base 64K exists to bank. */
+  private hasBanking: boolean;
   /** Cached at construction — drives the Plus ROM-select logical-to-physical
    *  translation in `selectUpperRom`. */
   private readonly isPlus: boolean;
 
   constructor(cfg: CpcConfig) {
-    this.ramBanks = cfg.ramBanks;
-    this.hasBanking = cfg.ramBanks > 4;
+    this.blocks = (cfg.ramBanks - 4) >> 2;
+    this.internalBanking = this.blocks > 0;
+    this.hasBanking = this.blocks > 0;
     this.isPlus = cfg.isPlus;
     this.ram = [];
     for (let i = 0; i < cfg.ramBanks; i++) this.ram.push(new Uint8Array(SLOT_SIZE));
+    this.applyMapping();
+  }
+
+  /**
+   * Fit a Dk'tronics-compatible RAM expansion of `kb` KB (0, 256 or 512): four
+   * or eight 64KB blocks selected by bits 3–5 of the RAM command. On the 6128
+   * the expansion's block 0 is hidden behind the internal second 64KB, so the
+   * machine ends up with 64 + 256 = 320KB (or 576KB); on the 464/664 it also
+   * brings the banking itself. RAM already present keeps its contents.
+   */
+  setExpansion(kb: 0 | 256 | 512): void {
+    const blocks = Math.max(this.internalBanking ? 1 : 0, kb >> 6);
+    if (blocks === this.blocks) return;
+    this.blocks = blocks;
+    this.hasBanking = blocks > 0;
+    const banks = 4 + blocks * 4;
+    while (this.ram.length < banks) this.ram.push(new Uint8Array(SLOT_SIZE));
+    this.ram.length = banks;
+    if (!this.hasBanking) { this.ramConfig = 0; this.ram64kBlock = 0; }
     this.applyMapping();
   }
 
@@ -251,9 +283,9 @@ export class CpcMemory implements IMachineMemory {
     if (this.upperRomEnabled) this.applyMapping();
   }
 
-  /** Gate-Array %11xxxxxx command — RAM bank configuration. The 64K 464/664
-   *  have no banking PAL (and no expansion RAM is modelled), so the command
-   *  has no effect there: the base 64K stays mapped 0-1-2-3. */
+  /** Gate-Array %11xxxxxx command — RAM bank configuration. A 464/664 with no
+   *  expansion has no banking logic, so the command has no effect there: the
+   *  base 64K stays mapped 0-1-2-3. */
   setRamConfig(val: number): void {
     if (!this.hasBanking) return;
     const config = val & 0x07;
@@ -266,12 +298,13 @@ export class CpcMemory implements IMachineMemory {
 
   private applyMapping(): void {
     const cfg = RAM_CONFIGS[this.ramConfig];
+    // A block nothing answers for: the 6128's own logic ignores the block bits
+    // and maps its internal block 0; on a 464/664 the base RAM stays put.
+    const block = this.ram64kBlock < this.blocks ? this.ram64kBlock
+      : this.internalBanking ? 0 : -1;
     for (let slot = 0; slot < 4; slot++) {
       let bank = cfg[slot];
-      // Expansion banks (>=4) shift by the selected 64KB block on machines
-      // with more than 128KB; the 6128 only has block 0.
-      if (bank >= 4) bank += this.ram64kBlock * 4;
-      if (bank >= this.ramBanks) bank %= this.ramBanks;
+      if (bank >= 4) bank = block < 0 ? slot : bank + block * 4;
       this.slotBank[slot] = bank;
       this.writePtr[slot] = this.ram[bank];
       this.readPtr[slot] = this.ram[bank];

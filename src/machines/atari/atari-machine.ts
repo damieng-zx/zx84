@@ -37,6 +37,7 @@ import { ANTIC_BASE, REG_HSCROL } from './line-writes.ts';
 import type { StopKind } from '@/debug/stop-reason.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
 import { accessCycle } from '@/debug/m6502/bus-cycles.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
 import { Antic, ANTIC_FIRST_LINE, ANTIC_LAST_LINE, ANTIC_MODES } from './antic.ts';
 import { AtariCartridge, type AtariCartType } from './cartridge.ts';
 import { AtariMemory } from './memory.ts';
@@ -1486,6 +1487,7 @@ export class AtariMachine extends BaseMachine implements Machine {
       this.pokeyReadAddr = -1;
       this.insnPc = cpu.pc;
       this.insnStartT = before;
+      if (this.tracer.active) this.tracer.before();
       // (Only worked out when a watchpoint could log something this step.)
       this.stepEntersInterrupt = this.watchHi >= 0 && cpu.interruptPending();
       cpu.step();
@@ -1754,8 +1756,9 @@ export class AtariMachine extends BaseMachine implements Machine {
 
   // ── Debug surface ────────────────────────────────────────────────────────
 
-  startTrace(_mode = 'full'): void { /* no trace engine yet */ }
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn feeds it (debug/m6502/trace.ts). */
+  protected override tracer = new M6502Trace(this, { io: [[0xD000, 0xD7FF]], ioLabel: atariIoLabel });
 
   /** True while the TEXT overlay is showing (gates the per-frame OCR). */
   transcribing = false;
@@ -1823,4 +1826,9 @@ export class AtariMachine extends BaseMachine implements Machine {
 
   /** The 400's membrane keyboard has no Help/Inv/F keys. */
   get is400(): boolean { return atariIs400(this.model); }
+}
+
+/** Portio-trace names for the Atari's $D0xx-$D7xx hardware pages. */
+function atariIoLabel(addr: number): string {
+  return ['GTIA', 'PBI', 'POKEY', 'PIA', 'ANTIC', 'CCTL', '', ''][(addr >> 8) & 7];
 }

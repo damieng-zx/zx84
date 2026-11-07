@@ -25,6 +25,8 @@
  *   ....  the entries; each starts with a NOP the machine traps
  */
 
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
+
 /** EXOS error codes the device returns (EXOS 2.1 manual, appendix). */
 const ERR_OK = 0x00;
 const ERR_ICHAN = 0xFB;     // channel illegal or does not exist
@@ -221,6 +223,44 @@ export class HostFsHandler {
   readonly missing: string[] = [];
 
   reset(): void { this.channels.clear(); }
+
+  /** The files served and every open channel, for a snapshot: the files are
+   *  host-side, so nothing else would bring them back. */
+  saveState(w: StateWriter): void {
+    const b = this.bundle;
+    w.bool(b !== null);
+    if (b) {
+      w.str(b.keyFile);
+      const files = b.entries;
+      w.u32(files.length);
+      for (const f of files) { w.str(f.name); w.bytes(f.data); }
+    }
+    w.u8(this.channels.size);
+    for (const [ch, c] of this.channels) {
+      w.u8(ch); w.str(c.name); w.bytes(c.data); w.u32(c.pos); w.bool(c.writable);
+      w.bool(c.out !== null);
+      if (c.out) w.bytes(Uint8Array.from(c.out));
+    }
+  }
+
+  /** Read back {@link saveState}; returns the bundle (or null) for the
+   *  machine to fit. */
+  loadState(r: StateReader): HostFileBundle | null {
+    let bundle: HostFileBundle | null = null;
+    if (r.bool()) {
+      bundle = new HostFileBundle();
+      bundle.keyFile = r.str();
+      for (let n = r.u32(); n > 0; n--) { const name = r.str(); bundle.add(name, r.bytes()); }
+    }
+    this.channels.clear();
+    for (let n = r.u8(); n > 0; n--) {
+      const ch = r.u8();
+      const name = r.str(), data = r.bytes(), pos = r.u32(), writable = r.bool();
+      const out = r.bool() ? [...r.bytes()] : null;
+      this.channels.set(ch, { name, data, pos, writable, out });
+    }
+    return bundle;
+  }
 
   /** Read the length-prefixed name EXOS passes in DE. */
   private readName(mem: HostFsMemory, de: number): string {

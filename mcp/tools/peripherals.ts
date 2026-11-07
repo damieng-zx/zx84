@@ -4,9 +4,10 @@ import { variantForModel, variantLabel } from '../../src/machines/spectrum/perip
 import { isPlusDCapable, isBetaDiskCapable, isUspeechCapable } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
-import { activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
+import { activeC64, activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
-import { fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
+import { C64_DRIVE_ROM_SOURCES } from '../../src/machines/c64/models.ts';
+import { fetchRomSource, fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -257,6 +258,63 @@ export function register(server: McpServer): void {
         `Enter TR-DOS with: RANDOMIZE USR 15616\n` +
         `pagedIn=${bd.pagedIn}  PC=${h16(spec.cpu.pc)}`
       );
+    },
+  );
+
+  server.registerTool(
+    'c64drive',
+    {
+      description: 'Fit, remove, or inspect the Commodore disk drives on the serial bus of the 64: up to four, devices 8 to 11, each its own 6502 running the DOS ROM. A 1541 (the default; .d64/.g64 disks: 6522 pair, GCR heads), a 1571 (the same with two heads and a 2 MHz mode: .d71 as well) or a 1581 (.d81 3.5" disks: 6526 and WD1770). "on" with model fits one drive; with models (a list of one to four, device 8 first) it fits that set, and a drive already in its place with the same model keeps its disk. Mount disks with the load tool (drive "0"-"3" or "A"-"D" picks the device), LOAD"$",8 to list one, and read a drive with chip_state chip "drive" (device 8) or "drive9", "drive10", "drive11".',
+      inputSchema: {
+        action: z.enum(['on', 'off', 'status']).describe('Action to perform'),
+        model: z.enum(['1541', '1571', '1581']).optional().describe('One drive of this model for "on" (default: the one already set up, else 1541)'),
+        models: z.array(z.enum(['1541', '1571', '1581'])).min(1).max(4).optional().describe('The drives for "on", device 8 first'),
+      },
+    },
+    async ({ action, model, models }) => {
+      const c64 = activeC64();
+      if (!c64) return text('The disk drives are Commodore 64 peripherals.');
+      const describe = (): string => {
+        if (c64.drives.length === 0) return 'C64 disk drives: OFF';
+        return c64.drives.map((d, i) => [
+          `Device ${8 + i}: C64 ${d.model} drive  dosRom=${d.hasRom ? 'loaded' : 'MISSING'}  PC=${h16(d.cpu.pc)}`,
+          `  disk: ${d.loaded ? `${d.mediaName || 'unnamed'}${d.writeProtected ? ' (write protected)' : ''}${d.dirty ? ' (modified)' : ''}` : 'none'}`,
+          `  track ${d.currentTrack}  motor ${d.motorOn ? 'on' : 'off'}  LED ${d.ledOn ? 'on' : 'off'}`,
+        ].join('\n')).join('\n');
+      };
+      if (action === 'status') return text(describe());
+      if (action === 'off') {
+        c64.installDrive(null);
+        return text('Disk drives removed from the serial bus.');
+      }
+      const want = models ?? [model ?? c64.driveModels[0] ?? '1541'];
+      try {
+        c64.fitDrives(want);
+        for (const m of new Set(want)) {
+          if (c64.drives.some(d => d.model === m && !d.hasRom)) {
+            c64.installDriveRom(m, await fetchRomSource(C64_DRIVE_ROM_SOURCES[m]));
+          }
+        }
+      } catch (err) {
+        return text(`Failed to load a DOS ROM: ${err}`);
+      }
+      return text(describe());
+    },
+  );
+
+  server.registerTool(
+    'c64sid',
+    {
+      description: 'Show or choose the SID of the Commodore 64: the original MOS 6581 (S-curve filter, a DC level that the volume register scales, so volume-only sample playback is audible) or the later 8580 of the C64C (centred, linear filter, no DC level). Takes effect at once and keeps the registers; read the chip with chip_state chip "sid".',
+      inputSchema: {
+        model: z.enum(['6581', '8580']).optional().describe('The chip to fit (omit to show the current one)'),
+      },
+    },
+    async ({ model }) => {
+      const c64 = activeC64();
+      if (!c64) return text('The SID model is a Commodore 64 option.');
+      if (model) c64.sid.setModel(model);
+      return text(`C64 SID: MOS ${c64.sid.model}`);
     },
   );
 

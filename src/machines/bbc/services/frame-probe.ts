@@ -66,7 +66,7 @@ export class BbcFrameProbe implements FrameProbe {
     out.tapePosition = cass.deck.position;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.machine.traceActive;
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
 

@@ -18,6 +18,7 @@
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const RAM_SIZE = 0x10000;      // 64KB
 const ROM_WINDOW = 0x8000;     // low 32KB ROM read-window when paged in
@@ -111,5 +112,17 @@ export class EinsteinMemory implements IMachineMemory {
   reset(): void {
     this.ram.fill(0);
     this.romEnabled = true;
+  }
+
+  /** Snapshot state: the 64K RAM and the ROM-overlay toggle (the ROM itself
+   *  is firmware, not state). */
+  saveState(w: StateWriter): void {
+    w.bool(this.romEnabled);
+    w.raw(this.ram);
+  }
+
+  loadState(r: StateReader): void {
+    this.romEnabled = r.bool();
+    r.rawInto(this.ram);
   }
 }

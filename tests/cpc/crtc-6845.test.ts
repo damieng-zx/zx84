@@ -91,15 +91,15 @@ describe('CRTC 6845 — register access', () => {
     expect(c.readRegister()).toBe(0x42);  // R13 is readable
   });
 
-  it('makes R10/R11 readable only on a type-1 CRTC', () => {
-    const t0 = new Crtc6845(0);
-    setReg(t0, 10, 0x55);
-    t0.selectRegister(10);
-    expect(t0.readRegister()).toBe(0);    // HD6845S (type 0): no read-back
-    const t1 = new Crtc6845(1);
-    setReg(t1, 10, 0x55);
-    t1.selectRegister(10);
-    expect(t1.readRegister()).toBe(0x55); // UM6845R (type 1): readable
+  it('keeps R10/R11 write-only on types 0, 1 and 2 (they read 0)', () => {
+    // CPCWiki "CRTC" register table: R0–R11 are write-only on types 0–2, and
+    // a write-only register reads 0 on types 0 and 1.
+    for (const type of [0, 1, 2] as const) {
+      const c = new Crtc6845(type);
+      setReg(c, 10, 0x55);
+      c.selectRegister(10);
+      expect(c.readRegister(), `type ${type}`).toBe(0);
+    }
   });
 
   it('keeps only the implemented bits of each register', () => {

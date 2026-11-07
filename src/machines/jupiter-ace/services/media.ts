@@ -1,6 +1,7 @@
 /**
  * Ace MediaService — the machine's own file routing: TAP/TZX/CSW/WAV cassettes
- * played back through the pulse deck. ZIP unwrapping stays a shell concern.
+ * played back through the pulse deck, and `.acestate` / `.ace` snapshots.
+ * ZIP unwrapping stays a shell concern.
  *
  * The service mutates the deck only. Signals, persistence and whether the
  * machine runs afterwards stay shell reflection, keyed off MountResult.target.
@@ -13,13 +14,14 @@ import { parseCSW } from '@/media/tape/csw.ts';
 import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import { parseAceTap } from '../ace-tape.ts';
 import type { AceTapeService } from './tape.ts';
+import type { AceSnapshotService } from './snapshots.ts';
 
 function fail(message: string): MountResult { return { ok: false, message }; }
 
 export class AceMediaService implements MediaService {
   // The deck is the only thing this service touches; starting and stopping the
   // machine belongs to the shell (see mount).
-  constructor(private readonly tape: AceTapeService) {}
+  constructor(private readonly tape: AceTapeService, private readonly snapshots: AceSnapshotService) {}
 
   accepts(): MediaTypeDescriptor[] {
     return [
@@ -29,6 +31,8 @@ export class AceMediaService implements MediaService {
       { ext: '.tzx', target: 'tape' },
       { ext: '.csw', target: 'tape' },
       { ext: '.wav', target: 'tape' },
+      { ext: '.acestate', target: 'snapshot' },
+      { ext: '.ace', target: 'snapshot' },
     ];
   }
 
@@ -66,6 +70,12 @@ export class AceMediaService implements MediaService {
       return { ok: true, target: 'tape', message: `Tape loaded: ${filename}${hint}` };
     }
 
-    return fail('The Jupiter Ace accepts .tap, .tzx, .csw and .wav cassettes (or a .zip of one)');
+    if (ext === 'acestate' || ext === 'ace') {
+      const r = await this.snapshots.apply(data, filename);
+      if (r.needsReplay) return { ok: true, replay: true, message: r.message };
+      return r.ok ? { ok: true, target: 'snapshot', message: r.message } : fail(r.message);
+    }
+
+    return fail('The Jupiter Ace accepts .tap, .tzx, .csw and .wav cassettes and .acestate/.ace snapshots (or a .zip of one)');
   }
 }

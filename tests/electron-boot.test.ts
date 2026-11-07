@@ -126,6 +126,18 @@ const ADL = process.env.ZX84_ADL
   ?? 'E:/retro/Acorn/BBC/Emulators/BeebEm/UserData/DiscIms/L3FS-ISW.adl';
 const haveAdl = haveExpansions && existsSync(ADL);
 
+/** `len` bytes of an ADFS L image from logical sector `first` on. */
+function adfsLogical(image: Uint8Array, first: number, len: number): Uint8Array {
+  const out = new Uint8Array(len);
+  for (let at = 0; at < len; at += 256) {
+    const n = first + at / 256;
+    const cyl = (n >> 4) % 80, side = n >= 1280 ? 1 : 0;
+    const src = ((cyl * 2 + side) * 16 + (n & 15)) * 256;
+    out.set(image.subarray(src, src + Math.min(256, len - at)), at);
+  }
+  return out;
+}
+
 function bootWith(plus1: boolean, plus3: boolean): ElectronMachine {
   const rom = new Uint8Array(0x8000);
   rom.set(readFileSync(resolve(CACHE, 'electron-basic.rom')), 0);
@@ -165,14 +177,19 @@ describe.skipIf(!haveExpansions)('Electron Plus 1 and Plus 3 with the real ROMs'
     type('*CAT\n');
     run(m, 1500);
     expect(m.ocrScreenForMcp()).toMatch(/Drive:0/);
-    // !ReadMe starts at logical sector 7 and runs to ~51, over three tracks: the
-    // ADFS L logical-sector order must be what the controller addresses.
+    // !ReadMe starts at logical sector 7 and runs to ~51, over three tracks.
+    // ADFS numbers logical sectors through side 0 first; the .adl stores the
+    // cylinders side 0 then side 1, so logical sector n is image sector
+    // (cylinder × 2 + side) × 16 + n mod 16.
     const image = readFileSync(ADL);
     type('*LOAD !ReadMe 3000\n');
     run(m, 4000);
     const len = 0x2BC1;
     expect(Array.from(m.memory.ram.subarray(0x3000, 0x3000 + len)))
-      .toEqual(Array.from(image.subarray(7 * 256, 7 * 256 + len)));
+      .toEqual(Array.from(adfsLogical(image, 7, len)));
+    // The file is text that runs on across the jump in the image (from image
+    // sector 15 to 32): "...free space a" + "vailable".
+    expect(new TextDecoder('latin1').decode(m.memory.ram.subarray(0x3000, 0x3000 + len))).toContain('space available');
     m.destroy();
   }, 120_000);
 });

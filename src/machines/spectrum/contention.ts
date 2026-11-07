@@ -104,7 +104,8 @@ export const TIMING_PENTAGON: MachineTiming = {
  * The first-pixel offset (14344) is the figure one Scorpion reference gives
  * (+9 T-states over the 48K's 14335); an emulator source quotes 14364, so it is
  * not hardware-verified. The Scorpion's "even M1" rule (an M1 fetch from RAM that
- * would start on an odd T-state takes one extra wait) is NOT modelled.
+ * would start on an odd T-state takes one extra wait) is applied by its CPU
+ * wrapper in scorpion.ts, not through the contention tables.
  */
 export const TIMING_SCORPION: MachineTiming = {
   cpuClock: Z80_CLOCK_48K,

@@ -59,7 +59,7 @@ export class Apple2FrameProbe implements FrameProbe {
     out.tapePosition = 0;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.machine.traceActive;
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
 

@@ -113,7 +113,7 @@ into a bug report or a chat.
 
 ## Tracing
 
-The Spectrum can record what the CPU does and copy it to the clipboard. Pick a
+Every machine can record what its CPU does and copy it to the clipboard. Pick a
 mode from the pencil menu on the Debugger toolbar; the button turns into
 **Stop**, and stopping copies the trace. Traces stop and copy themselves
 automatically at 500,000 lines.
@@ -121,11 +121,12 @@ automatically at 500,000 lines.
 | Mode | Output |
 | --- | --- |
 | **Full** | One line per instruction: address, disassembly and context — memory operand values, whether conditional branches were taken, ports and block-instruction registers. Repeats of the same instruction with identical registers collapse into a single `... loops back to XXXX xN` line, so waiting loops don't drown the trace. |
-| **Port IO** | No per-instruction log. Instead, a summary of every port read and written: count, a label for known devices (ULA, Kempston, AY, 7FFD, 1FFD, FDC), the instructions that accessed it, and the values seen. |
-| **ZXTrace** | The ZXTL text format: cycle count, address, the four bytes at PC, disassembly and the full register set including MEMPTR, with jumps marked. Useful for diffing against other emulators that write the same format. |
+| **Port IO** | No per-instruction log. Instead, a summary of every port read and written: count, a label for known devices (on the Spectrum: ULA, Kempston, AY, 7FFD, 1FFD, FDC; other Z80 machines show bare port numbers), the instructions that accessed it, and the values seen. On the 6502 machines, which memory-map their hardware, it summarises the CPU's reads and writes inside the machine's I/O window (for example `&FC00`-`&FEFF` on the BBC and Electron, `$C000`-`$C0FF` on the Apple II) with short names for the hardware. |
+| **ZXTrace** | Z80 machines only. The ZXTL text format: cycle count, address, the four bytes at PC, disassembly and the full register set including MEMPTR, with jumps marked. Useful for diffing against other emulators that write the same format. |
 
-Tracing is currently implemented for the Spectrum. The button also appears on
-some other Z80 machines but records nothing yet.
+The Z80 machines offer all three modes; the 6502 machines (BBC Micro, Electron,
+Apple I and II, Atari, Commodore 64) offer Full and Port IO, and Full adds each
+instruction's effective address and value and marks interrupt entries.
 
 ## Memory
 
@@ -195,6 +196,7 @@ strings, arrays and FOR–NEXT loop variables with their limit and step.
 | BBC Micro, Electron | BBC BASIC II | ✓ | ✓ |
 | Einstein | Xtal BASIC | ✓ | |
 | MTX | MTX BASIC | ✓ | |
+| Commodore 64 | BASIC V2 | ✓ | ✓ |
 
 ## System Variables
 
@@ -266,10 +268,12 @@ supports:
 | --- | --- |
 | Snapshot (`.szx`, `.z80`) | Spectrum |
 | Snapshot (`.sna` v2/v3) | CPC |
+| zx84 save state (`.acestate`, `.zx8xstate`, `.lynxstate`, `.mtxstate`, `.msxstate`, `.einstate`, `.pcwstate`, `.epstate`, `.bbcstate`, `.elkstate`, `.a1state`, `.a2state`, `.a8state`, `.c64state`) | Every other machine, each in its own extension |
 | Screenshot (`.png`) | All |
 | Screen (`.scr`) | Spectrum, ZX80/ZX81, CPC, Einstein, MSX, MTX, PCW |
 | RAM (`.bin`) | All |
-| Saved tape | BBC Micro, Electron, Jupiter Ace, MSX |
+| Saved tape | Spectrum (`.tzx`), CPC models with a tape deck (`.cdt`), Apple I and II (`.wav`), Lynx (`.tap`), MTX (`.mtx`), ZX80/ZX81 (`.o`, `.p`), BBC Micro, Electron, Jupiter Ace, MSX, Atari, Commodore 64 |
+| Printer output (`.txt`) | BBC Micro (Model B), Electron with the Plus 1, PCW |
 
 Media can also be mounted from URLs at startup — see the
 [README](../README.md#media).
@@ -282,18 +286,18 @@ rest depend on the hardware:
 | Machine | CPU | Tracing | Memory Layout | BASIC | System Variables | Fonts | TEXT |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Spectrum | Z80 | ✓ | 128K models | ✓ | ✓ | ✓ (with Hunt) | ✓ |
-| ZX80 / ZX81 | Z80 | | | ✓ | | | ✓ |
-| CPC | Z80 | | ✓ | ✓ | | | ✓ |
-| Einstein | Z80 | | ✓ | listing | | ✓ | ✓ |
-| MSX | Z80 | | ✓ | ✓ | | ✓ | ✓ |
-| MTX | Z80 | | ✓ | listing | | ✓ | ✓ |
-| Camputers Lynx | Z80 | | ✓ | | | ✓ | ✓ |
-| Jupiter Ace | Z80 | | | | | | ✓ |
-| Amstrad PCW | Z80 | | ✓ | | | | ✓ |
-| Enterprise | Z80 | | ✓ | | | ✓ | |
-| BBC Micro, Electron | 6502 | | | ✓ | | | ✓ |
-| Apple I | 6502 | | | | | | ✓ |
-| Apple II | 6502 / 65C02 | | | | | | ✓ |
+| ZX80 / ZX81 | Z80 | ✓ | | ✓ | | | ✓ |
+| CPC | Z80 | ✓ | ✓ | ✓ | | | ✓ |
+| Einstein | Z80 | ✓ | ✓ | listing | | ✓ | ✓ |
+| MSX | Z80 | ✓ | ✓ | ✓ | | ✓ | ✓ |
+| MTX | Z80 | ✓ | ✓ | listing | | ✓ | ✓ |
+| Camputers Lynx | Z80 | ✓ | ✓ | | | ✓ | ✓ |
+| Jupiter Ace | Z80 | ✓ | | | | | ✓ |
+| Amstrad PCW | Z80 | ✓ | ✓ | | | | ✓ |
+| Enterprise | Z80 | ✓ | ✓ | | | ✓ | |
+| BBC Micro, Electron | 6502 | ✓ | | ✓ | | | ✓ |
+| Apple I | 6502 | ✓ | | | | | ✓ |
+| Apple II | 6502 / 65C02 | ✓ | | | | | ✓ |
 
 ## Working on ZX84
 
@@ -309,10 +313,10 @@ machine in the Hardware pane, then load ROMs and media. The hosted version
 supplies the standard ROM sets; local builds can load replacement ROM images
 from the ROM pane.
 
-Hot module reloading is off. Save, then refresh the page: on the Spectrum, the
-machine's state is snapshotted when the page unloads and restored on reload (if
-it is less than a minute old and the model hasn't changed), so a refresh picks
-up where you left off.
+Hot module reloading is off. Save, then refresh the page: the machine's state is
+snapshotted when the page unloads and restored on reload (if it is less than a
+minute old and the model hasn't changed), so a refresh picks up where you left
+off.
 
 ### Commands
 

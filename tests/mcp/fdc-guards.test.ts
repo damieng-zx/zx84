@@ -52,10 +52,11 @@ describe('MCP media tools on a machine with no uPD765A fitted', () => {
     expect(r.content[0].text).toMatch(/ZX80 has no drive A:/);
   });
 
-  it('eject tape reports the missing deck instead of throwing', async () => {
+  it('eject tape reports that nothing is loaded instead of throwing', async () => {
+    // The ZX80's tape service only records SAVEs; there is never a tape on it.
     state.model = 'zx80';
     state.spec = new Zx8xMachine('zx80', null);
     const r = await handlers.get('eject')!({ target: 'tape', drive: '0' });
-    expect(r.content[0].text).toMatch(/ZX80 has no cassette deck/);
+    expect(r.content[0].text).toBe('No tape loaded.');
   });
 });

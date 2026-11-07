@@ -17,7 +17,7 @@ import { Z80 } from '@/cores/z80.ts';
 import { disasmOne, disassembleAroundPC, formatDisasmHtml, stripMarkers } from '@/debug/z80/disasm.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import type {
-  CpuPorts, DebugPanelDescriptor, DebugService, DisasmRow, Machine, RegisterDesc, RegisterSnapshot,
+  CpuPorts, DebugPanelDescriptor, DebugService, DisasmRow, Machine, MachineTraceMode, RegisterDesc, RegisterSnapshot,
 } from '@/machines/machine.ts';
 
 /** The structural surface a Z80 machine offers its debug service. Every Z80
@@ -27,10 +27,12 @@ export interface Z80DebugTarget extends Machine {
   cpu: Z80;
   startTrace(mode?: string): void;
   stopTrace(): string;
+  traceSession(): MachineTraceMode | null;
   ocrScreenForMcp(mode?: string): string;
   resolveMemoryRegion?(value: string): { data: Uint8Array; baseAddr: number } | null;
   screenExportBytes?(): Uint8Array | null;
   ramExportBytes?(): { data: Uint8Array; filename: string } | null;
+  printerExportBytes?(): { data: Uint8Array; filename: string } | null;
 }
 
 /** Family accessor: the Z80 CPU of a machine, or null for another family.
@@ -356,6 +358,7 @@ export class Z80DebugService implements DebugService {
 
   startTrace(mode?: string): void { this.m.startTrace(mode); }
   stopTrace(): string { return this.m.stopTrace(); }
+  traceSession(): MachineTraceMode | null { return this.m.traceSession(); }
   ocr(mode?: string): string { return this.m.ocrScreenForMcp(mode); }
 
   resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
@@ -364,6 +367,7 @@ export class Z80DebugService implements DebugService {
 
   screenExport(): Uint8Array | null { return this.m.screenExportBytes?.() ?? null; }
   ramExport(): { data: Uint8Array; filename: string } | null { return this.m.ramExportBytes?.() ?? null; }
+  printerExport(): { data: Uint8Array; filename: string } | null { return this.m.printerExportBytes?.() ?? null; }
 
   panels(): DebugPanelDescriptor[] { return []; }
 }

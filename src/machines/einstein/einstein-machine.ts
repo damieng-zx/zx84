@@ -11,6 +11,8 @@
  * load from disk — a follow-up). Each frame the CPU runs a PAL field's worth of
  * T-states; at the end of the active display the TMS9929A raises its vblank,
  * which is wired to a CTC channel that pulls the Z80 /INT (serviced in IM 2).
+ *
+ * Snapshots are zx84's own `.einstate` (`snapshots/einstein-state.ts`).
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -25,11 +27,13 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
+import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, SettingsView } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { einsteinDescriptor } from '@/machines/einstein/descriptor.ts';
+import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { createEinsteinServices, type EinsteinServices } from '@/machines/einstein/services/index.ts';
 import type { EinsteinModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
@@ -40,6 +44,9 @@ import { EinsteinKeyboard } from '@/machines/einstein/einstein-keyboard.ts';
 import { installEinsteinMemoryHooks, wireEinsteinPortIO } from '@/machines/einstein/einstein-io.ts';
 import { createEinsteinConfig, type EinsteinConfig } from '@/machines/einstein/config.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import {
   EINSTEIN_AY_CLOCK, EINSTEIN_CPU_CLOCK, EINSTEIN_MAX_DRIVES, EINSTEIN_T_PER_FRAME,
   EINSTEIN_SCREEN_WIDTH, EINSTEIN_SCREEN_HEIGHT,
@@ -92,6 +99,13 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   boardIntMask = 0;
   /** T-state at which an ADC conversion completes (INTR), or -1. */
   adcDoneAt = -1;
+  /** TC-01 ADC0844: the channel being converted (0-3) and the last result. */
+  adcChannel = 0;
+  adcResult = 0x80;
+  /** Einstein 256: the selection last written to the pseudo-ADC (0x38). */
+  pseudoAdc = 0;
+  /** The two joysticks, as the host drives them. */
+  readonly sticks = new AnalogSticks(2);
 
   /** Per-frame I/O activity for the status-bar LEDs. */
   readonly activity = { kbdReads: 0, fdcAccesses: 0, tapeReads: 0, ayWrites: 0 };
@@ -269,6 +283,9 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.boardIntPending = 0;
     this.boardIntMask = 0;
     this.adcDoneAt = -1;
+    this.adcChannel = 0;
+    this.adcResult = 0x80;
+    this.pseudoAdc = 0;
     this.resetFrameCount();
     this.needsDisplay = true;
     this.setStatus('Reset');
@@ -382,6 +399,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
         // Keyboard → ADC → fire, below the CTC (and the unmodelled PIO).
         if (this.adcDoneAt >= 0 && this.cpu.tStates >= this.adcDoneAt) {
           this.adcDoneAt = -1;
+          this.adcResult = this.adcInput(this.adcChannel);
           this.boardIntPending |= EINSTEIN_INT_ADC;
         }
         // Inhibited while a CTC channel is under service (IEO low until RETI).
@@ -446,12 +464,172 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     this.needsDisplay = true;
   }
 
+  // ── Joysticks ─────────────────────────────────────────────────────────
+
+  /** A host joystick direction (full deflection) or fire button. Player 1's
+   *  fire is status bit 0, player 2's bit 1. */
+  joystickPress(dir: string, pressed: boolean, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    if (dir === 'fire') { this.keyboard.setJoystick(player === 0 ? 'fire1' : 'fire2', pressed); return; }
+    this.sticks.press(dir, pressed, player);
+  }
+
+  /** A gamepad's proportional axis (-1 left/up … +1 right/down). */
+  joystickAnalog(axis: 'x' | 'y', value: number, player: number): void {
+    if (player !== 0 && player !== 1) return;
+    this.sticks.analog(axis, value, player);
+  }
+
+  /**
+   * What the TC-01's ADC0844 converts on `channel`: channels 0/1 are joystick
+   * 1's X/Y, 2/3 joystick 2's. X reads 0 at full left and 255 at full right,
+   * Y 255 at full up and 0 at full down, centred 0x80 (MAME's einstein
+   * analogue ports, the only description of the wiring to hand).
+   */
+  adcInput(channel: number): number {
+    const player = (channel >> 1) & 1;
+    return (channel & 1)
+      ? axisToRange(this.sticks.y(player), 0xFF, true)
+      : axisToRange(this.sticks.x(player), 0xFF, false);
+  }
+
+  /** Joystick `player` as the 256's port bits 3-0, active low: b0 up, b1
+   *  down, b2 left, b3 right (half deflection counts as pushed). */
+  joystickDirBits(player: number): number {
+    const x = this.sticks.x(player), y = this.sticks.y(player);
+    let v = 0x0F;
+    if (y <= -0.5) v &= ~0x01;
+    if (y >= 0.5) v &= ~0x02;
+    if (x <= -0.5) v &= ~0x04;
+    if (x >= 0.5) v &= ~0x08;
+    return v;
+  }
+
+  /**
+   * Einstein 256 pseudo-ADC (port 0x38): the digital sticks read as an ADC.
+   * The written selection's b1 picks port A (set; joystick 2) or port B
+   * (joystick 1); b2 with b0 clear asks for X (right 0xFF, left 0x00), with
+   * b0 set for Y (up 0xFF, down 0x00); anything else, or a centred stick,
+   * reads 0x7F (MAME einstein pseudo_adc_r).
+   */
+  pseudoAdcRead(): number {
+    const bits = this.joystickDirBits((this.pseudoAdc & 0x02) ? 1 : 0);
+    switch (this.pseudoAdc & 0x05) {
+      case 0x04: return (bits & 0x08) === 0 ? 0xFF : (bits & 0x04) === 0 ? 0x00 : 0x7F;
+      case 0x05: return (bits & 0x01) === 0 ? 0xFF : (bits & 0x02) === 0 ? 0x00 : 0x7F;
+      default: return 0x7F;
+    }
+  }
+
   /** The 50Hz keyboard scan (MAME keyboard_timer_callback): a key down on
    *  any line selected through AY port A raises the keyboard interrupt; a
    *  held joystick fire button raises the fire interrupt. */
   scanBoardInterrupts(): void {
     if (this.keyboard.readColumns() !== 0xFF) this.boardIntPending |= EINSTEIN_INT_KEY;
     if ((this.keyboard.statusByte() & 0x03) !== 0x03) this.boardIntPending |= EINSTEIN_INT_FIRE;
+  }
+
+  // ── Snapshot state (.einstate) ─────────────────────────────────────────
+
+  /** CRC-32 of the MOS ROM, for the snapshot header. */
+  stateRomCrcs(): number[] { return [crc32(this.memory.getRom())]; }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.einstate` (see
+   * snapshots/einstein-state.ts): the drive count first, so a restore can
+   * refuse a mismatch before it changes anything, then the CPU, the frame grid
+   * and board latches, RAM, VDP, PSG, keyboard latches, CTC, the mounted disks
+   * (only `withMedia`) and the WD1770.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => w.u8(this.driveCount));
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.u8(this.ctcTrgPhase);
+      w.bool(this.vdpIntEnabled);
+      w.u8(this.boardIntPending); w.u8(this.boardIntMask);
+      w.f64(this.adcDoneAt);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('VDP ', () => this.vdp.saveState(w));
+    w.section('PSG ', () => this.ay.saveState(w));
+    w.section('KBD ', () => this.keyboard.saveState(w));
+    w.section('CTC ', () => this.ctc.saveState(w));
+    w.section('MEDA', () => {
+      w.bool(withMedia);
+      if (!withMedia) return;
+      const drives = this.services.disks.drives;
+      for (let u = 0; u < 2; u++) {
+        const image = this.fdc.getDiskImage(u);
+        w.bool(image !== null);
+        if (!image) continue;
+        w.str(drives.find(d => d.id === (u === 0 ? 'a' : 'b'))?.mediaName ?? '');
+        w.bool(this.fdc.writeProtect[u]);
+        writeDskImage(w, image);
+      }
+    });
+    w.section('FDC ', () => this.fdc.saveState(w));
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the drive count differs. */
+  loadState(r: StateReader): void {
+    const drives = r.section('CONF').u8();
+    if (drives !== this.driveCount) {
+      const n = (k: number) => (k === 1 ? 'one drive' : `${k} drives`);
+      throw new Error(`This snapshot was saved with ${n(drives)} fitted and this Einstein has ${n(this.driveCount)}; change it in the Drives pane and load it again`);
+    }
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.ctcTrgPhase = s.u8() & 1;
+      this.vdpIntEnabled = s.bool();
+      this.boardIntPending = s.u8(); this.boardIntMask = s.u8();
+      this.adcDoneAt = s.f64();
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.vdp.loadState(r.section('VDP '));
+    this.ay.loadState(r.section('PSG '));
+    this.keyboard.loadState(r.section('KBD '));
+    this.ctc.loadState(r.section('CTC '));
+    {
+      // The disks go in before the FDC, whose transfer in flight finds its
+      // track and sector in them.
+      const s = r.section('MEDA');
+      if (s.bool()) {
+        const disks = this.services.disks;
+        for (let u = 0; u < 2; u++) {
+          const id = u === 0 ? 'a' : 'b';
+          if (!s.bool()) {
+            if (u < this.driveCount) disks.eject(id);
+            continue;
+          }
+          const name = s.str();
+          const protect = s.bool();
+          const image = readDskImage(s);
+          disks.insert(id, image, name);
+          disks.setWriteProtect(id, protect);
+        }
+      }
+    }
+    this.fdc.loadState(r.section('FDC '));
+
+    // What the state does not hold: the host's keys (released above), the
+    // audio pipeline, and nothing is part-way through a frame.
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
   }
 
   // ── Machine: debug helpers ───────────────────────────────────────────
@@ -462,11 +640,9 @@ export class EinsteinMachine extends BaseMachine implements Machine {
     return { ...disasmOne(buf, 0), addr: pc };
   }
 
-  startTrace(_mode: MachineTraceMode = 'full'): void {
-    // Execution tracing is a later addition; no-op so the MCP tool degrades.
-  }
-
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
 
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
     // Recover the screen text from the VDP by matching each cell against the MOS

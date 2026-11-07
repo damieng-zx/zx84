@@ -1,19 +1,22 @@
 /**
  * MSX MediaService — the machine's own file routing: `.rom` cartridges
- * (auto-booted), `.cas` cassettes (BIOS-trap load) and, while the optional
- * floppy disk interface is fitted, disk images for drives A: and B:. ZIP
- * unwrapping stays a shell concern.
+ * (auto-booted), cassettes (`.cas`, `.tsx`/`.tzx`, `.wav` — the pulse-level
+ * deck, plus the BIOS-trap fast path for `.cas`), `.msxstate` snapshots
+ * and, while the optional floppy disk interface is fitted, disk images for
+ * drives A: and B:. ZIP unwrapping stays a shell concern.
  *
  * The service mutates the machine only. The cartridge name / cassette block /
  * disk signals, persistence and machine restart stay shell reflection, keyed
  * off MountResult.target.
  */
 
-import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
+import type {
+  MediaService, MediaTypeDescriptor, MediaTargetId, MountResult, SnapshotService,
+} from '@/machines/machine.ts';
 import { parseMsxFloppy } from '@/media/floppy/msx-disk.ts';
 import type { MsxDiskService } from './disks.ts';
 import type { MsxRomService } from './roms.ts';
-import type { MsxTapeService } from './tape.ts';
+import { MSX_TAPE_PATTERN, type MsxTapeService } from './tape.ts';
 
 function fail(message: string): MountResult { return { ok: false, message }; }
 
@@ -28,12 +31,17 @@ export class MsxMediaService implements MediaService {
     private readonly roms: MsxRomService,
     private readonly tape: MsxTapeService,
     private readonly disks: MsxDiskService,
+    private readonly snapshots: SnapshotService,
   ) {}
 
   accepts(): MediaTypeDescriptor[] {
     const types: MediaTypeDescriptor[] = [
       { ext: '.rom', target: 'cartridge' },
       { ext: '.cas', target: 'tape' },
+      { ext: '.tsx', target: 'tape' },
+      { ext: '.tzx', target: 'tape' },
+      { ext: '.wav', target: 'tape' },
+      { ext: '.msxstate', target: 'snapshot' },
     ];
     if (this.disks.drives.length > 0) {
       for (const ext of DISK_EXTENSIONS) types.push({ ext, target: 'a' });
@@ -48,10 +56,23 @@ export class MsxMediaService implements MediaService {
       return { ok: true, target: 'cartridge', message: `Cartridge: ${filename}` };
     }
 
-    // Cassette: mount the .cas; the BIOS TAPION/TAPIN traps serve it on CLOAD/BLOAD.
-    if (/\.cas$/i.test(filename)) {
-      this.tape.mount(data, filename);
-      return { ok: true, target: 'cas', message: `Cassette: ${filename} — type CLOAD or BLOAD"CAS:"` };
+    // Cassette: onto the deck with PLAY pressed (the motor relay runs it);
+    // a .cas also feeds the BIOS load traps.
+    if (MSX_TAPE_PATTERN.test(filename)) {
+      try {
+        this.tape.mount(data, filename);
+      } catch (err) {
+        return fail(`Tape error: ${(err as Error).message}`);
+      }
+      return { ok: true, target: 'tape', message: `Cassette: ${filename} — type CLOAD, BLOAD"CAS:",R or RUN"CAS:"` };
+    }
+
+    // Snapshot: a state file carries its cartridge and disks, so the panes
+    // re-read them.
+    if (/\.msxstate$/i.test(filename)) {
+      const r = await this.snapshots.apply(data, filename);
+      if (r.needsReplay) return { ok: true, replay: true, message: r.message };
+      return r.ok ? { ok: true, target: 'snapshot', mediaChanged: true, message: r.message } : fail(r.message);
     }
 
     if (DISK_PATTERN.test(filename)) {
@@ -71,6 +92,6 @@ export class MsxMediaService implements MediaService {
       return { ok: true, target: id, message: `Drive ${id.toUpperCase()}: loaded: ${filename}` };
     }
 
-    return fail('MSX accepts .rom cartridges, .cas cassettes and disk images (.dsk .img .dmk .hfe .scp .td0 .edsk), or a .zip of one');
+    return fail('MSX accepts .rom cartridges, .cas/.tsx/.wav cassettes, .msxstate snapshots and disk images (.dsk .img .dmk .hfe .scp .td0 .edsk), or a .zip of one');
   }
 }

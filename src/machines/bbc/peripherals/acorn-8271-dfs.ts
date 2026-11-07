@@ -10,6 +10,7 @@
 import { I8271 } from '@/cores/i8271.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { BbcDiscController } from './disc-controller.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 export class BbcAcornDfs implements BbcDiscController {
   private readonly fdc: I8271;
@@ -55,4 +56,8 @@ export class BbcAcornDfs implements BbcDiscController {
   get currentDrive(): number { return this.fdc.currentDrive; }
   get currentSector(): number { return this.fdc.currentSector; }
   getUnitTrack(unit: number): number { return this.fdc.getUnitTrack(unit); }
+
+  /** Snapshot: the controller (not the discs). */
+  saveState(w: StateWriter): void { this.fdc.saveState(w); }
+  loadState(r: StateReader): void { this.fdc.loadState(r); }
 }

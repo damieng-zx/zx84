@@ -73,6 +73,10 @@ export function betaRomInSystemRom(m: MachineModel): boolean { return isScorpion
 /** Returns true for the issue 1/2 16K Spectrum (no upper 32KB of RAM). */
 export function is16K(m: MachineModel): boolean { return m === 'zx16k'; }
 
+/** Returns true for the models built on Issue 1/2 and Issue 3 boards (16K, 48K),
+ *  whose port-0xFE bit 6 depends on the board issue (see ULA EarFeedback). */
+export function hasBoardIssueOption(m: MachineModel): boolean { return m === 'zx16k' || m === 'zx48k'; }
+
 /** Returns true for +2A/+3 class (Amstrad gate array with 0x1FFD port, 4 ROM pages). */
 export function isPlus2AClass(m: MachineModel): boolean { return m === 'zx128kplus2a' || m === 'zx128kplus3'; }
 

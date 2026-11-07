@@ -34,13 +34,14 @@ describe('Lynx port I/O', () => {
 
   it('sends port 0x84 to the DAC, or to the tape once the motor runs', () => {
     const m = machine();
+    // The DAC latch (a 40174 hex flip-flop) takes D0-D5 only: 0x5a's D6 is lost.
     m.cpu.portOut(0x0084, 0x5a);
-    expect(m.dacLevel).toBe(0x5a);
+    expect(m.dacLevel).toBe(0x1a);
 
     m.cpu.portOut(0x0080, 0x02);               // 48K motor bit
     expect(m.tapeMotorOn).toBe(true);
     m.cpu.portOut(0x0084, 0x7f);
-    expect(m.dacLevel).toBe(0x5a);             // held: that write went to tape
+    expect(m.dacLevel).toBe(0x1a);             // held: that write went to tape
   });
 
   it('puts the 48K cassette input on bit 0 of keyboard line 0 only', () => {

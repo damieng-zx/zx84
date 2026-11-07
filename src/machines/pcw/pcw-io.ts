@@ -15,6 +15,7 @@
  */
 
 import type { PcwMachine } from './pcw-machine.ts';
+import { PCW_JOYSTICK_E0_PORT, PCW_KEMPSTON_PORT } from './pcw-joystick.ts';
 import {
   PCW_FDC_REGISTER_BIT, PCW_FDC_SELECT_MASK,
   PORT_BANK0, PORT_BANK1, PORT_BANK2, PORT_BANK3, PORT_MEMCTL, PORT_PRINTER_CTRL,
@@ -34,7 +35,8 @@ import {
  * paper loaded and the bail bar in — b7, b6 and b2 set. **b6 matters**: the
  * XBIOS's printer handshake spins on `IN A,(&FD) / AND &41` waiting for either
  * "finished" or "fault", so a status that never reports finished wedges the
- * boot after the CP/M banner. Nothing is printed — see `PcwMachine.printerWrite`.
+ * boot after the CP/M banner. Nothing is printed; what is sent is logged — see
+ * `PcwMachine.printerWrite`.
  */
 const PRINTER_STATUS_READY = 0xC4;
 
@@ -104,8 +106,10 @@ export function wirePcwPortIO(m: PcwMachine): void {
 
       case PORT_SYSTEM: m.systemCommand(value); return;
 
-      case PORT_PRINTER_DATA: m.printerWrite(value, false); return;
-      case PORT_PRINTER_CTRL: m.printerWrite(value, true); return;
+      // The whole port goes to the log: the 9512's daisywheel controller
+      // tells a command byte (&01FC) from a data byte (&00FC) by A8.
+      case PORT_PRINTER_DATA:
+      case PORT_PRINTER_CTRL: m.printerWrite(port, value); return;
 
       default: return;
     }
@@ -124,7 +128,14 @@ export function wirePcwPortIO(m: PcwMachine): void {
       return (port & PCW_FDC_REGISTER_BIT) ? m.fdc.readData() : m.fdc.readStatus();
     }
 
-    switch (port & 0xFF) {
+    // An add-on joystick interface at &9F or &E0 (pcw-joystick.ts).
+    const low = port & 0xFF;
+    if (low === PCW_KEMPSTON_PORT || low === PCW_JOYSTICK_E0_PORT) {
+      const joy = m.joystick.read(low);
+      if (joy !== null) return joy;
+    }
+
+    switch (low) {
       // &F4 returns the same status byte as &F8 but clears the interrupt
       // counter on the way out; the BIOS uses it to find out how many 300Hz
       // ticks it missed.

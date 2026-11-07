@@ -13,20 +13,24 @@
  * straight to the Z80 /INT and services it in interrupt mode 1 (RST 38h); and
  * because MSX BASIC lives in the 32KB internal ROM, the machine boots straight
  * to the BASIC "Ok" prompt with no disk.
+ *
+ * Snapshots are zx84's own `.msxstate` (see snapshots/msx-state.ts).
  */
 
 import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { WD179x } from '@/cores/wd179x.ts';
 import { Tms9918a, MSX_PALETTES } from '@/cores/tms9918a.ts';
-import { TapeDeck } from '@/media/tape/tap.ts';
+import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
-import type { AuxRomRequest, Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, MachineTraceMode, SettingsView } from '@/machines/machine.ts';
+import { soundDeviceGains } from '@/machines/machine.ts';
+import type { AuxRomRequest, Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, SettingsView } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { msxDescriptor } from '@/machines/msx/descriptor.ts';
@@ -35,7 +39,7 @@ import type { MsxModel } from '@/models.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import { MsxScreenText, msxTextGrid } from '@/ocr/msx.ts';
 import { MsxCassette, MSX_TAPION, MSX_TAPIN, MSX_TAPOON, MSX_TAPOUT } from '@/machines/msx/msx-tape.ts';
-import { MsxMemory } from '@/machines/msx/msx-memory.ts';
+import { MsxMemory, type MsxMapper } from '@/machines/msx/msx-memory.ts';
 import { MsxKeyboard } from '@/machines/msx/msx-keyboard.ts';
 import { MsxJoystick } from '@/machines/msx/msx-joystick.ts';
 import { MsxDiskInterface } from '@/machines/msx/peripherals/disk-interface.ts';
@@ -43,11 +47,17 @@ import { msxDiskAuxRom, msxFirmwareAuxRom } from '@/machines/msx/aux-roms.ts';
 import { MsxPpi, installMsxMemoryHooks, wireMsxPortIO } from '@/machines/msx/msx-io.ts';
 import { createMsxConfig, type MsxConfig } from '@/machines/msx/config.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import {
   MSX_CPU_CLOCK, MSX_PSG_CLOCK, MSX_MAX_DRIVES,
   MSX_SCREEN_WIDTH, MSX_SCREEN_HEIGHT,
   MSX_BORDER_LEFT, MSX_BORDER_TOP,
 } from '@/machines/msx/constants.ts';
+
+/** The key click's level against the AY at full scale, before its Sound-pane volume. */
+const KEY_CLICK_GAIN = 0.5;
 
 /** Active display lines (0..191); the VDP raises its vblank at line 192. */
 const ACTIVE_LINES = 192;
@@ -78,14 +88,22 @@ export class MsxMachine extends BaseMachine implements Machine {
   floppyEnabled = false;
   /** How many of the interface's two drives are fitted (Drives pane choice). */
   driveCount = MSX_MAX_DRIVES;
-  /** Inert cassette deck (interface requirement; cassette is a follow-up). */
+  /** The cassette recorder's pulse-level deck: its signal is PSG register 14
+   *  bit 7, and it moves only while the motor relay (PPI port C bit 4, low =
+   *  on) is closed. */
   readonly tape: TapeDeck;
+  /** "Fast ROM loading": the BIOS TAPION/TAPIN traps serve a mounted `.cas`. */
+  tapeFastRom = true;
+  /** "Turbo while loading": run flat out while the motor turns a playing tape. */
+  tapeTurbo = true;
+  /** CPU time the deck has been advanced to. */
+  private tapeT = 0;
   readonly mixer: AudioMixer;
   readonly audio: Audio;
   display: IScreenRenderer | null;
 
   /** Per-frame I/O activity for the status-bar LEDs / tape progress. */
-  readonly activity = { kbdReads: 0, ayWrites: 0, casReads: 0, fdcAccesses: 0 };
+  readonly activity = { kbdReads: 0, ayWrites: 0, casReads: 0, fdcAccesses: 0, tapeReads: 0 };
 
   /** Screen-text OCR engine for the MCP `ocr` tool and the TEXT overlay. */
   readonly screenText = new MsxScreenText();
@@ -121,10 +139,12 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.joystick = new MsxJoystick();
     this.ppi = new MsxPpi(this.memory, this.keyboard);
     this.tape = new TapeDeck(MSX_CPU_CLOCK);
+    // Tape timings are written in 3.5 MHz T-states; the MSX runs at 3.58 MHz.
+    this.tape.pulseScale = MSX_CPU_CLOCK / TAPE_REF_HZ;
     this.audio = new Audio();
     this.mixer = new AudioMixer(MSX_CPU_CLOCK);
     // The 1-bit "beeper" path carries the PPI port C bit 7 key click.
-    this.mixer.beeperGain = 0.5;
+    this.mixer.beeperGain = KEY_CLICK_GAIN;
     this.mixer.ayGain = 1;
     this.display = display ?? null;
 
@@ -155,6 +175,14 @@ export class MsxMachine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.vdp.palette = MSX_PALETTES[view.get('msx-color-map', 'pal') as keyof typeof MSX_PALETTES];
     this.audio.setVolume(view.get('volume', 70) / 100);
+    // The key click and the AY each have a volume; 100 % keeps the hardware's levels.
+    const gains = soundDeviceGains(this.descriptor.ui.soundDevices, view);
+    this.mixer.beeperGain = KEY_CLICK_GAIN * gains.beeper;
+    this.mixer.ayGain = gains.psg;
+    // A Konami SCC cartridge feeds the mixer's mono line-level input.
+    this.mixer.monoGain = gains.scc ?? 1;
+    this.tapeFastRom = view.get('tape-instant-rom', true);
+    this.tapeTurbo = view.get('tape-turbo-load', true);
     applyAySettings(this.ay, view);
     // The Hardware pane's "reset settings" turns the option off underneath a
     // fitted card: take it out and cold-start, since Disk BASIC's hooks into
@@ -222,17 +250,56 @@ export class MsxMachine extends BaseMachine implements Machine {
     return requests;
   }
 
-  /** Mount a `.cas` cassette image (served instantly via BIOS TAPION/TAPIN). */
-  mountCas(data: Uint8Array, name = ''): void {
-    this.cassette.mount(data, name);
+  /** Mount a `.cas` cassette image (on the deck, and for the BIOS traps). */
+  mountCas(data: Uint8Array, name = 'tape.cas'): void {
+    this.services.tape.mount(data, /\.cas$/i.test(name) ? name : `${name}.cas`);
     this.setStatus(`Cassette: ${name || 'loaded'} — type CLOAD or BLOAD"CAS:"`);
   }
 
-  /** Insert a cartridge ROM into slot 1. The caller resets the machine so the
-   *  BIOS slot scan finds and auto-runs it. */
-  insertCartridge(data: Uint8Array, name = ''): void {
-    this.memory.insertCartridge(data);
+  /** Insert a cartridge ROM into slot 1, with `mapper` or (by default) the
+   *  guessed one. The caller resets the machine so the BIOS slot scan finds
+   *  and auto-runs it. */
+  insertCartridge(data: Uint8Array, name = '', mapper?: MsxMapper): void {
+    this.memory.insertCartridge(data, mapper);
     this.cartridgeName = name;
+  }
+
+  /** Re-insert the mounted cartridge with another mapper (null = the guessed
+   *  one) and power-cycle, as swapping the board would. */
+  setCartridgeMapper(mapper: MsxMapper | null): void {
+    const rom = this.memory.cartridgeRom;
+    if (!rom) return;
+    this.stop();
+    this.memory.insertCartridge(rom, mapper ?? undefined);
+    this.reset();
+  }
+
+  // ── Cassette ─────────────────────────────────────────────────────────
+
+  /** The motor relay (PPI port C bit 4, active low). */
+  get cassetteMotorOn(): boolean { return (this.ppi.readC() & 0x10) === 0; }
+
+  /** Whether the deck is turning a tape that is playing. */
+  get tapeMoving(): boolean {
+    return this.cassetteMotorOn && this.tape.playing && !this.tape.paused;
+  }
+
+  /** Bring the deck up to the current CPU time. Called before anything that
+   *  reads the signal or changes the motor, and at the end of every frame. */
+  syncTape(): void {
+    const now = this.cpu.tStates;
+    const dt = now - this.tapeT;
+    this.tapeT = now;
+    if (dt > 0 && this.tapeMoving) this.tape.advance(dt);
+  }
+
+  /** The cassette input (PSG register 14 bit 7) as the CPU reads it now:
+   *  the deck's signal while it turns, else the idle high level. */
+  cassetteInput(): number {
+    this.syncTape();
+    if (!this.tapeMoving) return 1;
+    this.activity.tapeReads++;
+    return this.tape.earBit & 1;
   }
 
   /** Remove the cartridge from slot 1. */
@@ -260,10 +327,18 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.cpu.tStates += 11;
   }
 
-  /** TAPION: skip to the next block header; CY set on failure. */
+  /** TAPION: skip to the next block header; CY set on failure. The deck
+   *  moves on to the block after the one being read, so a loader that takes
+   *  over from the BIOS hears the rest of the tape. */
   private trapTapion(): void {
-    this.cpu.setFlag(Z80.FLAG_C, !this.cassette.findHeader());
+    const found = this.cassette.findHeader();
+    this.cpu.setFlag(Z80.FLAG_C, !found);
     this.activity.casReads++;
+    const deck = this.tape;
+    if (found && deck.blocks.length > 0) {
+      deck.position = Math.min(this.cassette.currentBlock() + 1, deck.blocks.length);
+      if (deck.playing) deck.startPlayback();
+    }
     this.retFromTrap();
   }
 
@@ -323,6 +398,7 @@ export class MsxMachine extends BaseMachine implements Machine {
     this.diskIf.reset();
     this.kanaLed = false;
     this.cassette.clearRecording();
+    this.tapeT = this.cpu.tStates;
     this.audio.reset();
     this.mixer.reset();
     this.resetFrameCount();
@@ -334,7 +410,7 @@ export class MsxMachine extends BaseMachine implements Machine {
 
   protected framePixels(): Uint8Array { return this._pixels; }
 
-  protected inTurbo(): boolean { return this.turbo; }
+  protected inTurbo(): boolean { return this.turbo || (this.tapeTurbo && this.tapeMoving); }
 
   /**
    * Execute one field (PAL or NTSC). Runs the CPU scanline by scanline; renders the 192
@@ -363,7 +439,9 @@ export class MsxMachine extends BaseMachine implements Machine {
   protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
 
   protected runFrame(): void {
-    const skipAudio = this.speedMultiplier !== 1;
+    const skipAudio = this.speedMultiplier !== 1 || (this.tapeTurbo && this.tapeMoving);
+    const scc = this.memory.cart.scc;
+    if (scc) scc.clocksPerSample = this.mixer.tStatesPerSample;
     const linesPerFrame = this.config.linesPerFrame;
     const tPerLine = this.config.tStatesPerFrame / linesPerFrame;
     // A frame a stop left part-way carries on from the line it was in.
@@ -371,6 +449,7 @@ export class MsxMachine extends BaseMachine implements Machine {
       this.activity.kbdReads = 0;
       this.activity.ayWrites = 0;
       this.activity.casReads = 0;
+      this.activity.tapeReads = 0;
       this.diskIf.accesses = 0;
       // Fill the whole buffer (incl. border) with the current backdrop.
       this._pixels32.fill(this.vdp.backdrop());
@@ -394,7 +473,7 @@ export class MsxMachine extends BaseMachine implements Machine {
         // TAPOON/TAPOUT record whatever is saved. All sit in 0x00E0–0x00EF.
         if ((this.cpu.pc & 0xFFF0) === 0x00E0 && (this.memory.getPrimarySlot() & 0x03) === 0) {
           const pc = this.cpu.pc;
-          if (this.cassette.loaded) {
+          if (this.cassette.loaded && this.tapeFastRom) {
             if (pc === MSX_TAPION) { this.trapTapion(); continue; }
             if (pc === MSX_TAPIN) { this.trapTapin(); continue; }
           }
@@ -420,7 +499,7 @@ export class MsxMachine extends BaseMachine implements Machine {
           const elapsed = this.cpu.tStates - lastAudioT;
           if (elapsed > 0) {
             this.mixer.accumulate(this.ppi.keyClick, elapsed);
-            this.mixer.generateSamples(this.audio, this.ay, true);
+            this.mixer.generateSamples(this.audio, this.ay, true, scc);
             lastAudioT = this.cpu.tStates;
           }
         }
@@ -446,6 +525,147 @@ export class MsxMachine extends BaseMachine implements Machine {
 
     this.activity.fdcAccesses = this.diskIf.accesses;
     this.diskIf.tickFrame();
+    this.syncTape();
+    this.needsDisplay = true;
+  }
+
+  // ── Snapshot state (.msxstate) ─────────────────────────────────────────
+
+  /** CRC-32s of the BIOS/BASIC ROM, the on-board firmware ROM and the Disk
+   *  BASIC ROM (0 for one that is not there), for the snapshot header. */
+  stateRomCrcs(): number[] {
+    const firmware = this.memory.getFirmware();
+    return [
+      crc32(this.memory.getRom()),
+      firmware ? crc32(firmware) : 0,
+      this.diskIf.romLoaded ? crc32(this.diskIf.getRom()) : 0,
+    ];
+  }
+
+  /** The disk interface is in slot 3 (enabled and with its ROM). */
+  private get diskFitted(): boolean { return this.memory.hasDiskInterface; }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.msxstate` (see snapshots/msx-state.ts):
+   * the configuration first, so a restore can refuse a mismatch before it
+   * changes anything, then the CPU, frame grid, memory and cartridge, PPI,
+   * VDP, PSG and the disk interface with the disks in its drives. The MSX
+   * keeps its disks even without `withMedia` (the browser-refresh state):
+   * the shell does not persist MSX disks or cartridges, so the state is the
+   * only thing that can bring them back.
+   */
+  saveState(w: StateWriter, _withMedia: boolean): void {
+    const withMedia = true;
+    this.completeFrame();
+    const fitted = this.diskFitted;
+    w.section('CONF', () => {
+      w.bool(fitted);
+      w.u8(this.driveCount);
+    });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.bool(this.kanaLed);
+    });
+    w.section('MEM ', () => {
+      this.memory.saveState(w);
+      w.str(this.cartridgeName);
+      // Appended later: the cartridge's bank registers, SRAM and SCC.
+      this.memory.cart.saveExtra(w);
+    });
+    w.section('PPI ', () => this.ppi.saveState(w));
+    w.section('VDP ', () => this.vdp.saveState(w));
+    w.section('PSG ', () => this.ay.saveState(w));
+    w.section('DISK', () => {
+      if (!fitted) return;
+      w.bool(withMedia);
+      if (withMedia) {
+        for (let u = 0; u < this.driveCount; u++) {
+          const image = this.fdc.getDiskImage(u);
+          w.bool(image !== null);
+          if (image) {
+            w.str(this.services.disks.nameOf(u === 0 ? 'a' : 'b'));
+            writeDskImage(w, image);
+          }
+        }
+      }
+      this.diskIf.saveState(w);
+    });
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the disk interface or its
+   *  drive count differs from this machine's. */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const fitted = s.bool();
+      const drives = s.u8();
+      if (fitted !== this.diskFitted) {
+        throw new Error(fitted
+          ? 'This snapshot was saved with the disk interface fitted; fit it in the Hardware pane and load it again'
+          : 'This snapshot was saved without the disk interface; remove it in the Hardware pane and load it again');
+      }
+      if (fitted && drives !== this.driveCount) {
+        const n = (k: number) => (k === 1 ? 'one drive' : `${k} drives`);
+        throw new Error(`This snapshot was saved with ${n(drives)} and this MSX has ${n(this.driveCount)}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.kanaLed = s.bool();
+    }
+    {
+      const s = r.section('MEM ');
+      this.memory.loadState(s);
+      this.cartridgeName = s.str();
+      if (s.remaining > 0) {
+        this.memory.cart.loadExtra(s);
+        this.memory.refreshCartridge();
+      }
+    }
+    this.ppi.loadState(r.section('PPI '));
+    this.vdp.loadState(r.section('VDP '));
+    this.ay.loadState(r.section('PSG '));
+    // PSG port B bit 6 picks the joystick port that port A reads.
+    this.joystick.setSelect(this.ay.regs[15]);
+    {
+      const s = r.section('DISK');
+      if (this.diskFitted) {
+        if (s.bool()) {
+          for (let u = 0; u < this.driveCount; u++) {
+            const id = u === 0 ? 'a' : 'b';
+            if (s.bool()) {
+              const name = s.str();
+              this.services.disks.insert(id, readDskImage(s), name);
+            } else {
+              this.services.disks.eject(id);
+            }
+          }
+        }
+        this.diskIf.loadState(s);
+      }
+    }
+    // What the state does not hold: the host's keys and sticks are whatever
+    // they are now, and nothing is part-way through a frame.
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.keyboard.reset();
+    this.keyboard.selectRow(this.ppi.readC() & 0x0F);
+    for (const player of [0, 1]) {
+      for (const dir of ['up', 'down', 'left', 'right', 'fire', 'fire2']) this.joystick.set(dir, false, player);
+    }
+    this.tapeT = this.cpu.tStates;
+    this.audio.reset();
+    this.mixer.reset();
     this.needsDisplay = true;
   }
 
@@ -457,11 +677,9 @@ export class MsxMachine extends BaseMachine implements Machine {
     return { ...disasmOne(buf, 0), addr: pc };
   }
 
-  startTrace(_mode: MachineTraceMode = 'full'): void {
-    // Execution tracing is a later addition; no-op so the MCP tool degrades.
-  }
-
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
 
   ocrScreenForMcp(_mode: OcrGridName | 'auto' = 'auto'): string {
     // The VDP name table holds character codes directly (grid fixed by mode).

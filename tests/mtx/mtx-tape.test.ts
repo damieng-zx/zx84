@@ -84,14 +84,17 @@ describe('MTX ROM cassette trap', () => {
     expect(m.cpu.pc).toBe(MTX_TAPE_FAILURE);
   });
 
-  it('leaves SAVE to the physical ROM routine', () => {
+  it('never serves SAVE from the mounted image (SAVE goes to the recorder)', () => {
     const m = machine();
     m.cassette.mount(image(), 'toado.mtx');
     m.memory.writeByte(0xFD68, 0); // SAVE
     m.cpu.pc = MTX_TAPE_ROUTINE;
+    m.cpu.hl = 0xD000;
+    m.cpu.de = 3;
 
-    expect(m.trapCassetteRoutine()).toBe(false);
-    expect(m.cpu.pc).toBe(MTX_TAPE_ROUTINE);
+    m.trapCassetteRoutine();
+    // The mounted tape is untouched: its header is still the next chunk.
+    expect(m.cassette.readChunk(1)![0]).toBe(0xFF);
   });
 
   it('routes .mtx images through the generic media and tape services', async () => {

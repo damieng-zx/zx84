@@ -22,6 +22,8 @@ import { cpcMemCycleStart, cpcIoOutStart, cpcIoInSample } from '@/machines/cpc/w
 
 /** Manufacturer code reported on PPI Port B bits 1–3 (7 = Amstrad). */
 const MANUFACTURER_AMSTRAD = 7;
+/** Port B bit 4 (LK4): 1 = 50 Hz, 0 = 60 Hz. */
+const LINK_50HZ = 0x10;
 
 /**
  * Intel 8255 PPI as wired on the CPC. Mode 0 only (the firmware never uses
@@ -32,6 +34,9 @@ export class Ppi8255 {
   private pA = 0;          // Port A output latch
   private pC = 0;          // Port C output latch
   private control = 0x9B;  // reset default: mode 0, all ports input
+  /** Port B bits 1–4 as the board's links LK1–LK4 set them: the distributor
+   *  code and the 50/60 Hz link (CPCWiki "8255"). */
+  private links = (MANUFACTURER_AMSTRAD << 1) | LINK_50HZ;
 
   constructor(
     private readonly ay: AY3891x,
@@ -47,6 +52,9 @@ export class Ppi8255 {
     private readonly setMotor: (on: boolean) => void = () => {},
     /** Called whenever a sound register is written to the AY — drives the LED. */
     private readonly onAyWrite: () => void = () => {},
+    /** Called with the cassette write-data level (Port C bit 5) after every
+     *  Port C change — what CAS WRITE drives to the tape. */
+    private readonly writeTapeBit: (level: number) => void = () => {},
   ) {}
 
   /** Port A is an input when control bit 4 is set. */
@@ -66,6 +74,7 @@ export class Ppi8255 {
     this.pC = val & 0xFF;
     this.keyboard.selectLine(this.pC & 0x0F);
     this.setMotor((this.pC & 0x10) !== 0);   // bit 4: cassette motor
+    this.writeTapeBit((this.pC >> 5) & 1);   // bit 5: cassette write data
     this.strobeAy();
   }
 
@@ -76,6 +85,7 @@ export class Ppi8255 {
       this.pA = 0;
       this.pC = 0;
       this.setMotor(false);                  // cleared latch → motor off
+      this.writeTapeBit(0);
     } else {
       // Bit set/reset on a single Port C bit.
       const bit = (val >> 1) & 7;
@@ -83,8 +93,14 @@ export class Ppi8255 {
       else this.pC &= ~(1 << bit) & 0xFF;
       this.keyboard.selectLine(this.pC & 0x0F);
       this.setMotor((this.pC & 0x10) !== 0); // bit 4: cassette motor
+      this.writeTapeBit((this.pC >> 5) & 1); // bit 5: cassette write data
       this.strobeAy();
     }
+  }
+
+  /** Set links LK1–LK3 (distributor code 0–7) and LK4 (50 Hz when true). */
+  setLinks(manufacturer: number, fiftyHz: boolean): void {
+    this.links = ((manufacturer & 7) << 1) | (fiftyHz ? LINK_50HZ : 0);
   }
 
   readA(): number {
@@ -95,8 +111,7 @@ export class Ppi8255 {
   readB(): number {
     let v = 0;
     if (this.vsyncActive()) v |= 0x01;        // bit 0: CRTC VSYNC
-    v |= (MANUFACTURER_AMSTRAD & 7) << 1;      // bits 1–3: manufacturer
-    v |= 0x10;                                 // bit 4: 1 = 50 Hz (PAL)
+    v |= this.links;                           // bits 1–3 manufacturer, bit 4 50 Hz
     // Bits 5-6 (/EXP present, printer /BUSY) are pulled up on real hardware;
     // nothing here models a connected expansion device or printer to pull
     // either low, so both read 1.
@@ -203,8 +218,8 @@ export function wireCpcPortIO(m: CpcMachine): void {
   const ga = m.gateArray;
   const memory = m.memory;
   const fdc = m.fdc;
-  // 464 / GX4000: no uPD765A on the bus (a DDI-1 is not modelled).
-  const hasFdc = m.config.hasFDC;
+  // 464 without a DDI-1, GX4000: no uPD765A on the bus. Rewired by fit().
+  const hasFdc = m.hasFdc;
   // Plus ASIC: present on cpc6128plus / gx4000. Used to snoop the CRTC
   // register-select writes for the unlock sequence (every other Plus feature
   // is reached through CPU memory writes once the ASIC window is paged in).
@@ -316,6 +331,9 @@ export function wireCpcPortIO(m: CpcMachine): void {
     // CRTC read: A14=0, A13=1, fn 2/3
     if ((port & 0x6000) === 0x2000) {
       const fn = (port >> 8) & 3;
+      // The Plus CRTC's status registers compare against the character
+      // counter; tell it where the beam is.
+      if (m.crtc.type >= 3) m.crtc.hcc = m.crtcCharCounter();
       if (fn === 2) return m.crtc.readStatus();
       if (fn === 3) return m.crtc.readRegister();
     }

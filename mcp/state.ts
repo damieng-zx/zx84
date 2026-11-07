@@ -8,7 +8,7 @@
  * module); everything here is machine-blind.
  */
 
-import type { Machine } from '../src/machines/machine.ts';
+import type { Machine, MachineLocale } from '../src/machines/machine.ts';
 import { entryForModel } from '../src/machines/registry.ts';
 import type { MachineModel } from '../src/models.ts';
 import { SymbolTable } from '../src/debug/symbols.ts';
@@ -21,6 +21,9 @@ import { hex16 as h16 } from '../src/utils/hex.ts';
 
 interface State {
   model: MachineModel;
+  /** The locale the machine was built with ('us' is the NTSC machine on the
+   *  Atari and the Commodore 64); undefined for the default. */
+  locale?: MachineLocale;
   spec: Machine;
   romData: Uint8Array;
 }
@@ -31,6 +34,9 @@ export const state = {} as State;
 export const symbols = new SymbolTable();
 
 export interface InitMachineOptions {
+  /** Build the machine for this locale. The Atari and the Commodore 64 take
+   *  their TV standard from it: 'us' is NTSC, anything else PAL. */
+  locale?: MachineLocale;
   /** ZX80/ZX81 RAM pack. Ignored by other machine families. */
   zx8x16kRam?: boolean;
   /** ZX81 user-defined character RAM mapped at $3000-$3FFF. */
@@ -61,7 +67,8 @@ export async function initMachine(m: MachineModel, options: InitMachineOptions =
     const cartSource = entryForModel(m).bootCartridgeSource?.(m);
     if (cartSource) state.romData = await fetchBootCartridge(cartSource);
   }
-  const machine = entryForModel(m).create(m, null);
+  state.locale = options.locale;
+  const machine = entryForModel(m).create(m, null, options.locale);
   machine.attachHost(createMcpHost());
   const ramNote = await applyHeadlessKnobs(machine, options);
   machine.services.roms.installSystemRom(state.romData);

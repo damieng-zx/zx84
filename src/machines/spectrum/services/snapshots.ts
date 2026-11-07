@@ -16,7 +16,7 @@ import { loadSNA } from '@/machines/spectrum/snapshots/sna.ts';
 import { loadZ80, saveZ80 } from '@/machines/spectrum/snapshots/z80format.ts';
 import { loadSZX, saveSZX, saveSZXSync, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
 import { loadSP } from '@/machines/spectrum/snapshots/sp.ts';
-import type { SpectrumModel } from '@/machines/spectrum/models.ts';
+import { hasBoardIssueOption, type SpectrumModel } from '@/machines/spectrum/models.ts';
 
 export class SpectrumSnapshotService implements SnapshotService {
   constructor(private readonly s: Spectrum, private readonly host: () => MachineHost | null) {}
@@ -36,6 +36,19 @@ export class SpectrumSnapshotService implements SnapshotService {
     const host = this.host();
     if (!host) return false;
     return host.requestModel('zx128k', reason);
+  }
+
+  /**
+   * Fit the board revision a 16K/48K snapshot records (SZX KEYB ZXSTKF_ISSUE2,
+   * .z80 byte 29 bit 2), and have the host record it as the Hardware-pane
+   * option so the pane and the next session agree with the running machine.
+   * A file that says nothing (no KEYB block) leaves the board alone.
+   */
+  private applyBoardIssue(issue2: boolean | undefined): void {
+    const s = this.s;
+    if (issue2 === undefined || !hasBoardIssueOption(s.model) || issue2 === s.boardIssue2) return;
+    s.setBoardIssue2(issue2);
+    this.host()?.setFlagSetting?.('spectrum-issue2', issue2);
   }
 
   async apply(data: Uint8Array, filename: string): Promise<SnapshotApplyResult> {
@@ -73,6 +86,7 @@ export class SpectrumSnapshotService implements SnapshotService {
         }
         if (!result.is128K && is128kClass(model)) s.memory.selectSnapshot48KRom();
         s.ula.borderColor = result.borderColor;
+        if (!result.is128K) this.applyBoardIssue(result.issue2);
         if (result.ayRegs) {
           s.ay.setRegisters(result.ayRegs);
           if (result.ayCurrentReg !== undefined) s.ay.selectedReg = result.ayCurrentReg;
@@ -96,7 +110,9 @@ export class SpectrumSnapshotService implements SnapshotService {
         // Apply paging state for 128K (shared with the browser-refresh resume path).
         applySZXPaging(s.memory, isPlus2AClass(model), result);
         if (!result.is128K && is128kClass(model)) s.memory.selectSnapshot48KRom();
+        if (result.portFE !== undefined) s.ula.writePort(result.portFE);
         s.ula.borderColor = result.borderColor;
+        if (!result.is128K) this.applyBoardIssue(result.issue2);
         if (result.ayRegs) {
           s.ay.setRegisters(result.ayRegs);
           if (result.ayCurrentReg !== undefined) s.ay.selectedReg = result.ayCurrentReg;
@@ -153,11 +169,12 @@ export class SpectrumSnapshotService implements SnapshotService {
   async save(ext: string): Promise<Uint8Array> {
     const s = this.s;
     if (ext === 'szx' || ext === '.szx') {
-      return saveSZX(s.cpu, s.memory, s.ula.borderColor, s.model, this.currentFrameStart(), s.ay.getRegisters(), s.ay.selectedReg);
+      return saveSZX(s.cpu, s.memory, s.ula.borderColor, s.model, this.currentFrameStart(), s.ay.getRegisters(), s.ay.selectedReg,
+        { portFE: s.ula.lastOut, issue2: s.boardIssue2 });
     }
     if (ext === 'z80' || ext === '.z80') {
       return saveZ80(s.cpu, s.memory, s.ula.borderColor, s.variant.hasBanking, s.ay.getRegisters(), s.ay.selectedReg,
-        s.cpu.tStates - this.currentFrameStart(), s.model as SpectrumModel);
+        s.cpu.tStates - this.currentFrameStart(), s.model as SpectrumModel, s.boardIssue2);
     }
     throw new Error(`Unsupported snapshot save format: ${ext}`);
   }
@@ -168,6 +185,7 @@ export class SpectrumSnapshotService implements SnapshotService {
     return saveSZXSync(
       s.cpu, s.memory, s.ula.borderColor, s.model as SpectrumModel,
       this.currentFrameStart(), s.ay.getRegisters(), s.ay.selectedReg,
+      { portFE: s.ula.lastOut, issue2: s.boardIssue2 },
     );
   }
 
@@ -180,7 +198,9 @@ export class SpectrumSnapshotService implements SnapshotService {
     s.reset();
     const result = await loadSZX(data, s.cpu, s.memory);
     applySZXPaging(s.memory, s.variant.hasSpecialPaging, result);
+    if (result.portFE !== undefined) s.ula.writePort(result.portFE);
     s.ula.borderColor = result.borderColor;
+    if (!result.is128K) this.applyBoardIssue(result.issue2);
     if (result.ayRegs) {
       s.ay.setRegisters(result.ayRegs);
       if (result.ayCurrentReg !== undefined) s.ay.selectedReg = result.ayCurrentReg;

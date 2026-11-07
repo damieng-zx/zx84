@@ -993,32 +993,6 @@ describe('uPD765A — command flag bits (MT/SK modelled; MF unmodelled)', () => 
     expect(result[5]).toBe(1);
     expect(result[2] & 0x40).toBe(0x00); // matches command — no CM
   });
-
-  // SCAN_EQUAL/LOW_EQ/HIGH_EQ are intentionally NOT implemented. Real SCAN is a
-  // host-writes-comparison-bytes operation that sets ST2.SH/SN — modelling it as
-  // a plain read would invert the data direction and never set those bits. No
-  // known +3 software issues SCAN, so we reject it as an invalid command and
-  // latch a flag the UI surfaces. These tests pin that contract.
-  for (const [name, opcode] of [
-    ['SCAN_EQUAL', 0x11],
-    ['SCAN_LOW_EQ', 0x19],
-    ['SCAN_HIGH_EQ', 0x1D],
-  ] as const) {
-    it(`${name} (0x${opcode.toString(16)}) is rejected as an invalid command`, () => {
-      // Full 8-param command, exactly as a real SCAN would be issued.
-      const res = d.command(opcode, 0x00, 0, 0, 0xC1, 2, 0xC1, 0x2A, 0x00);
-      // Single result byte = ST0 with the invalid-command code, no execution phase.
-      expect(res).toEqual([ST0_INVALID]);
-      // The MSR returns to idle (no lingering CB/EXM execution state).
-      expect(d.fdc.readStatus()).toBe(RQM);
-      // And the one-off UI latch carries the masked opcode for the frame bridge.
-      expect(d.fdc.unsupportedScan).toBe(opcode);
-    });
-  }
-
-  it('the unsupportedScan latch starts clear', () => {
-    expect(d.fdc.unsupportedScan).toBe(-1);
-  });
 });
 
 describe('uPD765A — UNSUPPORTED: FM-only edge cases', () => {

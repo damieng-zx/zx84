@@ -21,13 +21,16 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   // system-variables view either.
   hiddenPanes: ['tape-panel', 'sysvar-panel'],
   memoryLayout: true,
-  trace: false,
+  trace: true,
   colorMap: 'einstein',
   accuracy: false,
   builtinDisk: true,
   builtinDrives: 2,
-  joystick: false,
-  fixedJoystick: false,
+  // Two joystick ports: analogue through the ADC0844 on the TC-01, digital
+  // on the 256; one fire button each.
+  joystick: true,
+  fixedJoystick: true,
+  joystickFireButtons: 1,
   mouseTypes: [],
   cartridge: false,
   systemRomLabel: 'ROM',
@@ -39,7 +42,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   keyboardBus: 'ula',
   tapeSound: false,
   tapeExtensions: [],
-  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['snapshot-einstate', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: true,

@@ -63,6 +63,9 @@ export class BbcRomService implements RomService {
       if (index === BASIC_SOCKET) {
         return { index, title: 'Language ROM (BASIC)', label: 'BASIC', size: BBC_ROM_SIZE, overridden: false };
       }
+      if ((this.machine.memory.ramBanks >> index) & 1) {
+        return { index, title: `Sideways RAM ${index}`, label: 'RAM', size: BBC_ROM_SIZE, overridden: false };
+      }
       return { index, title: `ROM socket ${index}`, label: '', size: 0, overridden: false };
     });
   }

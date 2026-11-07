@@ -63,7 +63,7 @@ export class ElectronFrameProbe implements FrameProbe {
     out.tapePosition = cass.deck.position;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.machine.traceActive;
     out.mdvCount = 0;
     out.mdvMotorMask = 0;
     out.driveLed[2] = out.driveLed[3] = -1;

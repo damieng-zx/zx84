@@ -35,6 +35,7 @@
  */
 
 import { WD179x } from '@/cores/wd179x.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Which register family the fitted ROM drives. */
 export type MsxDiskLayout = 'standard' | 'compact';
@@ -285,5 +286,22 @@ export class MsxDiskInterface {
   tickFrame(): void {
     this.fdc.tickFrame();
     this.syncMotor();
+  }
+
+  /** The card's latches (drive/side/motor, INTRQ) and the WD2793. The ROM
+   *  and the register family it implies are not state. Mount the disks
+   *  before loading: a transfer in flight finds its sector in them. */
+  saveState(w: StateWriter): void {
+    w.u8(this.control);
+    w.u8(this.sideLatch);
+    w.bool(this.interrupt);
+    this.fdc.saveState(w);
+  }
+
+  loadState(r: StateReader): void {
+    this.control = r.u8();
+    this.sideLatch = r.u8();
+    this.interrupt = r.bool();
+    this.fdc.loadState(r);
   }
 }

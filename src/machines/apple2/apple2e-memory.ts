@@ -16,6 +16,7 @@
  */
 
 import { Apple2Memory } from './apple2-memory.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const AUX_SIZE = 0xC000;
 
@@ -47,8 +48,11 @@ export class Apple2eMemory extends Apple2Memory {
   page2 = false;
   hires = false;
 
-  private mainRead(addr: number, aux: boolean): number {
-    if (aux) return this.auxFitted ? this.aux[addr] : 0xFF;
+  /** A byte of main or auxiliary RAM. Without the auxiliary card nothing
+   *  answers for it, so a live read gets the floating bus (`live` false is a
+   *  side-effect-free peek, which reads high). */
+  private mainRead(addr: number, aux: boolean, live = true): number {
+    if (aux) return this.auxFitted ? this.aux[addr] : live ? this.floatingBus(addr) : 0xFF;
     return this.ram[addr];
   }
 
@@ -99,7 +103,7 @@ export class Apple2eMemory extends Apple2Memory {
     if (addr < 0xD000) return this.cxRead(addr, true);
     if (this.lcRead) {
       const bank = this.lcBank();
-      return bank ? bank[this.lcIndex(addr)] : 0xFF;
+      return bank ? bank[this.lcIndex(addr)] : this.floatingBus(addr);
     }
     return this.rom[addr - 0xD000];
   }
@@ -130,8 +134,8 @@ export class Apple2eMemory extends Apple2Memory {
 
   /** What a read would return, with no side effects (the $C0xx window as 0). */
   private peek(addr: number): number {
-    if (addr < 0x0200) return this.mainRead(addr, this.altzp);
-    if (addr < 0xC000) return this.mainRead(addr, this.usesAux(addr, true));
+    if (addr < 0x0200) return this.mainRead(addr, this.altzp, false);
+    if (addr < 0xC000) return this.mainRead(addr, this.usesAux(addr, true), false);
     if (addr < 0xC100) return 0;
     if (addr < 0xD000) return this.cxRead(addr, false);
     if (this.lcRead) {
@@ -189,4 +193,29 @@ export class Apple2eMemory extends Apple2Memory {
     this.page2 = false;
     this.hires = false;
   }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** The ][+'s state, then the auxiliary RAM (main and language card) and
+   *  the MMU switches. */
+  override saveState(w: StateWriter): void {
+    super.saveState(w);
+    w.raw(this.aux);
+    w.raw(this.auxLcRam);
+    w.bool(this.store80); w.bool(this.ramrd); w.bool(this.ramwrt); w.bool(this.intcxrom);
+    w.bool(this.altzp); w.bool(this.slotc3rom); w.bool(this.intc8rom);
+    w.bool(this.page2); w.bool(this.hires);
+  }
+
+  override loadState(r: StateReader): void {
+    super.loadState(r);
+    r.rawInto(this.aux);
+    r.rawInto(this.auxLcRam);
+    this.store80 = r.bool(); this.ramrd = r.bool(); this.ramwrt = r.bool(); this.intcxrom = r.bool();
+    this.altzp = r.bool(); this.slotc3rom = r.bool(); this.intc8rom = r.bool();
+    this.page2 = r.bool(); this.hires = r.bool();
+  }
+
+  /** The internal $C100-$CFFF ROM, for the state's firmware check. */
+  get internalRomImage(): Uint8Array { return this.intRom; }
 }

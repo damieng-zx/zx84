@@ -82,7 +82,7 @@ describe('Plus 1', () => {
     m.destroy();
   });
 
-  it('reports status &7F-ish: conversion done, no fire, printer ready, and a centred ADC', () => {
+  it('reports status &7F at power-on (no unread conversion, no fire, printer ready) and a centred ADC', () => {
     const m = machine(true);
     expect(m.memory.readByte(0xFC72)).toBe(0x7F);
     m.memory.writeByte(0xFC70, 0x01);                           // convert channel 1

@@ -119,7 +119,7 @@ export class PcwFrameProbe implements FrameProbe {
     out.tapePosition = 0;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.m.traceActive;
 
     const fdc = m.fdc;
     const fitted = m.driveCount;

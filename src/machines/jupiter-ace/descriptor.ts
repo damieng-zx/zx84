@@ -14,14 +14,14 @@ import {
 
 const ACE_UI: MachineUiCapabilities = {
   // The Ace has no disk, microdrive, joystick, mouse or character-font ROM:
-  // those panes would render empty. No snapshot format exists either, so the
-  // save menu carries only the always-available entries.
+  // those panes would render empty. The save menu offers zx84's own
+  // .acestate snapshot ahead of the always-available entries.
   hiddenPanes: [
     'drive-panel', 'microdrive-panel', 'joystick-panel', 'mouse-panel',
     'font-panel', 'sysvar-panel', 'banks-panel',
   ],
   memoryLayout: false,
-  trace: false,
+  trace: true,
   colorMap: 'mono',
   accuracy: false,
   builtinDisk: false,
@@ -43,7 +43,7 @@ const ACE_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ['.tap', '.tzx', '.csw', '.wav', '.zip'],
   // 'tape-tap' downloads whatever the machine has SAVEd to the cassette port.
-  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['snapshot-acestate', 'tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,

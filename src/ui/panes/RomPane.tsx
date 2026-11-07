@@ -96,7 +96,7 @@ export function RomPane(): JSX.Element {
   }
 
   async function insertCartridge(): Promise<void> {
-    const results = await openFile({ id: 'zx84-cartridge', extensions: ['.rom', '.cpr', '.zip'] });
+    const results = await openFile({ id: 'zx84-cartridge', extensions: ['.rom', '.cpr', '.crt', '.zip'] });
     if (!results) return;
     await loadFile(results[0].data, results[0].name);   // routes .rom/.cpr → cartridge
   }

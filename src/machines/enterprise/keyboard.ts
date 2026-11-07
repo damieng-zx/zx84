@@ -126,4 +126,7 @@ export class EnterpriseKeyboard {
     this.matrix.fill(0xFF);
     this.typed.fill(0xFF);
   }
+
+  /** The typer's layer, for a snapshot (the host's keys are not state). */
+  get typedRows(): Uint8Array { return this.typed; }
 }

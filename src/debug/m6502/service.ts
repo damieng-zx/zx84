@@ -9,11 +9,11 @@
  */
 
 import { M6502, FLAG_C, FLAG_D, FLAG_I, FLAG_N, FLAG_V, FLAG_Z } from '@/cores/m6502.ts';
-import { disasmOne, disassembleAroundPC, formatDisasmHtml, stripMarkers } from '@/debug/m6502/disasm.ts';
+import { disasmOne, disassembleAroundPC, formatDisasmHtml, isaOf, stripMarkers } from '@/debug/m6502/disasm.ts';
 import { hex8, hex16 } from '@/utils/hex.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
 import type {
-  CpuPorts, DebugPanelDescriptor, DebugService, DisasmRow, Machine,
+  CpuPorts, DebugPanelDescriptor, DebugService, DisasmRow, Machine, MachineTraceMode,
   RegisterDesc, RegisterSnapshot,
 } from '@/machines/machine.ts';
 
@@ -22,6 +22,7 @@ export interface M6502DebugTarget extends Machine {
   cpu: M6502;
   startTrace(mode?: string): void;
   stopTrace(): string;
+  traceSession(): MachineTraceMode | null;
   /** Execute one instruction inside the machine's frame loop (chips clocked,
    *  DMA stolen, WSYNC halting), when it has one. */
   stepInstruction?(): void;
@@ -31,6 +32,7 @@ export interface M6502DebugTarget extends Machine {
   resolveMemoryRegion?(value: string): { data: Uint8Array; baseAddr: number } | null;
   screenExportBytes?(): Uint8Array | null;
   ramExportBytes?(): { data: Uint8Array; filename: string } | null;
+  printerExportBytes?(): { data: Uint8Array; filename: string } | null;
 }
 
 /** Family accessor: the 6502 CPU of a machine, or null for another family. */
@@ -110,7 +112,7 @@ export class M6502DebugService implements DebugService {
     const out: DisasmRow[] = [];
     let a = addr & 0xFFFF;
     for (let i = 0; i < lines; i++) {
-      const dl = disasmOne(snap, a, this.m.cpu.cmos);
+      const dl = disasmOne(snap, a, isaOf(this.m.cpu));
       const bytes = Array.from({ length: dl.length }, (_, j) => hex8(snap[(a + j) & 0xFFFF])).join(' ');
       out.push({
         addr: dl.addr, bytes, text: stripMarkers(dl.text),
@@ -124,7 +126,7 @@ export class M6502DebugService implements DebugService {
   disasmPaneHtml(lines: number): string {
     const snap = this.m.memory.snapshot();
     const pc = this.m.cpu.pc;
-    return formatDisasmHtml(disassembleAroundPC(snap, pc, lines, 6, this.m.cpu.cmos), snap, pc, this.m.breakpoints);
+    return formatDisasmHtml(disassembleAroundPC(snap, pc, lines, 6, isaOf(this.m.cpu)), snap, pc, this.m.breakpoints);
   }
 
   /** One instruction: through the machine's frame loop when it has one, so the
@@ -180,7 +182,7 @@ export class M6502DebugService implements DebugService {
     const snap = this.m.memory.snapshot();
     let addr = cpu.pc;
     for (let i = 0; i < 16; i++) {
-      const dl = disasmOne(snap, addr, cpu.cmos);
+      const dl = disasmOne(snap, addr, isaOf(cpu));
       const bytesStr = Array.from({ length: dl.length }, (_, j) => hex8(snap[(addr + j) & 0xFFFF]))
         .join(' ')
         .padEnd(11, ' ');
@@ -244,6 +246,7 @@ export class M6502DebugService implements DebugService {
 
   startTrace(mode?: string): void { this.m.startTrace(mode); }
   stopTrace(): string { return this.m.stopTrace(); }
+  traceSession(): MachineTraceMode | null { return this.m.traceSession(); }
   ocr(mode?: string): string { return this.m.ocrScreenForMcp(mode); }
 
   resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
@@ -252,6 +255,7 @@ export class M6502DebugService implements DebugService {
 
   screenExport(): Uint8Array | null { return this.m.screenExportBytes?.() ?? null; }
   ramExport(): { data: Uint8Array; filename: string } | null { return this.m.ramExportBytes?.() ?? null; }
+  printerExport(): { data: Uint8Array; filename: string } | null { return this.m.printerExportBytes?.() ?? null; }
 
   panels(): DebugPanelDescriptor[] { return []; }
 

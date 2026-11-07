@@ -16,6 +16,7 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
 import type { Apple2Card } from './cards.ts';
 import { APPLE2_ROM_SIZE } from './models.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const RAM_SIZE = 0xC000;
 const ROM_BASE = 0xD000;
@@ -54,6 +55,10 @@ export class Apple2Memory implements IMachineMemory {
   /** Auxiliary RAM, or null on machines without it. Only the IIe has any. */
   readonly aux: Uint8Array | null = null;
 
+  /** The byte on the data bus when nothing drives it, for a read of `addr`: the
+   *  one the video scanner has just fetched. The machine supplies it (it knows
+   *  the beam); a bare memory reads high. */
+  floatingBus: (addr: number) => number = () => 0xFF;
   /** $C0xx switch/slot hook; returns -1 for an address it does not claim. */
   ioRead: (addr: number) => number = () => -1;
   /** $C0xx switch/slot write hook. */
@@ -93,13 +98,13 @@ export class Apple2Memory implements IMachineMemory {
         if (v >= 0) return v & 0xFF;
       }
       const rom = this.slotRom[slot];
-      return rom ? rom[addr & 0xFF] : 0xFF;
+      return rom ? rom[addr & 0xFF] : latch ? this.floatingBus(addr) : 0xFF;
     }
     const card = this.expansionOwner ? this.cards[this.expansionOwner] : null;
     let v = -1;
     if (card?.expansionRead && latch) v = card.expansionRead(addr - 0xC800);
     if (addr === 0xCFFF && latch) this.expansionOwner = 0;
-    return v >= 0 ? v & 0xFF : 0xFF;
+    return v >= 0 ? v & 0xFF : latch ? this.floatingBus(addr) : 0xFF;
   }
 
   protected cxPeripheralWrite(addr: number, val: number): void {
@@ -211,5 +216,23 @@ export class Apple2Memory implements IMachineMemory {
     this.lcWrite = false;
     this.lcBank2 = true;
     this.lcPrewrite = false;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write main RAM, the language card's RAM and switches, and which card
+   *  owns the expansion area. Slot ROMs are firmware, not state. */
+  saveState(w: StateWriter): void {
+    w.raw(this.ram);
+    w.raw(this.lcRam);
+    w.bool(this.lcRead); w.bool(this.lcWrite); w.bool(this.lcBank2); w.bool(this.lcPrewrite);
+    w.u8(this.expansionOwner);
+  }
+
+  loadState(r: StateReader): void {
+    r.rawInto(this.ram);
+    r.rawInto(this.lcRam);
+    this.lcRead = r.bool(); this.lcWrite = r.bool(); this.lcBank2 = r.bool(); this.lcPrewrite = r.bool();
+    this.expansionOwner = r.u8() & 7;
   }
 }

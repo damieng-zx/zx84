@@ -11,6 +11,13 @@
  *     "MEM0".."MEM8" chunks (64K each, optionally RLE-compressed); others
  *     (e.g. CPCEMU-lineage v3 writers) keep the flat dump. Unknown chunks skip.
  *
+ * Memory beyond 128K (a Dk'tronics-style expansion) follows in physical order:
+ * the flat dump grows to 320K / 576K, and v3 adds MEM2..MEM8.
+ *
+ * v3 also carries the CRTC type (0xA4) and the CRTC's internal counters
+ * (0xA9–0xB1): both are honoured on load — the raster resumes mid-frame where
+ * the snapshot was taken — and written on save.
+ *
  * Save writes v2 (flat, uncompressed) or v3 (RLE-compressed MEM chunks). Unlike
  * the Spectrum loaders, this works on the whole CpcMachine: a CPC snapshot spans
  * the Z80, RAM banks, Gate Array, CRTC, PPI and PSG.
@@ -20,6 +27,7 @@ import type { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import type { CpcModel } from '@/models.ts';
 import type { Asic } from '@/machines/cpc/asic.ts';
 import { cpcIsPlusClass } from '@/machines/cpc/models.ts';
+import { R_HSYNC_POS, R_SYNC_WIDTHS, R_VERT_ADJUST, type CrtcType } from '@/cores/crtc-6845.ts';
 
 const HEADER_SIZE = 256;
 const SLOT_SIZE = 0x4000;   // 16KB bank
@@ -44,14 +52,14 @@ function banksFor(model: CpcModel): number {
 
 /** CPC type byte at offset 0x6D, per the published CPCEMU/WinAPE format
  *  (cpcwiki SNA File Format): 0=464, 1=664, 2=6128, 3=unknown, 4=6128 Plus,
- *  5=464 Plus, 6=GX4000. Values 3 and 5 have no corresponding CpcModel here
- *  (a plain "unknown" and the unmodelled 464 Plus respectively) and fall
- *  back to 6128 on load. Getting 4/6 wrong made WinAPE 6128 Plus snapshots
+ *  5=464 Plus, 6=GX4000. Value 3 ("unknown") falls back to 6128 on load; 5
+ *  (464 Plus) has no model of its own and loads as the 6128 Plus. Getting 4/6 wrong made WinAPE 6128 Plus snapshots
  *  load here as GX4000 and vice versa. */
 const TYPE_464 = 0;
 const TYPE_664 = 1;
 const TYPE_6128 = 2;
 const TYPE_6128PLUS = 4;
+const TYPE_464PLUS = 5;
 const TYPE_GX4000 = 6;
 
 function typeByteOf(model: CpcModel): number {
@@ -70,6 +78,9 @@ function modelOfType(type: number): CpcModel {
     case TYPE_664: return 'cpc664';
     case TYPE_6128: return 'cpc6128';
     case TYPE_6128PLUS: return 'cpc6128plus';
+    // No 464 Plus model: its ASIC state loads onto the 6128 Plus, which has
+    // the same ASIC (and 64K more RAM than the snapshot fills).
+    case TYPE_464PLUS: return 'cpc6128plus';
     case TYPE_GX4000: return 'gx4000';
     default: return 'cpc6128';   // unknown → safest fallback
   }
@@ -190,6 +201,34 @@ function applyFlatMemory(m: CpcMachine, data: Uint8Array, bytes: number): void {
     const end = Math.min(off + SLOT_SIZE, HEADER_SIZE + bytes);
     m.memory.getRamBank(bank).set(data.subarray(off, end));
   }
+}
+
+/** RAM banks a snapshot fills: its flat dump plus, in v3, the highest MEMn
+ *  chunk (64K each). */
+function snaBanks(data: Uint8Array, version: number): number {
+  let banks = Math.ceil(dumpBytes(data) / SLOT_SIZE);
+  if (version < 3) return banks;
+  let p = HEADER_SIZE + dumpBytes(data);
+  while (p + 8 <= data.length) {
+    const id = String.fromCharCode(data[p], data[p + 1], data[p + 2], data[p + 3]);
+    const len = (data[p + 4] | (data[p + 5] << 8) | (data[p + 6] << 16) | (data[p + 7] << 24)) >>> 0;
+    const mem = /^MEM([0-9])$/.exec(id);
+    if (mem) banks = Math.max(banks, (Number(mem[1]) + 1) * 4);
+    p += 8 + len;
+  }
+  return banks;
+}
+
+/** Refuse a snapshot that holds expansion RAM (beyond 128K) the machine does
+ *  not have, before anything is changed. Up to 128K the extra banks are
+ *  skipped as before: a 64K machine loads a 128K dump's base 64K. */
+function checkRam(data: Uint8Array, version: number, m: CpcMachine): void {
+  const need = snaBanks(data, version);
+  const have = m.memory.ramBankCount;
+  if (need <= have || need <= 8) return;
+  const kb = need * 16;
+  const exp = kb > 320 ? 512 : 256;
+  throw new Error(`this snapshot holds ${kb}K of RAM; fit a ${exp}K RAM expansion in the Hardware pane and load it again`);
 }
 
 /** Apply the v3 chunks that follow the flat memory dump: "MEM0".."MEM8"
@@ -336,6 +375,7 @@ function buildAsicChunk(asic: Asic): Uint8Array {
 export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
   checkSignature(data);
   const version = data[0x10];
+  checkRam(data, version, m);
   const cpu = m.cpu;
   // The snapshot replaces whatever frame a debugger stop left part-way.
   m.dropFrameInProgress();
@@ -378,6 +418,13 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
     selectedUpperRom: data[0x55],
   });
 
+  // v3 CRTC type (0xA4): the snapshot's chip, fitted before its registers go
+  // in so each keeps the bits that chip implements. The Plus is always the
+  // ASIC's type 3; a Pre-ASIC (4) behaves as type 3.
+  if (version >= 3 && !m.config.isPlus && data[0xA4] <= 4) {
+    m.crtc.setType(data[0xA4] === 4 ? 3 : data[0xA4] as CrtcType);
+  }
+
   // CRTC: 18 registers (0x43–0x54) then the selected register index (0x42).
   // R0–R15 go through the chip's write path so each keeps only its
   // implemented bits; R16/R17 (light pen, CPU read-only) are set directly.
@@ -395,14 +442,14 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
   m.ay.selectedReg = data[0x5A] & 0x0F;
 
   // v3 Gate Array interrupt state: the HSYNC-after-VSYNC delay counter (0xB2),
-  // the 52-line interrupt counter (0xB3) and the pending request (0xB4). The
-  // CRTC's internal counters (0xA9–0xB1) are not restored: the frame loop
-  // restarts the CRTC raster at each host frame, so it can only resume at a
-  // frame boundary (which is where this emulator's own saves are taken).
+  // the 52-line interrupt counter (0xB3) and the pending request (0xB4); then
+  // the CRTC's internal counters (0xA9–0xB1), which put the raster back where
+  // the snapshot was taken.
   if (version >= 3) {
     m.gateArray.rasterCount = Math.min(data[0xB3], 51);
     m.gateArray.interruptRequested = data[0xB4] !== 0;
     m.vsyncResyncCountdown = resyncCountdownOf(data[0xB2]);
+    applyCrtcCounters(data, m);
   }
 
   // Memory image. Every version carries a flat dump sized by 0x6B–0x6C right
@@ -419,6 +466,54 @@ export function applyCpcSna(data: Uint8Array, m: CpcMachine): void {
   }
 }
 
+/**
+ * .SNA v3 CRTC counters: 0xA9 horizontal character counter, 0xAB character
+ * row (VCC), 0xAC raster (RA), 0xAD vertical-total-adjust counter, 0xAF VSYNC
+ * width counter, 0xB0 flags (bit 0 VSYNC, bit 1 HSYNC, bit 7 in the vertical
+ * total adjust). The counters count up, as the 6845's do, so the lines still
+ * to run are the programmed width less the count.
+ */
+function applyCrtcCounters(data: Uint8Array, m: CpcMachine): void {
+  const flags = data[0xB0];
+  const vtaDone = (flags & 0x80) ? data[0xAD] & 0x1F : -1;
+  let vsyncLeft = 0;
+  if (flags & 0x01) {
+    const width = (m.crtc.regs[R_SYNC_WIDTHS] >> 4) || 16;
+    vsyncLeft = Math.max(1, width - data[0xAF]);
+  }
+  m.resumeRaster(data[0xA9], data[0xAB], data[0xAC], vtaDone, vsyncLeft);
+}
+
+/** Write the CRTC counters (see applyCrtcCounters) for the raster position
+ *  now: mid-frame after a debugger stop, or the start of the next frame. */
+function writeCrtcCounters(header: Uint8Array, m: CpcMachine): void {
+  const crtc = m.crtc;
+  const hcc = m.crtcCharCounter();
+  const between = !m.frameInProgress;
+  let flags = 0;
+  header[0xA9] = hcc;
+  header[0xAA] = 0;
+  header[0xAB] = between ? 0 : crtc.rowCounter;
+  header[0xAC] = between ? 0 : crtc.rasterAddress;
+  if (!between && crtc.vtaRemaining > 0) {
+    header[0xAD] = Math.max(0, crtc.regs[R_VERT_ADJUST] - crtc.vtaRemaining);
+    flags |= 0x80;
+  }
+  const r2 = crtc.regs[R_HSYNC_POS];
+  const hsw = (crtc.regs[R_SYNC_WIDTHS] & 0x0F) || 16;
+  if (!between && crtc.hsyncPresent && hcc >= r2 && hcc < r2 + hsw) {
+    header[0xAE] = hcc - r2;
+    flags |= 0x02;
+  }
+  if (crtc.vsyncActive) {
+    const width = (crtc.regs[R_SYNC_WIDTHS] >> 4) || 16;
+    header[0xAF] = Math.max(0, width - crtc.vsyncRemaining);
+    flags |= 0x01;
+  }
+  header[0xB0] = flags;
+  header[0xB1] = 0;
+}
+
 /** The .SNA "GA vsync delay counter" counts HSYNCs since VSYNC began (1 or 2
  *  while active, 0 idle); the machine counts down the HSYNCs still to come
  *  before the re-sync fires on the 2nd one. 1 → 2 to go, 2 → 1 to go. */
@@ -428,12 +523,6 @@ function resyncCountdownOf(snaCount: number): number {
 
 function snaResyncCountOf(countdown: number): number {
   return countdown === 1 || countdown === 2 ? 3 - countdown : 0;
-}
-
-/** .SNA v3 CRTC type byte (0xA4): 0 = HD6845S/UM6845, 1 = UM6845R, 2 = MC6845,
- *  3 = the CPC+ ASIC's 6845 (our type 4). */
-function snaCrtcTypeOf(type: number): number {
-  return type === 4 ? 3 : type === 3 ? 4 : type;
 }
 
 // ── Save ─────────────────────────────────────────────────────────────────────
@@ -506,13 +595,18 @@ export function saveCpcSna(m: CpcMachine, version: 2 | 3): Uint8Array {
   header[0x5A] = m.ay.selectedReg & 0x0F;
   for (let i = 0; i < 16; i++) header[0x5B + i] = m.ay.regs[i];
 
-  const banks = banksFor(m.model);
+  // Every fitted bank, in physical order: 64K, 128K, or 320K/576K with an
+  // expansion (MEM0..MEM8 in v3).
+  const banks = m.memory.ramBankCount;
   const sizeKB = banks * 16;
   header[0x6D] = typeByteOf(m.model);
 
   if (version >= 3) {
-    // v3 device state: CRTC type and the Gate Array interrupt counters.
-    header[0xA4] = snaCrtcTypeOf(m.config.crtcType);
+    // v3 device state: CRTC type (0xA4: 0 HD6845S/UM6845, 1 UM6845R,
+    // 2 MC6845, 3 the Plus ASIC's — the same numbering the core uses), its
+    // internal counters and the Gate Array interrupt counters.
+    header[0xA4] = m.crtc.type;
+    writeCrtcCounters(header, m);
     header[0xB2] = snaResyncCountOf(m.vsyncResyncCountdown);
     header[0xB3] = m.gateArray.rasterCount & 0x3F;
     header[0xB4] = m.gateArray.interruptRequested ? 1 : 0;

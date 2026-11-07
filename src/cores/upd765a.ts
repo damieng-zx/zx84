@@ -5,11 +5,13 @@
  *   0x2FFD (read):  Main Status Register
  *   0x3FFD (r/w):   Data Register (command params in, result bytes out)
  *
- * Implements the full command set. Without a loaded disk image,
+ * Implements the full command set, SCAN included. Without a loaded disk image,
  * seek/recalibrate succeed but read/write/format return "not ready."
  */
 
 import type { DskImage, DskSector, DskTrack } from '@/media/floppy/disk-image.ts';
+import { locateTrack, trackAt } from '@/media/floppy/disk-state.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 // ── Command codes (lower 5 bits of command byte) ────────────────────────
 
@@ -58,6 +60,19 @@ const ST0_EQUIP_CHECK = 0x10;
 
 /** ST1 Missing Address Mark: no ID address mark found within two index pulses */
 const ST1_MISSING_AM = 0x01;
+/** ST1 No Data: the sector the ID register names was not found */
+const ST1_NO_DATA = 0x04;
+
+/** ST2 Control Mark: a sector with a deleted data address mark was met */
+const ST2_CM = 0x40;
+/** ST2 Scan Equal Hit: the sector that satisfied a SCAN compared equal throughout */
+const ST2_SH = 0x08;
+/** ST2 Scan Not Satisfied: no sector from R to EOT met the SCAN condition */
+const ST2_SN = 0x04;
+
+function isScanCmd(cmd: number): boolean {
+  return cmd === CMD_SCAN_EQUAL || cmd === CMD_SCAN_LOW_EQ || cmd === CMD_SCAN_HIGH_EQ;
+}
 
 // ── Phase enum ──────────────────────────────────────────────────────────
 
@@ -180,6 +195,16 @@ export class UPD765A {
   flipSide = [0, 0];
 
   /**
+   * Per-drive "the mechanism has one head". Nothing is wired to such a drive's
+   * head-select line, so every command reads and writes side 0 of the disc
+   * whichever head it names: an ID read for head 1 finds side 0's IDs, and a
+   * transfer that asks for H=1 finds no matching sector. Off by default (the
+   * +3 and CPC software only ever selects head 0); the PCW 8256/8512 set it
+   * for drive A.
+   */
+  singleSided = [false, false];
+
+  /**
    * Per-drive "written since insert" flag, indexed by physical unit (0/1).
    * Set when a sector write or format mutates the image, cleared on
    * insert/eject and when the modified image is saved. The UI lights the
@@ -195,14 +220,6 @@ export class UPD765A {
   private latchWriting = false;
   /** Counts down each frame — shows last op briefly after execution ends */
   private latchFrames = 0;
-
-  /**
-   * One-off latch: set to the masked SCAN opcode (0x11/0x19/0x1D) when an
-   * unimplemented SCAN command is issued, so the UI can raise a visible notice.
-   * The frame bridge reads it and clears it back to -1 after displaying.
-   * -1 = nothing pending.
-   */
-  unsupportedScan = -1;
 
   // ── Execution phase state ──────────────────────────────────────────
 
@@ -353,6 +370,11 @@ export class UPD765A {
     if (this.phase === Phase.Execution) {
       if (this.exFormatting) {
         this.finishFormat();
+      } else if (isScanCmd(this.exCmd)) {
+        // The byte in hand has been compared already; the sector was not
+        // finished, so there is no scan verdict to report.
+        this.exST2 &= ~(ST2_SH | ST2_SN);
+        this.finishExecution();
       } else {
         if (this.exWriting && this.exPos > 0) this.writeBackSector();
         this.finishExecution();
@@ -543,6 +565,8 @@ export class UPD765A {
         if (++this.exOverrunPolls >= UPD765A.OVERRUN_THRESHOLD) {
           this.exOverrunPolls = 0;
           this.exST1 |= 0x10; // ST1 bit 4 = OR (Over Run)
+          // A SCAN cut short mid-sector has no verdict to report.
+          if (!this.exFormatting && isScanCmd(this.exCmd)) this.exST2 &= ~(ST2_SH | ST2_SN);
           this.finishExecution();
           return 0xD0; // now in result phase
         }
@@ -610,6 +634,10 @@ export class UPD765A {
   }
 
   private writeExecution(val: number): void {
+    if (!this.exFormatting && isScanCmd(this.exCmd)) {
+      this.scanByte(val);
+      return;
+    }
     if (this.exPos >= this.exBuf.length) return;
     this.exBuf[this.exPos++] = val;
     if (this.exPos >= this.exBuf.length) {
@@ -970,7 +998,7 @@ export class UPD765A {
       case CMD_FORMAT_TRACK:  this.cmdFormat(); break;
       case CMD_SCAN_EQUAL:    // fall through
       case CMD_SCAN_LOW_EQ:   // fall through
-      case CMD_SCAN_HIGH_EQ:  this.cmdUnsupportedScan(); break;
+      case CMD_SCAN_HIGH_EQ:  this.cmdScan(); break;
       case CMD_VERSION:       this.cmdVersion(); break;
       default:                this.cmdInvalid(); break;
     }
@@ -1092,7 +1120,7 @@ export class UPD765A {
     if (!disk) return null;
     const cyl = this.pcn[phys];
     if (cyl >= disk.numTracks) return null;
-    const side = head + this.flipSide[phys];
+    const side = (this.singleSided[phys] ? 0 : head) + this.flipSide[phys];
     if (side >= disk.numSides) return null;
     return disk.tracks[cyl][side];
   }
@@ -1482,6 +1510,7 @@ export class UPD765A {
     this.exGPL       = gpl;
     this.exFiller    = d;
     this.exFormatting = true;
+    this.exCmd       = CMD_FORMAT_TRACK;
     this.exWriting   = true;
     this.exHitEOT    = false;
     this.exNormalEOT = false;
@@ -1539,7 +1568,7 @@ export class UPD765A {
     disk.numTracks = Math.max(disk.numTracks, cyl + 1);
     // Honour the flippy side offset so a format while "Side B" is loaded writes
     // to the image's second side, matching what getTrack() reads back.
-    const side = head + this.flipSide[physU];
+    const side = (this.singleSided[physU] ? 0 : head) + this.flipSide[physU];
     if (side <= 1) {
       // Formatting head 1 of a single-sided image lays down a genuinely new
       // side-1 track: grow the image to two sides rather than overwriting side
@@ -1579,24 +1608,185 @@ export class UPD765A {
   }
 
   /**
-   * SCAN_EQUAL/LOW_EQ/HIGH_EQ — deliberately unimplemented.
+   * SCAN EQUAL / SCAN LOW OR EQUAL / SCAN HIGH OR EQUAL (NEC µPD765 datasheet;
+   * SMSC TN6.6 for the 0xFF rule).
    *
-   * SCAN is a host-writes-comparison-bytes operation (the CPU streams bytes for
-   * the FDC to compare against disk data, setting ST2.SH/SN on the outcome). No
-   * known +3 software issues it — the command was buggy on early NEC 765 / Intel
-   * 8272 parts and the industry routed around it, so +3DOS and CP/M Plus never
-   * adopted it. Rather than silently mis-execute it as a plain read (wrong data
-   * direction, scan-result bits never set), we reject it as an invalid command
-   * and raise a visible UI notice. If real software ever trips this, we'll know
-   * — and can implement it properly then.
+   * Command bytes: MT MF SK + opcode, HDS/US, C, H, R, N, EOT, GPL, STP. In the
+   * execution phase the processor *writes* a sector's worth of bytes and the
+   * controller compares each with the byte read off the disk, as unsigned
+   * values (0x00 smallest, 0xFF largest). A sector satisfies the scan when every
+   * byte meets the condition (disk = processor, disk <= processor or disk >=
+   * processor), and a 0xFF from either side meets any condition. A sector that
+   * fails moves the scan on to R + STP (STP 1 = contiguous, 2 = alternate
+   * sectors). The command ends:
+   *
+   *   - on the first satisfying sector: ST2 SH set if every byte was equal
+   *     (always so for SCAN EQUAL), clear otherwise; normal termination, the
+   *     result CHRN that of the satisfying sector;
+   *   - after the sector numbered EOT (or a later one) fails: ST2 SN, normal
+   *     termination. With SK = 0 a sector with a deleted data mark counts as
+   *     the last one (ST2 CM); with SK = 1 it is stepped over without
+   *     comparison and CM is still reported;
+   *   - when the next sector is not on the track: ST1 ND, abnormal, with SN
+   *     still showing the last sector compared failed. This is the datasheet's
+   *     STP = 2 example: on a track of sectors 1-26 a scan from 21 to EOT 26
+   *     compares 21, 23 and 25, never reads 26, and ends abnormally when the
+   *     index hole comes round with no sector 27;
+   *   - on TC, or an overrun, part-way through a sector: no SH/SN verdict.
+   *
+   * A data-field CRC error ends the command after that sector as a read would
+   * (ST1 DE / ST2 DD, abnormal, no verdict). MT continues from EOT on head 0
+   * to sector 1 on head 1.
+   *
+   * STP has no field of its own in the execution state: it rides in exDTL, the
+   * byte a read or write command has in the same position.
    */
-  private cmdUnsupportedScan(): void {
+  private cmdScan(): void {
     const cmd = this.cmdBuf[0] & 0x1F;
     const unit = this.cmdBuf[1] & 0x03;
-    this.log(`  ✗ UNSUPPORTED SCAN ${this.getCommandName(cmd)} (0x${cmd.toString(16).padStart(2, '0').toUpperCase()})`,
-             `unit=${unit} C=${this.cmdBuf[2]} H=${this.cmdBuf[3]} R=${this.cmdBuf[4]} N=${this.cmdBuf[5]} — rejected as invalid command`);
-    this.unsupportedScan = cmd; // UI picks this up next frame
-    this.result([ST0_INVALID]);
+    const head = (this.cmdBuf[1] >> 2) & 1;
+    const c = this.cmdBuf[2], h = this.cmdBuf[3];
+    const r = this.cmdBuf[4], n = this.cmdBuf[5];
+    const eot = this.cmdBuf[6];
+    this.log(`  → Unit=${unit} Head=${head} C=${c} H=${h} R=${r} N=${n} EOT=${eot} STP=${this.cmdBuf[8]}`);
+
+    const track = this.getTrack(unit, head);
+    if (!track || track.sectors.length === 0) {
+      this.result(this.noTrackResult(unit, head, c, h, r, n));
+      return;
+    }
+
+    this.exUnit = unit;
+    this.exHead = head;
+    this.exC = c; this.exH = h; this.exR = r; this.exN = n;
+    this.exCmdC = c;
+    this.exCmdH = h;
+    this.exCmdN = n;
+    this.exEOT = eot;
+    this.exDTL = this.cmdBuf[8]; // STP
+    this.exMT = (this.cmdBuf[0] & 0x80) !== 0;
+    this.exSK = (this.cmdBuf[0] & 0x20) !== 0;
+    this.exCmd = cmd;
+    this.exTrack = track;
+    this.exSector = null;
+    this.exWriting = true;      // the processor supplies the bytes (MSR DIO = 0)
+    this.exReadTrack = false;
+    this.exFormatting = false;
+    this.exSingleSector = false;
+    this.exHitEOT = false;
+    this.exNormalEOT = false;
+    this.exMTEOT = false;
+    this.exAbnormal = false;
+    this.exOverrunPolls = 0;
+    this.exST1 = 0;
+    this.exST2 = 0;
+
+    this.latchHead = head;
+    this.latchWriting = false;
+    this.latchFrames = 25;
+
+    if (!this.scanSeek(r)) {
+      this.finishExecution();
+      return;
+    }
+    this.phase = Phase.Execution;
+  }
+
+  /**
+   * Line up sector `r` for comparison, stepping by STP over deleted-mark
+   * sectors when SK is set. False when there is no sector left to compare;
+   * the result registers are then set and the caller finishes the command.
+   */
+  private scanSeek(r: number): boolean {
+    const track = this.exTrack;
+    const stp = this.exDTL;
+    let cm = this.exST2 & ST2_CM;   // a deleted sector stepped over stays reported
+    for (;;) {
+      const sector = track ? this.findId(track, this.exCmdC, this.exCmdH, r & 0xFF) : null;
+      if (!sector || !track) {
+        // No such sector: two index pulses go by and the command fails. SN
+        // stays as the last compared sector left it.
+        this.exR = r & 0xFF;
+        this.exST1 = ST1_NO_DATA;
+        this.exST2 = (this.exST2 & ST2_SN) | cm
+          | (track ? this.wrongCylinderBits(track, this.exCmdC) : 0);
+        this.exAbnormal = true;
+        return false;
+      }
+      if (this.exSK && (sector.st2 & ST2_CM)) {
+        cm = ST2_CM;
+        this.exR = r;
+        if (r >= this.exEOT) {      // the deleted sector was the last one
+          this.exST2 = cm | ST2_SN;
+          return false;
+        }
+        r += stp;
+        continue;
+      }
+      const f = this.sectorReadFlags(sector, this.exCmd, this.exCmdN);
+      this.exR = r;
+      this.exSector = sector;
+      this.exC = sector.c;
+      this.exH = sector.h;
+      this.exN = sector.n;
+      this.exST1 = f.st1;
+      // SH stands until a byte compares unequal; SN marks this sector failed.
+      this.exST2 = (f.st2 & ~(ST2_SH | ST2_SN)) | cm | ST2_SH;
+      if (f.abnormal) this.exAbnormal = true;
+      this.exBuf = this.prepareReadBuffer(sector);
+      this.exPos = 0;
+      this.latchR = r;
+      return true;
+    }
+  }
+
+  /** Compare one processor byte with the next byte of the sector under scan. */
+  private scanByte(fromCpu: number): void {
+    if (this.exPos >= this.exBuf.length) return;
+    const fromDisk = this.exBuf[this.exPos++];
+    if (fromDisk !== fromCpu && fromDisk !== 0xFF && fromCpu !== 0xFF) {
+      this.exST2 &= ~ST2_SH;
+      const cmd = this.exCmd;
+      const unmet = cmd === CMD_SCAN_EQUAL
+        || (cmd === CMD_SCAN_LOW_EQ ? fromDisk > fromCpu : fromDisk < fromCpu);
+      if (unmet) this.exST2 |= ST2_SN;
+    }
+    if (this.exPos >= this.exBuf.length) this.scanSectorDone();
+  }
+
+  /** A whole sector has been compared: stop on a hit, else move on by STP. */
+  private scanSectorDone(): void {
+    if ((this.exST1 & 0x20) || (this.exST2 & 0x20) || this.exAbnormal) {
+      // Unreadable data field: the command ends as a read would, no verdict.
+      this.exST2 &= ~(ST2_SH | ST2_SN);
+      this.exAbnormal = true;
+      this.finishExecution();
+      return;
+    }
+    if ((this.exST2 & ST2_SN) === 0) {
+      this.finishExecution();          // satisfied; SH says whether all equal
+      return;
+    }
+    this.exST2 &= ~ST2_SH;
+    // A deleted sector met with SK = 0 counts as the last on the cylinder.
+    if ((this.exST2 & ST2_CM) !== 0 && !this.exSK) {
+      this.finishExecution();
+      return;
+    }
+    if (this.exR >= this.exEOT) {
+      if (this.exMT && this.exHead === 0) {
+        const side1 = this.getTrack(this.exUnit, 1);
+        if (side1) {
+          this.exHead = 1;
+          this.exCmdH ^= 1;
+          this.exTrack = side1;
+          if (this.scanSeek(1)) return;
+        }
+      }
+      this.finishExecution();          // sector EOT failed: SN, normal termination
+      return;
+    }
+    if (!this.scanSeek(this.exR + this.exDTL)) this.finishExecution();
   }
 
   /** Invalid/unrecognised command — return ST0 with invalid-command code. */
@@ -1643,5 +1833,92 @@ export class UPD765A {
     this.latchWriting = false;
     this.latchFrames = 0;
     // Note: disk image and idIndex intentionally preserved across reset
+  }
+
+  // ── Snapshot state ──────────────────────────────────────────────────
+  /**
+   * The phase, the command and result bytes, per-drive cylinders and pending
+   * seek results, and an execution phase down to the byte it has reached. The
+   * disks are the owner's to save (they are media); the track and sector a
+   * transfer is working on are recorded by where they sit on the disk, so a
+   * restore with the same disks mounted first writes into the restored image.
+   * Settings and wiring (write protect, force ready, connected drives, the
+   * INT response time) are not state.
+   */
+  saveState(w: StateSink): void {
+    w.u8(this.phase);
+    w.u8(this.cmdBuf.length); for (const b of this.cmdBuf) w.u8(b);
+    w.u8(this.cmdExpected);
+    w.u8(this.resBuf.length); for (const b of this.resBuf) w.u8(b);
+    w.u8(this.resPos);
+    for (const si of this.seekInt) {
+      w.bool(si !== null);
+      if (si) { w.u8(si.st0); w.u8(si.pcn); }
+    }
+    w.bool(this.nonDma);
+    for (let u = 0; u < 2; u++) {
+      w.u8(this.pcn[u]); w.u16(this.idIndex[u]); w.u8(this.flipSide[u]); w.bool(this.dirty[u]);
+    }
+    w.bool(this.motorOn);
+    w.i32(this.formattedUnit);
+    w.u8(this.latchR); w.u8(this.latchHead); w.bool(this.latchWriting); w.u8(this.latchFrames);
+    w.bytes(this.exBuf);
+    w.u32(this.exPos);
+    w.bool(this.exWriting); w.bool(this.exReadTrack);
+    w.u8(this.exR); w.u8(this.exEOT); w.bool(this.exHitEOT); w.bool(this.exNormalEOT);
+    w.bool(this.exMTEOT); w.bool(this.exMT); w.bool(this.exSK); w.bool(this.exAbnormal);
+    w.u8(this.exUnit); w.u8(this.exHead); w.u8(this.exC); w.u8(this.exH); w.u8(this.exN);
+    w.u8(this.exCmdN); w.u8(this.exDTL); w.u8(this.exCmdC); w.u8(this.exCmdH); w.u8(this.exCmd);
+    // The track in hand: [drive, cylinder, side], and the sector's index in it.
+    let at: [number, number, number] | null = null;
+    for (let d = 0; d < 2 && !at; d++) {
+      const pos = locateTrack(this.disks[d], this.exTrack);
+      if (pos) at = [d, pos[0], pos[1]];
+    }
+    w.bool(at !== null);
+    if (at) { w.u8(at[0]); w.u8(at[1]); w.u8(at[2]); }
+    w.i32(at && this.exSector && this.exTrack ? this.exTrack.sectors.indexOf(this.exSector) : -1);
+    w.u8(this.exST1); w.u8(this.exST2);
+    w.bool(this.exSingleSector); w.u32(this.exOverrunPolls);
+    w.bool(this.exFormatting); w.u8(this.exSC); w.u8(this.exGPL); w.u8(this.exFiller);
+    w.bool(this.tc); w.bool(this.resEotOnly);
+    w.u32(this.intCountdown);
+  }
+
+  /** Restore what {@link saveState} wrote. Mount the disks first: a transfer
+   *  in flight finds its track and sector in them. */
+  loadState(r: StateSource): void {
+    const phase = r.u8();
+    if (phase > Phase.Result) throw new Error('Snapshot is corrupt (uPD765A phase)');
+    this.phase = phase as Phase;
+    this.cmdBuf = [];
+    for (let n = r.u8(); n > 0; n--) this.cmdBuf.push(r.u8());
+    this.cmdExpected = r.u8();
+    this.resBuf = [];
+    for (let n = r.u8(); n > 0; n--) this.resBuf.push(r.u8());
+    this.resPos = r.u8();
+    for (let u = 0; u < 4; u++) this.seekInt[u] = r.bool() ? { st0: r.u8(), pcn: r.u8() } : null;
+    this.nonDma = r.bool();
+    for (let u = 0; u < 2; u++) {
+      this.pcn[u] = r.u8(); this.idIndex[u] = r.u16(); this.flipSide[u] = r.u8(); this.dirty[u] = r.bool();
+    }
+    this.motorOn = r.bool();
+    this.formattedUnit = r.i32();
+    this.latchR = r.u8(); this.latchHead = r.u8(); this.latchWriting = r.bool(); this.latchFrames = r.u8();
+    this.exBuf = r.bytes(1 << 16);
+    this.exPos = r.u32();
+    this.exWriting = r.bool(); this.exReadTrack = r.bool();
+    this.exR = r.u8(); this.exEOT = r.u8(); this.exHitEOT = r.bool(); this.exNormalEOT = r.bool();
+    this.exMTEOT = r.bool(); this.exMT = r.bool(); this.exSK = r.bool(); this.exAbnormal = r.bool();
+    this.exUnit = r.u8(); this.exHead = r.u8(); this.exC = r.u8(); this.exH = r.u8(); this.exN = r.u8();
+    this.exCmdN = r.u8(); this.exDTL = r.u8(); this.exCmdC = r.u8(); this.exCmdH = r.u8(); this.exCmd = r.u8();
+    this.exTrack = r.bool() ? trackAt(this.disks[r.u8() & 1], r.u8(), r.u8()) : null;
+    const idx = r.i32();
+    this.exSector = this.exTrack && idx >= 0 ? this.exTrack.sectors[idx] ?? null : null;
+    this.exST1 = r.u8(); this.exST2 = r.u8();
+    this.exSingleSector = r.bool(); this.exOverrunPolls = r.u32();
+    this.exFormatting = r.bool(); this.exSC = r.u8(); this.exGPL = r.u8(); this.exFiller = r.u8();
+    this.tc = r.bool(); this.resEotOnly = r.bool();
+    this.intCountdown = r.u32();
   }
 }

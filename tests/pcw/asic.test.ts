@@ -10,10 +10,12 @@
 import { describe, expect, it } from 'vitest';
 import { createPcwConfig } from '@/machines/pcw/config.ts';
 import { PcwMemory } from '@/machines/pcw/pcw-memory.ts';
-import { PcwAsic, rollerEntryAddress } from '@/machines/pcw/asic.ts';
 import {
-  PCW_BORDER_LEFT, PCW_BORDER_TOP, PCW_DISPLAY_HEIGHT, PCW_LINES_PER_FRAME,
-  PCW_SCREEN_HEIGHT, PCW_SCREEN_WIDTH, PCW_STATUS_32_LINE, PCW_STATUS_FLYBACK,
+  PcwAsic, PCW_TIMING_50HZ, PCW_TIMING_60HZ, rollerEntryAddress,
+} from '@/machines/pcw/asic.ts';
+import {
+  PCW_BORDER_LEFT, PCW_BORDER_TOP, PCW_DISPLAY_HEIGHT,
+  PCW_SCREEN_HEIGHT, PCW_SCREEN_WIDTH, PCW_STATUS_FLYBACK,
   PCW_VIDEO_ENABLE, PCW_VIDEO_REVERSE,
 } from '@/machines/pcw/constants.ts';
 
@@ -90,28 +92,59 @@ describe('roller RAM start offset (port &F6)', () => {
   });
 });
 
+/**
+ * Frame timing from the Amstrad "Joyce" software interface specification
+ * (issue 9): the timer interrupts "during every vertical ('frame') flyback and
+ * every 52 scan lines thereafter", "approximately 2 scans (128 microseconds)
+ * into the 26 scan (1664 microseconds) frame flyback status signal", which
+ * "ends 1024 microseconds [16 lines] before the monitor starts displaying pixel
+ * scans". With line 0 the first displayed line of a 312-line frame, flyback is
+ * 312-16-26 = 270 to 295 and the first tick 272; 272+52 wraps to 12.
+ */
 describe('interrupt cadence', () => {
-  it('fires six times a field, two lines into flyback and every 52 after', () => {
+  /** A tick raised and counted, as the CPU's next two opcode fetches do. */
+  function tick(asic: PcwAsic, line: number): void {
+    asic.beginLine(line);
+    asic.syncTickBefore(1);
+    asic.syncTickAfter();
+  }
+
+  it('fires six times a 50Hz field, two lines into flyback and every 52 after', () => {
     const lines: number[] = [];
-    for (let line = 0; line < PCW_LINES_PER_FRAME; line++) {
+    for (let line = 0; line < 312; line++) {
       if (PcwAsic.isInterruptLine(line)) lines.push(line);
     }
-    // 258 is 2 lines into flyback (the display is 256 lines); +52 wrapping.
-    expect(lines).toEqual([50, 102, 154, 206, 258, 310]);
+    expect(lines).toEqual([12, 64, 116, 168, 220, 272]);
+  });
+
+  it('fires five times a 60Hz field, keeping the 52-line period across the frame', () => {
+    // 260 lines: flyback 218-243, tick at 220, and 220+52 wraps to 12 again.
+    const lines: number[] = [];
+    for (let line = 0; line < 260; line++) {
+      if (PcwAsic.isInterruptLine(line)) lines.push(line);
+    }
+    expect(lines).toEqual([12, 64, 116, 168, 220]);
   });
 
   it('counts pending interrupts and saturates at four bits', () => {
     const { asic } = build();
-    for (let i = 0; i < 3; i++) asic.beginLine(258);
+    for (let i = 0; i < 3; i++) tick(asic, 12);
     expect(asic.status & 0x0F).toBe(3);
-    for (let i = 0; i < 40; i++) asic.beginLine(258);
+    for (let i = 0; i < 40; i++) tick(asic, 12);
     expect(asic.status & 0x0F).toBe(0x0F);
+  });
+
+  it('does not raise a tick on a line between timer lines', () => {
+    const { asic } = build();
+    tick(asic, 13);
+    tick(asic, 0);
+    expect(asic.status & 0x0F).toBe(0);
   });
 
   it('clears the counter on a &F4 read but not on a &F8 read', () => {
     const { asic } = build();
-    asic.beginLine(50);
-    asic.beginLine(102);
+    tick(asic, 12);
+    tick(asic, 64);
     expect(asic.status & 0x0F).toBe(2);
     // &F8 leaves it alone…
     expect(asic.status & 0x0F).toBe(2);
@@ -120,13 +153,46 @@ describe('interrupt cadence', () => {
     expect(asic.status & 0x0F).toBe(0);
   });
 
-  it('drops /INT when the timer pulse ends, leaving the count alone', () => {
+  it('pulses /INT on a timer tick until the pulse ends, leaving the count alone', () => {
     const { asic } = build();
-    asic.beginLine(258);
+    asic.beginLine(12);
     expect(asic.intPending).toBe(true);
     asic.endTimerPulse();
     expect(asic.intPending).toBe(false);
+    asic.syncTickBefore(1);
+    asic.syncTickAfter();
     expect(asic.status & 0x0F).toBe(1);
+  });
+
+  it('counts a tick only at the second opcode fetch after it', () => {
+    // "The counter is synchronized by two CPU instruction fetch cycles (M1)."
+    const { asic } = build();
+    asic.beginLine(12);
+    expect(asic.status & 0x0F).toBe(0);      // raised, not yet latched
+    asic.syncTickBefore(1);
+    expect(asic.status & 0x0F).toBe(0);      // latched by one M1
+    asic.syncTickAfter();
+    expect(asic.status & 0x0F).toBe(1);      // counted by the next
+  });
+
+  it('loses a tick latched by the M1 of the instruction that reads &F4', () => {
+    // "If the M1 of a counter read command latches a new pending timer
+    // interrupt, the counter will not at the time of the read operation have
+    // been incremented, and therefore this new interrupt will be lost."
+    const { asic } = build();
+    asic.beginLine(12);
+    asic.syncTickBefore(1);                  // IN A,(&F4): one M1
+    expect(asic.readMemCtlStatus() & 0x0F).toBe(0);
+    asic.syncTickAfter();
+    expect(asic.status & 0x0F).toBe(0);
+  });
+
+  it('keeps a tick an ED-prefixed read latches, which has made both fetches first', () => {
+    // IN A,(C) is ED 78: two M1s before the I/O read, so the count is in.
+    const { asic } = build();
+    asic.beginLine(12);
+    asic.syncTickBefore(2);
+    expect(asic.readMemCtlStatus() & 0x0F).toBe(1);
   });
 
   it('routes the FDC interrupt to /INT, /NMI or nowhere', () => {
@@ -145,19 +211,53 @@ describe('interrupt cadence', () => {
 });
 
 describe('status byte', () => {
-  it('reports flyback only outside the 256 displayed lines', () => {
+  it('reports frame flyback for exactly the 26 lines 270-295 at 50Hz', () => {
+    const { asic } = build();
+    const flyback: number[] = [];
+    for (let line = 0; line < 312; line++) {
+      asic.beginLine(line);
+      if (asic.status & PCW_STATUS_FLYBACK) flyback.push(line);
+    }
+    expect(flyback[0]).toBe(270);
+    expect(flyback.length).toBe(26);
+    expect(flyback[25]).toBe(295);
+  });
+
+  it('reports frame flyback for lines 218-243 at 60Hz', () => {
+    const { asic } = build();
+    asic.timing = PCW_TIMING_60HZ;
+    const flyback: number[] = [];
+    for (let line = 0; line < 260; line++) {
+      asic.beginLine(line);
+      if (asic.status & PCW_STATUS_FLYBACK) flyback.push(line);
+    }
+    expect(flyback[0]).toBe(218);
+    expect(flyback.length).toBe(26);
+  });
+
+  it('keeps flyback low through the displayed lines', () => {
     const { asic } = build();
     asic.beginLine(0);
     expect(asic.status & PCW_STATUS_FLYBACK).toBe(0);
-    asic.beginLine(PCW_DISPLAY_HEIGHT - 1);
+    asic.beginLine(255);
     expect(asic.status & PCW_STATUS_FLYBACK).toBe(0);
-    asic.beginLine(PCW_DISPLAY_HEIGHT);
-    expect(asic.status & PCW_STATUS_FLYBACK).toBe(PCW_STATUS_FLYBACK);
   });
 
-  it('always reports a 32-line screen on a 50Hz machine', () => {
+  it('sets b4 on a 50Hz machine and clears it on a 60Hz one', () => {
+    // "D4 50 / /60Hz Frame Rate Option"
     const { asic } = build();
-    expect(asic.status & PCW_STATUS_32_LINE).toBe(PCW_STATUS_32_LINE);
+    expect(asic.timing).toBe(PCW_TIMING_50HZ);
+    expect(asic.status & 0x10).toBe(0x10);
+    asic.timing = PCW_TIMING_60HZ;
+    expect(asic.status & 0x10).toBe(0);
+  });
+
+  it('reports the FDC interrupt in b5 whatever it is routed to', () => {
+    const { asic } = build();
+    asic.fdcRoute = 'none';
+    asic.fdcInt = true;
+    expect(asic.status & 0x20).toBe(0x20);
+    expect(asic.status & 0x80).toBe(0);      // b7 undefined: reads 0
   });
 });
 
@@ -220,13 +320,31 @@ describe('scan-line rendering', () => {
     expect(off[row + 1]).toBe(0xFF000000);
   });
 
-  it('draws nothing during flyback', () => {
+  it('draws nothing below the 256 displayed lines', () => {
     const { mem, asic } = build();
     asic.ink = 0xFFFFFFFF; asic.paper = 0xFF000000;
     layOutLine(mem, asic, [0xFF]);
     const buf = pixels();
     buf.fill(0);
     asic.renderScanline(buf, PCW_DISPLAY_HEIGHT);
+    expect(buf.every(p => p === 0)).toBe(true);
+  });
+
+  it('shows only the first 200 lines at 60Hz', () => {
+    // "only the first 200 of the 256 scan lines are displayed on the Screen"
+    const { mem, asic } = build();
+    asic.timing = PCW_TIMING_60HZ;
+    asic.ink = 0xFFFFFFFF; asic.paper = 0xFF000000;
+    layOutLine(mem, asic, [0xFF]);
+    // Every roller entry points at the same line, so any drawn line has ink.
+    const bank = mem.getRamBank(2);
+    for (let e = 0; e < 256; e++) { bank[0x3600 + e * 2] = 0x00; bank[0x3600 + e * 2 + 1] = 0x20; }
+    const buf = pixels();
+    buf.fill(0);
+    asic.renderScanline(buf, 199);
+    expect(buf[(PCW_BORDER_TOP + 199) * PCW_SCREEN_WIDTH + PCW_BORDER_LEFT]).toBe(0xFFFFFFFF);
+    buf.fill(0);
+    asic.renderScanline(buf, 200);
     expect(buf.every(p => p === 0)).toBe(true);
   });
 });

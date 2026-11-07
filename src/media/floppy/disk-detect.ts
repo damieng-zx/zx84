@@ -1,5 +1,11 @@
 /**
- * Disk format and copy-protection detection for parsed DSK images.
+ * Disk format and copy-protection detection for parsed DSK images, and content
+ * sniffing for the raw bytes of a disk file.
+ *
+ * `sniffDiskContainer` names the self-describing container a file is (HFE, SCP,
+ * Teledisk, CPC DSK) from its signature; `detectAcornRawFormat` tells an ADFS
+ * sector dump from a DFS one. Extensions such as `.dsk` and `.img` mean
+ * different things on different machines, so callers ask these first.
  *
  * `detectDiskFormat` classifies the layout (PCW/+3, CPC, generic, etc.).
  *
@@ -17,6 +23,101 @@
  */
 
 import type { DskImage, DskTrack, DskSector } from './disk-image.ts';
+
+// ── Content sniffing (raw file bytes) ───────────────────────────────────────
+
+/** A disk container that identifies itself by a signature. */
+export type DiskContainer = 'hfe' | 'scp' | 'td0' | 'cpc-dsk';
+
+function asciiAt(data: Uint8Array, offset: number, len: number): string {
+  let s = '';
+  for (let i = 0; i < len && offset + i < data.length; i++) s += String.fromCharCode(data[offset + i]);
+  return s;
+}
+
+/**
+ * The container a disk file is, from its signature, or null for a headerless
+ * sector dump (whose meaning depends on the machine): "HXCPICFE"/"HXCHFEV3"
+ * (HFE v1/v3), "SCP" (SuperCard Pro flux), "TD"/"td" (Teledisk) and
+ * "MV - CPC"/"EXTENDED" (the CPC DSK family).
+ */
+export function sniffDiskContainer(data: Uint8Array): DiskContainer | null {
+  if (data.length >= 8) {
+    const sig8 = asciiAt(data, 0, 8);
+    if (sig8 === 'HXCPICFE' || sig8 === 'HXCHFEV3') return 'hfe';
+    if (sig8 === 'MV - CPC' || sig8 === 'EXTENDED') return 'cpc-dsk';
+  }
+  if (data.length >= 0x10 && asciiAt(data, 0, 3) === 'SCP') return 'scp';
+  if (data.length >= 12) {
+    const td = asciiAt(data, 0, 2);
+    if (td === 'TD' || td === 'td') return 'td0';
+  }
+  return null;
+}
+
+/**
+ * Which Acorn filing system a headerless sector dump holds, or null when it
+ * looks like neither.
+ *
+ *   ADFS  the old-map root directory sits at logical sector 2 and starts with
+ *         its sequence byte and the "Hugo" signature (offset 0x201).
+ *   DFS   the catalogue fills sectors 0 and 1: sector 1 byte 5 is eight times
+ *         the file count (at most 31 files), bytes 6-7 hold the disc's sector
+ *         count (boot option in bits 4-5, count high bits in 0-1), and the
+ *         names in sector 0 are printable.
+ */
+export function detectAcornRawFormat(data: Uint8Array): 'adfs' | 'dfs' | null {
+  if (data.length >= 0x205 && asciiAt(data, 0x201, 4) === 'Hugo') return 'adfs';
+  if (data.length < 0x200) return null;
+  const entries = data[0x105];
+  if (entries % 8 !== 0 || entries > 31 * 8) return null;
+  const sectors = ((data[0x106] & 0x03) << 8) | data[0x107];
+  if (sectors < 2 || sectors > 800) return null;
+  for (let i = 8; i < 8 + entries; i++) {
+    const c = data[i] & 0x7F;           // bit 7 of the directory byte is the lock flag
+    if (c < 0x20 || c === 0x7F) return null;
+  }
+  return 'dfs';
+}
+
+/** The sector layout a track would have as a plain sector dump. */
+export interface RegularLayout {
+  /** Sectors per track, numbered from `firstId`. */
+  readonly sectors: number;
+  readonly firstId: number;
+  /** Bytes per sector. */
+  readonly size: number;
+  /** The density the dump format implies, if any. */
+  readonly encoding?: 'fm' | 'mfm';
+}
+
+/**
+ * True when every formatted track of `image` is exactly `layout` — one sector
+ * per ID in order of ID, the stated size, ID cylinder equal to the track, no
+ * deleted-data marks, CRC errors or weak copies — with no unformatted track
+ * before the last formatted one. Such an image saves to a plain sector dump
+ * without losing anything; anything else needs a track-level format.
+ */
+export function hasRegularLayout(image: DskImage, layout: RegularLayout): boolean {
+  let seenEmpty = false;
+  for (let t = 0; t < image.numTracks; t++) {
+    for (let s = 0; s < image.numSides; s++) {
+      const track = image.tracks[t]?.[s] ?? null;
+      if (!track || track.sectors.length === 0) { seenEmpty = true; continue; }
+      if (seenEmpty) return false;
+      if (layout.encoding && track.encoding && track.encoding !== layout.encoding) return false;
+      if (track.sectors.length !== layout.sectors) return false;
+      const ids = new Set<number>();
+      for (const sec of track.sectors) {
+        if (sec.r < layout.firstId || sec.r >= layout.firstId + layout.sectors || ids.has(sec.r)) return false;
+        ids.add(sec.r);
+        if (sec.c !== t || sec.data.length !== layout.size || (128 << (sec.n & 7)) !== layout.size) return false;
+        if (sec.st1 !== 0 || sec.st2 !== 0 || (sec.copies && sec.copies.length > 1)) return false;
+      }
+    }
+  }
+  return true;
+}
 
 // ── Format detection ────────────────────────────────────────────────────────
 

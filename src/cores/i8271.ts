@@ -18,6 +18,10 @@
  * This is a functional model, not a bitstream one: there is no flux layer and
  * sectors come straight from the shared `DskImage` structure that the uPD765A
  * and WD179x cores also use, so SSD/DSD/DSK geometry and write-back are shared.
+ * What a disc image can carry about a sector still counts: the chip is single
+ * density only (an MFM track has no ID field it can read), a deleted-data mark
+ * ends a read with "deleted data found", a bad data CRC with a data CRC error,
+ * and a weak sector reads differently each time.
  * Command timing (the busy delay before a result, the pacing of data bytes) and
  * the sector-not-found code are the values Acorn DFS has been observed to work
  * with in other emulators; nothing is copied from them.
@@ -28,6 +32,7 @@
  */
 
 import type { DskImage, DskSector } from '@/media/floppy/disk-image.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 export interface I8271Options {
   /** Interrupt output — the BBC wires this to the CPU NMI line. */
@@ -53,6 +58,8 @@ export const I8271Result = {
   WP: 0x12,    // write protected
   T0NF: 0x14,  // track 0 not found
   NF: 0x1e,    // sector not found
+  /** Flag OR'd into the completion code: a deleted-data mark was read. */
+  DELETED: 0x20,
 } as const;
 
 // ── Special registers (WRITE / READ SPECIAL REGISTER, SPECIFY) ──────────────
@@ -110,6 +117,25 @@ interface Transfer {
   /** Sectors a write is committed to when the last byte arrives. */
   targets: DskSector[];
   unit: number;
+  /** Result once the transfer ends (a read that met a deleted mark or a CRC error). */
+  code?: number;
+  /** A write lays down deleted-data marks. */
+  deleted?: boolean;
+}
+
+/** What a pending alarm does when it fires, kept by name so a snapshot can
+ *  write it down. */
+const ALARM_PUBLISH = 1;
+const ALARM_DATA_REQUEST = 2;
+const ALARM_END_TRANSFER = 3;
+type AlarmKind = typeof ALARM_PUBLISH | typeof ALARM_DATA_REQUEST | typeof ALARM_END_TRANSFER;
+
+interface Alarm {
+  kind: AlarmKind;
+  left: number;
+  /** The result code a publish alarm delivers. */
+  code: number;
+  fire: () => void;
 }
 
 interface Command {
@@ -139,7 +165,7 @@ export class I8271 {
   private readonly timing = new Uint8Array(4); // SPECIFY step/settle/load values; unused by this instant-seek model
 
   // Time and the transfer in flight
-  private alarm: { left: number; fire: () => void } | null = null;
+  private alarm: Alarm | null = null;
   private xfer: Transfer | null = null;
 
   // Media
@@ -329,7 +355,7 @@ export class I8271 {
   /** Opcode (low bit and drive-select bits ignored) → parameter count and action. */
   private static readonly commands = new Map<number, Command>([
     [0x0a, { args: 3, run: c => c.dataCommand('write') }],   // write data
-    [0x0e, { args: 3, run: c => c.dataCommand('write') }],   // write deleted data
+    [0x0e, { args: 3, run: c => c.dataCommand('write', true) }],   // write deleted data
     [0x12, { args: 3, run: c => c.dataCommand('read') }],    // read data
     [0x16, { args: 3, run: c => c.dataCommand('read') }],    // read data and deleted data
     [0x1e, { args: 3, run: c => c.dataCommand('verify') }],  // verify data and deleted data
@@ -349,7 +375,7 @@ export class I8271 {
     this.setDataReq(false);
     this.xfer = null;
     this.stage = 'busy';
-    this.alarm = { left: SETTLE_CYCLES, fire: () => this.publish(code, true) };
+    this.alarm = this.makeAlarm(ALARM_PUBLISH, SETTLE_CYCLES, code);
   }
 
   /** Finish with an immediate result and no interrupt (the "simple" commands). */
@@ -394,7 +420,9 @@ export class I8271 {
   }
 
   private trackFor(disk: DskImage) {
-    return disk.tracks[this.cmd[1]]?.[this.side] ?? null;
+    const track = disk.tracks[this.cmd[1]]?.[this.side] ?? null;
+    // Single density only: a double-density track reads as unformatted.
+    return track?.encoding === 'mfm' ? null : track;
   }
 
   /** The run of consecutive sectors a data command names, or null if one is absent. */
@@ -415,16 +443,13 @@ export class I8271 {
   private beginTransfer(x: Transfer): void {
     this.xfer = x;
     this.stage = 'transfer';
-    this.alarm = { left: BYTE_CYCLES, fire: () => this.setDataReq(true) };
+    this.alarm = this.makeAlarm(ALARM_DATA_REQUEST, BYTE_CYCLES, 0);
   }
 
   /** After a byte is serviced: ask for the next, or wrap the transfer up. */
   private advanceTransfer(x: Transfer): void {
     const more = x.at < x.bytes.length;
-    this.alarm = {
-      left: BYTE_CYCLES,
-      fire: more ? () => this.setDataReq(true) : () => this.endTransfer(x),
-    };
+    this.alarm = this.makeAlarm(more ? ALARM_DATA_REQUEST : ALARM_END_TRANSFER, BYTE_CYCLES, 0);
   }
 
   private endTransfer(x: Transfer): void {
@@ -433,33 +458,54 @@ export class I8271 {
       for (const sector of x.targets) {
         sector.data.set(x.bytes.subarray(at, at + sector.data.length));
         sector.copies = undefined;   // rewriting a sector erases any weak-bit variation
+        // A fresh data field: a good CRC, behind the mark the command asked for.
+        sector.st1 &= ~0x20;
+        sector.st2 = (sector.st2 & ~0x60) | (x.deleted ? 0x40 : 0);
         at += sector.data.length;
       }
       this.written[x.unit] = true;
     }
-    this.conclude(I8271Result.NONE);
+    this.conclude(x.code ?? I8271Result.NONE);
   }
 
   // ── Commands ──────────────────────────────────────────────────────────────
 
-  private dataCommand(kind: 'read' | 'write' | 'verify'): void {
+  private dataCommand(kind: 'read' | 'write' | 'verify', deleted = false): void {
     const unit = this.engage(true);
     if (kind === 'write' && this.writeProtect[unit]) return this.conclude(I8271Result.WP);
     const disk = this.disks[unit];
     if (disk === null) return this.conclude(I8271Result.NR);
-    const run = this.sectorRun(disk);
+    let run = this.sectorRun(disk);
     if (run === null) return this.conclude(I8271Result.NF);
-    if (kind === 'verify') return this.conclude(I8271Result.NONE);
 
-    const total = run.reduce((n, s) => n + s.data.length, 0);
     if (kind === 'write') {
-      this.beginTransfer({ bytes: new Uint8Array(total), at: 0, fromHost: true, targets: run, unit });
+      const total = run.reduce((n, s) => n + s.data.length, 0);
+      this.beginTransfer({ bytes: new Uint8Array(total), at: 0, fromHost: true, targets: run, unit, deleted });
       return;
     }
+
+    // A read (or verify) stops at the first sector with a deleted-data mark or
+    // a bad data CRC, after transferring it, and says which it met.
+    let code: number = I8271Result.NONE;
+    const stop = run.findIndex(s => (s.st2 & 0x40) !== 0 || (s.st1 & 0x20) !== 0 || (s.st2 & 0x20) !== 0);
+    if (stop >= 0) {
+      const s = run[stop];
+      if ((s.st1 & 0x20) || (s.st2 & 0x20)) code = I8271Result.DCRC;
+      if (s.st2 & 0x40) code |= I8271Result.DELETED;
+      run = run.slice(0, stop + 1);
+    }
+    if (kind === 'verify') return this.conclude(code);
+
+    const total = run.reduce((n, s) => n + s.data.length, 0);
     const bytes = new Uint8Array(total);
     let at = 0;
-    for (const s of run) { bytes.set(s.data, at); at += s.data.length; }
-    this.beginTransfer({ bytes, at: 0, fromHost: false, targets: [], unit });
+    for (const s of run) {
+      // A weak sector reads differently every time: pick one of its readings.
+      const copy = s.copies && s.copies.length > 1 ? s.copies[Math.floor(Math.random() * s.copies.length)] : s.data;
+      bytes.set(copy.subarray(0, s.data.length), at);
+      at += s.data.length;
+    }
+    this.beginTransfer({ bytes, at: 0, fromHost: false, targets: [], unit, code });
   }
 
   /** READ ID: hand back the C, H, R, N of the next `count` sector headers on the track. */
@@ -485,7 +531,13 @@ export class I8271 {
     if (disk === null) return this.conclude(I8271Result.NR);
     const track = this.trackFor(disk);
     if (track === null) return this.conclude(I8271Result.NF);
-    for (const s of track.sectors) s.data.fill(ERASED);
+    for (const s of track.sectors) {
+      s.data.fill(ERASED);
+      s.st1 = 0;
+      s.st2 = 0;
+      s.copies = undefined;
+    }
+    track.encoding = 'fm';
     this.written[unit] = true;
     this.conclude(I8271Result.NONE);
   }
@@ -549,5 +601,79 @@ export class I8271 {
     let value = VALID_REGS.has(reg) ? this.regs[reg] : 0;
     if (reg === REG_DRIVE_OUT) value |= this.cmd[0] & OUT_SELECT_BITS;
     this.answer(value);
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+  // The disk images are the machine's to save and restore (before
+  // `loadState`). The pending alarm is written as what it will do, and a write
+  // transfer's target sectors are found again from the command, so they point
+  // into the restored image (into nothing when it is not mounted).
+
+  saveState(w: StateSink): void {
+    w.str(this.stage);
+    w.raw(this.cmd); w.u8(this.cmdLen); w.u8(this.argsLeft);
+    w.u8(this.result); w.u8(this.latch);
+    w.bool(this.resultIrq); w.bool(this.dataReq); w.bool(this.lineHigh);
+    w.raw(this.regs); w.raw(this.timing);
+    w.bool(this.written[0]); w.bool(this.written[1]);
+    w.u8(this.currentDrive); w.bool(this.motorOn);
+
+    const alarm = this.alarm;
+    w.u8(alarm === null ? 0 : alarm.kind);
+    if (alarm) { w.f64(alarm.left); w.u8(alarm.code); }
+
+    const x = this.xfer;
+    w.bool(x !== null);
+    if (x) {
+      w.bytes(x.bytes); w.u32(x.at); w.bool(x.fromHost); w.u8(x.unit);
+      w.i32(x.code ?? -1); w.bool(x.deleted === true);
+    }
+  }
+
+  /** Restore what `saveState` wrote. The interrupt line takes its saved level
+   *  without signalling the host (the CPU's state already holds its effect). */
+  loadState(r: StateSource): void {
+    const stage = r.str();
+    this.stage = (['idle', 'params', 'busy', 'transfer', 'result'] as const).find(s => s === stage) ?? 'idle';
+    r.rawInto(this.cmd); this.cmdLen = r.u8(); this.argsLeft = r.u8();
+    this.result = r.u8(); this.latch = r.u8();
+    this.resultIrq = r.bool(); this.dataReq = r.bool(); this.lineHigh = r.bool();
+    r.rawInto(this.regs); r.rawInto(this.timing);
+    this.written[0] = r.bool(); this.written[1] = r.bool();
+    this.currentDrive = r.u8() & 1; this.motorOn = r.bool();
+
+    const kind = r.u8();
+    if (kind === 0) {
+      this.alarm = null;
+    } else {
+      const left = r.f64();
+      const code = r.u8();
+      this.alarm = this.makeAlarm(kind as AlarmKind, left, code);
+    }
+
+    if (r.bool()) {
+      const bytes = r.bytes(1 << 20);
+      const at = r.u32();
+      const fromHost = r.bool();
+      const unit = r.u8() & 1;
+      const code = r.i32();
+      const deleted = r.bool();
+      const disk = this.disks[unit];
+      const targets = fromHost && disk ? this.sectorRun(disk) ?? [] : [];
+      this.xfer = { bytes, at, fromHost, targets, unit };
+      if (code >= 0) this.xfer.code = code;
+      if (deleted) this.xfer.deleted = true;
+    } else {
+      this.xfer = null;
+    }
+  }
+
+  /** The alarm a continuation of `kind` sets, `left` cycles from now. */
+  private makeAlarm(kind: AlarmKind, left: number, code: number): Alarm {
+    switch (kind) {
+      case ALARM_PUBLISH: return { kind, left, code, fire: () => this.publish(code, true) };
+      case ALARM_DATA_REQUEST: return { kind, left, code: 0, fire: () => this.setDataReq(true) };
+      default: return { kind: ALARM_END_TRANSFER, left, code: 0, fire: () => { if (this.xfer) this.endTransfer(this.xfer); } };
+    }
   }
 }

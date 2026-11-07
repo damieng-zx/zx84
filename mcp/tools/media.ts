@@ -110,15 +110,22 @@ async function loadZx8xLibraryTitle(
   return lines.join('\n');
 }
 
+const DRIVE_UNITS = ['0', '1', '2', '3', 'A', 'B', 'C', 'D'] as const;
+
+/** A drive unit named as a digit or a letter, as its number (0-3). */
+function driveUnit(drive: typeof DRIVE_UNITS[number]): number {
+  return /\d/.test(drive) ? Number(drive) : 'ABCD'.indexOf(drive);
+}
+
 export function register(server: McpServer): void {
   server.registerTool(
     'load',
-    { description: 'Load media from a local path or HTTP(S) URL into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; CPC accepts .dsk/.hfe/.scp disks, .cdt tapes, .sna snapshots, and .cpr cartridges on Plus models; MSX accepts .rom/.cas; MTX accepts .rom packs, .mtx tapes, and .hfe (v1 MFM) or Type 03/07 .mfloppy disks; Einstein accepts .dsk/.hfe/.scp; Camputers Lynx accepts .tap cassettes and .ldf disks (96K/128K only); Spectrum accepts its tape/snapshot/disk formats (peripheral media auto-enables the matching interface). ZIPs are unwrapped when they hold exactly one compatible file. For disks, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
+    { description: 'Load media from a local path or HTTP(S) URL into the emulator. ZX80 accepts .o/.80; ZX81 accepts .p/.81/.p81; CPC accepts .dsk/.hfe/.scp disks, .cdt tapes, .sna snapshots, and .cpr cartridges on Plus models; MSX accepts .rom/.cas; Commodore 64 accepts .tap/.t64/.prg (tape, auto-run) and .d64/.g64 disks (the 1541 as drive 8), .crt cartridges (a power cycle with it fitted) plus its .c64state snapshots; MTX accepts .rom packs, .mtx tapes, and .hfe (v1/v3) or Type 03/07 .mfloppy disks; Einstein accepts .dsk/.hfe/.scp; Camputers Lynx accepts .tap cassettes and .ldf disks (96K/128K only); Spectrum accepts its tape/snapshot/disk formats (peripheral media auto-enables the matching interface). ZIPs are unwrapped when they hold exactly one compatible file. For disks, optional drive unit (0/A or 1/B); for MDR, optional microdrive unit (0-7 → drives 1-8).', inputSchema: {
       file: z.string().describe('Local path or HTTP(S) URL to a machine-compatible media file or ZIP'),
-      drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit for DSK files'),
+      drive: z.enum(DRIVE_UNITS).default('0').describe('Drive unit for disk files (0/A, 1/B, and 2/C, 3/D on machines with more drives: the Commodore 64\'s devices 8 to 11)'),
     } },
     async ({ file, drive }) => {
-      const diskUnit = (drive === '1' || drive === 'B') ? 1 : 0;
+      const diskUnit = driveUnit(drive);
       // The Spectrum keeps its bench path: it auto-enables the +D/Interface 1/
       // Beta Disk ROMs for peripheral media, which the machine's own
       // MediaService deliberately refuses to do.
@@ -430,23 +437,26 @@ export function register(server: McpServer): void {
     'eject',
     { description: 'Eject a disk or tape.', inputSchema: {
       target: z.enum(['tape', 'disk']).describe('What to eject'),
-      drive: z.enum(['0', '1', 'A', 'B']).default('0').describe('Drive unit (for disk only)'),
+      drive: z.enum(DRIVE_UNITS).default('0').describe('Drive unit (for disk only)'),
     } },
     async ({ target, drive }) => {
       if (target === 'tape') {
         const tape = state.spec.services.tape;
         if (!tape) return text(`${state.model.toUpperCase()} has no cassette deck.`);
+        // A tape service can exist only to record (the ZX80/81 trap their
+        // ROM's LOAD and SAVE), so say so rather than claim an eject.
+        if (!tape.loaded) return text('No tape loaded.');
         tape.eject();
         return text('Tape ejected');
       }
-      const unit = (drive === '1' || drive === 'B') ? 1 : 0;
-      const id = unit === 0 ? 'a' : 'b';
+      const unit = driveUnit(drive);
+      const id = 'abcd'[unit];
       const disks = state.spec.services.disks;
       if (!disks || !disks.drives.some(d => d.id === id)) {
-        return text(`${state.model.toUpperCase()} has no drive ${unit === 0 ? 'A:' : 'B:'}.`);
+        return text(`${state.model.toUpperCase()} has no drive ${'ABCD'[unit]}:.`);
       }
       disks.eject(id);
-      return text(`Drive ${unit === 0 ? 'A' : 'B'}: ejected`);
+      return text(`Drive ${'ABCD'[unit]}: ejected`);
     },
   );
 

@@ -20,6 +20,8 @@
  * service. RETN does not unwind the chain.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 const NUM_CHANNELS = 4;
 
 // Control-word bits (byte with bit0 = 1).
@@ -244,5 +246,31 @@ export class Z80Ctc {
     this.vectorBase = 0;
     this.clockAccum = 0;
     // zcHandlers are hardware wiring — left intact across reset.
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────
+  /** Each channel's control word, constant, live count, prescaler phase and
+   *  interrupt latches, plus the vector base and the clock-divider remainder.
+   *  The ZC/TO wiring and the input clock divisor are wiring, not state. */
+  saveState(w: StateSink): void {
+    for (const ch of this.ch) {
+      w.u8(ch.control); w.u8(ch.timeConstant); w.u16(ch.counter);
+      w.bool(ch.running); w.bool(ch.awaitingTrigger); w.bool(ch.tcFollows);
+      w.bool(ch.intPending); w.bool(ch.inService);
+      w.u16(ch.prescaleCount);
+    }
+    w.u8(this.vectorBase);
+    w.f64(this.clockAccum);
+  }
+
+  loadState(r: StateSource): void {
+    for (const ch of this.ch) {
+      ch.control = r.u8(); ch.timeConstant = r.u8(); ch.counter = r.u16();
+      ch.running = r.bool(); ch.awaitingTrigger = r.bool(); ch.tcFollows = r.bool();
+      ch.intPending = r.bool(); ch.inService = r.bool();
+      ch.prescaleCount = r.u16();
+    }
+    this.vectorBase = r.u8();
+    this.clockAccum = r.f64();
   }
 }

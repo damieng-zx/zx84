@@ -30,6 +30,6 @@ describe('startup URL model parameter', () => {
   it('ignores missing and unknown values', () => {
     expect(parseUrlModel('')).toBeNull();
     expect(parseUrlModel('?model=')).toBeNull();
-    expect(parseUrlModel('?model=c64')).toBeNull();
+    expect(parseUrlModel('?model=vic20')).toBeNull();
   });
 });

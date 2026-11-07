@@ -13,7 +13,7 @@ import {
 const MTX_UI: MachineUiCapabilities = {
   hiddenPanes: ['microdrive-panel', 'mouse-panel', 'sysvar-panel'],
   memoryLayout: true,
-  trace: false,
+  trace: true,
   colorMap: 'msx',
   // VDP-based scanline rendering — no per-t-state Accuracy dropdown (as MSX).
   accuracy: false,
@@ -34,7 +34,8 @@ const MTX_UI: MachineUiCapabilities = {
   tape: 'instant',
   tapeSound: false,
   tapeExtensions: ['.mtx', '.zip'],
-  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
+  // 'tape-tap' downloads the program the ROM last SAVEd to cassette (as .mtx).
+  saveMenu: ['snapshot-mtxstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: true,

@@ -330,6 +330,9 @@ vi.mock('@/store/settings.ts', () => ({
   scalingMode:        vi.fn(() => 0),
   phosphor:           vi.fn(() => 'color'),
   volume:             vi.fn(() => 70),
+  // The PCW reads its fitted joystick interface from 'joy-p1'.
+  joyP1:              vi.fn(() => 'kempston'),
+  joyP2:              vi.fn(() => 'kempston'),
   beeperVolume:       vi.fn(() => 100),
   psgVolume:          vi.fn(() => 100),
   tapeFastRom:        vi.fn(() => true),
@@ -357,6 +360,7 @@ vi.mock('@/store/settings.ts', () => ({
   cpcParados:         vi.fn(() => false),
   msxColorMap:        vi.fn(() => 'pal'),
   einsteinColorMap:   vi.fn(() => 'accurate'),
+  pcw60Hz:            vi.fn(() => false),
 }));
 
 vi.mock('@/store/persistence.ts', () => ({

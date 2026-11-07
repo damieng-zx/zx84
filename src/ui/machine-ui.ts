@@ -78,6 +78,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/lynx/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  c64: {
+    HardwareSection: lazy(() =>
+      import('@/machines/c64/ui/hardware-section.tsx').then(m => ({ default: m.C64HardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/c64/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
   apple2: {
     HardwareSection: lazy(() =>
       import('@/machines/apple2/ui/hardware-section.tsx').then(m => ({ default: m.Apple2HardwareSection }))),
@@ -105,6 +111,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
       import('@/machines/jupiter-ace/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
   pcw: {
+    HardwareSection: lazy(() =>
+      import('@/machines/pcw/ui/hardware-section.tsx').then(m => ({ default: m.PcwHardwareSection }))),
     Keyboard: lazy(() =>
       import('@/machines/pcw/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },

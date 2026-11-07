@@ -9,6 +9,8 @@ import { baseName, saveHfeOr } from '@/machines/shared/disk-save.ts';
 import type { DiskService, DriveDescriptor, DriveMedia } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { serializeDSK } from '@/media/floppy/dsk.ts';
+import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { PcwMachine } from '../pcw-machine.ts';
 
 function unitOf(id: string): number { return id === 'b' ? 1 : 0; }
@@ -70,6 +72,42 @@ export class PcwDiskService implements DiskService {
 
   setForceReady(id: string, on: boolean): void {
     this.m.fdc.forceReady[unitOf(id)] = on;
+  }
+
+  /** Snapshot: each fitted drive's disc, exactly as the FDC sees it, and the
+   *  name it was mounted under. Write protect is a setting, not state; the
+   *  flipped side and unsaved-writes flag travel with the FDC's state. */
+  saveState(w: StateWriter): void {
+    const count = this.m.driveCount;
+    w.u8(count);
+    for (let u = 0; u < count; u++) {
+      const image = this.m.fdc.getDiskImage(u);
+      w.bool(image !== null);
+      if (image) {
+        w.str(this.names.get(u === 0 ? 'a' : 'b') ?? '');
+        writeDskImage(w, image);
+      }
+    }
+  }
+
+  /** Put the discs a snapshot carried in the drives, without booting (the
+   *  machine's state is restored over it). Every disc is read before any
+   *  drive changes. */
+  loadState(r: StateReader): void {
+    const count = r.u8();
+    if (count !== this.m.driveCount) throw new Error('Snapshot drive count does not match this PCW');
+    const discs: ({ name: string; image: DskImage } | null)[] = [];
+    for (let u = 0; u < count; u++) discs.push(r.bool() ? { name: r.str(), image: readDskImage(r) } : null);
+    discs.forEach((disc, u) => {
+      const id = u === 0 ? 'a' : 'b';
+      if (disc) {
+        this.m.fdc.insertDisk(disc.image, u);
+        this.names.set(id, disc.name);
+      } else {
+        this.m.fdc.ejectDisk(u);
+        this.names.delete(id);
+      }
+    });
   }
 
   flipSide(id: string): number | null {

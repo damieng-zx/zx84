@@ -146,10 +146,11 @@ describe('apple //e memory: main and auxiliary RAM', () => {
   it('floats the auxiliary side without the extended 80-column card', () => {
     const m = makeIie(false);
     try {
+      m.memory.ram.fill(0x7E);                   // what the video scanner will put on the bus
       wr(m, 0xC005, 0); wr(m, 0xC003, 0);
       wr(m, 0x3000, 0x99);
-      expect(rd(m, 0x3000)).toBe(0xFF);
-      expect(m.mmu.ram[0x3000]).toBe(0);
+      expect(rd(m, 0x3000)).toBe(0x7E);
+      expect(m.mmu.ram[0x3000]).toBe(0x7E);   // the write went nowhere
     } finally { m.destroy(); }
   });
 
@@ -195,6 +196,7 @@ describe('apple //e memory: ROM and language card', () => {
     const m = makeIie();
     try {
       m.loadROM(makeRom());
+      m.memory.ram.fill(0xFF);           // the floating bus an unowned $C800 shows
       expect(rd(m, 0xC800)).toBe(0xFF);  // nothing owns $C800 yet
       rd(m, 0xC300);                     // internal 80-column firmware selects it
       expect(rd(m, 0xC800)).toBe(0x88);
@@ -254,7 +256,8 @@ describe('apple //e soft switches', () => {
     try {
       rd(m, 0xC05E);
       expect(m.dhires).toBe(true);
-      expect(rd(m, 0xC07F) & 0x80).toBe(0x80);
+      // RDDHIRES is read back on the Enhanced //e and //c only.
+      expect(rd(m, 0xC07F) & 0x80).toBe(0);
       wr(m, 0xC05F, 0);
       expect(m.dhires).toBe(false);
     } finally { m.destroy(); }

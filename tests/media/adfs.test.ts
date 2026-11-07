@@ -1,8 +1,10 @@
 /**
  * ADFS floppy images. An ADFS disc is 16 × 256-byte sectors per track, IDs 0-15
- * with no interleave. ADFS L (640K) is one volume whose logical sectors run
- * through side 0 and then side 1 — which the .adl file mirrors (checked against
- * a real disc by loading a file across the track boundary through the ADFS ROM).
+ * with no interleave. An ADFS L (640K) image stores the cylinders in turn, side 0
+ * then side 1 of each — the .adl convention of BeebEm, MAME and Greaseweazle —
+ * while ADFS itself numbers logical sectors through side 0 before side 1. On a
+ * real .adl (BeebEm's L3FS-ISW) a text file's sector 15 runs on in image sector
+ * 32, the first sector of cylinder 1 side 0.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -70,12 +72,13 @@ describe('ADFS sector layout', () => {
     expect(img.tracks[3][0]!.sectors[5].data[0]).toBe(3 * 16 + 5);
   });
 
-  it('double-sided images fill side 0 first, then side 1 (logical sector order)', () => {
+  it('double-sided images interleave the sides cylinder by cylinder', () => {
     const img = parseAdfs(labelled(2560));
-    // Logical sector 16 is the first sector of track 1 on side 0, not of side 1 track 0.
-    expect(img.tracks[1][0]!.sectors[0].data[0]).toBe(16);
-    expect(img.tracks[0][1]!.sectors[0].data[0]).toBe(1280 & 0xFF);
-    expect(img.tracks[79][0]!.sectors[15].data[0]).toBe(1279 & 0xFF);
+    // Image sector 16 is side 1 of cylinder 0; cylinder 1 side 0 starts at 32.
+    expect(img.tracks[0][1]!.sectors[0].data[0]).toBe(16);
+    expect(img.tracks[1][0]!.sectors[0].data[0]).toBe(32);
+    expect(img.tracks[79][0]!.sectors[15].data[0]).toBe((79 * 32 + 15) & 0xFF);
+    expect(img.tracks[79][1]!.sectors[15].data[0]).toBe(2559 & 0xFF);
     expect(img.tracks[0][1]!.sectors[0].h).toBe(1);
   });
 });
@@ -86,12 +89,12 @@ describe('ADFS serialisation', () => {
     expect(Array.from(serializeAdfs(parseAdfs(src)))).toEqual(Array.from(src));
   });
 
-  it('writes sector changes back at their logical position', () => {
+  it('writes sector changes back at their place in the image', () => {
     const img = parseAdfs(labelled(2560));
     img.tracks[2][1]!.sectors[3].data.fill(0xAA);
     const out = serializeAdfs(img);
-    expect(out[(1280 + 2 * 16 + 3) * 256]).toBe(0xAA);
-    expect(out[(1280 + 2 * 16 + 4) * 256]).toBe((1280 + 2 * 16 + 4) & 0xFF);
+    expect(out[((2 * 2 + 1) * 16 + 3) * 256]).toBe(0xAA);
+    expect(out[((2 * 2 + 1) * 16 + 4) * 256]).toBe(((2 * 2 + 1) * 16 + 4) & 0xFF);
   });
 
   it('builds blank discs of each class', () => {

@@ -56,7 +56,7 @@ Fitted in the Hardware pane. Every change rebuilds the machine.
 | --- | --- | --- | --- | --- |
 | RAM size | memory | all | ✅ | 4, 8, 16, 32 or 48 KB contiguous from `$0000` |
 | BASIC RAM card | memory | all | ✅ | 4 KB at `$E000`–`$EFFF`, where Apple BASIC loads. On by default |
-| Apple Cassette Interface (ACI) | tape | all | ✅ | Off by default. Fits I/O at `$C000`–`$C0FF` and a 256-byte ROM at `$C100`. Any access to the page toggles the tape output (counted, not recorded) and a read shows the tape input in bit 7; the ROM reads it at `$C081`. Checked against the real ROM: its leader sweeps `LDY $C000,X` with X from `$FF` down to 0, which only makes an unbroken tone if every access toggles. Its ROM is `apple1/aci.rom` on the ROM host (md5 `e128ee213ce8015578ff502eae9b1b6f`) |
+| Apple Cassette Interface (ACI) | tape | all | ✅ | Off by default. Fits I/O at `$C000`–`$C0FF` and a 256-byte ROM at `$C100`. Any access to the page toggles the tape output (each toggle is timed on the access's own cycle and recorded for the Save menu) and a read shows the tape input in bit 7; the ROM reads it at `$C081`. Checked against the real ROM: its leader sweeps `LDY $C000,X` with X from `$FF` down to 0, which only makes an unbroken tone if every access toggles. Its ROM is `apple1/aci.rom` on the ROM host (md5 `e128ee213ce8015578ff502eae9b1b6f`) |
 
 ---
 
@@ -65,7 +65,8 @@ Fitted in the Hardware pane. Every change rebuilds the machine.
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.txt`, `.hex` | listing | Keyboard | ✅ | ✗ | Typed in a key at a time, as a person would key it from a listing — a Monitor hex dump (`0280: A9 00 …` then `280R`), or a BASIC program |
-| `.wav` | tape | Cassette deck (ACI fitted) | ◐ | ✗ | A recording of the tape audio, played into a comparator with hysteresis (a dead band of 0.3 × the recording's mean level, so tape noise around zero does not chatter) that the ROM's read loop times. Play, pause, stop and rewind; one logical block. Refused unless the ACI is fitted |
+| `.a1state` | snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
+| `.wav` | tape | Cassette deck (ACI fitted) | ◐ | ✅ | A recording of the tape audio, played into a comparator with hysteresis (a dead band of 0.3 × the recording's mean level, so tape noise around zero does not chatter) that the ROM's read loop times. Play, pause, stop and rewind; one logical block. Refused unless the ACI is fitted. Save is a recording of the ACI's output toggles since the last reset (`apple1-tape.wav`: 44.1 kHz 16-bit mono square wave, silences between writes cut to 1 s), not a re-save of the mounted tape |
 
 A listing is typed, not poked into memory, so it works wherever the keyboard is
 read. One key goes in each time the program has taken the last, so it never goes
@@ -74,7 +75,19 @@ injected while the program is not looking for keys. Line endings of any kind
 become RETURN; lower case is upper-cased; tabs are spaces; characters with no key
 (accents, braces) are dropped. RESET or a machine reset abandons what is left.
 
-**Save menu exports:** screenshot (PNG), RAM dump (the contiguous RAM from `$0000`; the BASIC card is not included).
+**Snapshots.** `.a1state` is zx84's native save state, in the same container as the Atari's `.a8state` (a CRC-32 and length checked before the machine is touched, deflated when saved from the Save menu), magic
+`ZXA1`: the 6502, all of RAM, the PIA (registers, interrupt flags, the key
+latched on port A), the terminal's screen and cursor and the time its busy line
+stays high, the cursor blink, the cassette deck's position and comparator, what
+the program has written to the cassette output, and the frame grid. A file
+saved from the Save menu also carries the tape, stored as the run of levels
+the comparator settles on (all the machine ever sees of it, a few kilobytes
+where the audio is megabytes). A state saved with other RAM, the BASIC card or
+the ACI fitted differently is refused until the Hardware pane matches. A
+listing being typed in is not part of a state. The same state without the tape
+backs browser-refresh resume.
+
+**Save menu exports:** Snapshot `.a1state`, Saved tape (`.wav`, with the ACI fitted; reports nothing saved otherwise), screenshot (PNG), RAM dump (the contiguous RAM from `$0000`; the BASIC card is not included).
 
 ---
 
@@ -94,7 +107,7 @@ become RETURN; lower case is upper-cased; tabs are spaces; characters with no ke
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger (breakpoints, stepping, disassembly) | ✅ | The shared 6502 debug service; no I/O ports. Memory-mapped PIA reads in the Memory pane use a side-effect-free peek |
-| Trace | ✗ | |
+| Trace | ✅ | Full (address, disassembly, registers, cycles and operand context, with interrupt entries marked and tight loops folded) and an I/O tally of the CPU's reads and writes in C000-C0FF (the cassette interface) and D000-DFFF (the PIA) — the shared 6502 trace engine; no ZXTrace, which is a Z80 layout; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Read straight from the terminal buffer, so exact |
 | Software library | ✗ | |
 | Machine-specific panes | ◐ | Keyboard (teletype layout with RESET and CLEAR SCREEN; reuses the Apple ][ skin) and a Hardware section |
@@ -110,7 +123,7 @@ become RETURN; lower case is upper-cased; tabs are spaces; characters with no ke
 
 ## Not emulated
 
-- Writing to tape — the ACI's output toggles are counted but not recorded, so nothing can be saved to a `.wav` from the UI. (The tests do record them, to prove a save-and-load round trip.)
+- Tape output while reading — every access to the ACI page toggles the output, including the ROM's reads of `$C081`, exactly as on the card, so reading a tape also leaves a recording of those toggles in the Save menu.
 - The terminal's cursor is a blinking `@` only; the real display's exact cursor timing is approximate.
 - Memory contents at power-on are zero rather than random.
 - The PIA's interrupt lines are not wired to the CPU, as on the real board.
@@ -127,8 +140,9 @@ become RETURN; lower case is upper-cased; tabs are spaces; characters with no ke
 
 | Reference | Result | Last checked |
 | --- | --- | --- |
+| [`tests/snapshot/apple1-state.test.ts`](../../tests/snapshot/apple1-state.test.ts) — `.a1state`: a synthetic PROM printing to the terminal, reading the ACI from a playing WAV and taking a latched key; a restored machine matches the original frame for frame (registers, cycles, picture, whole state, terminal text); damaged files and other RAM refused untouched; refresh resume | Pass | 2026-10-26 |
 | [`tests/apple1.test.ts`](../../tests/apple1.test.ts) — Woz Monitor examine, store and run, terminal pacing, keyboard, listings, display against a synthetic font | Pass | 2026-10-20 |
-| ACI with the real ROM: `300.31FW` writes memory to tape and `400.41FR` reads the recording back into other memory, byte for byte; plus a recording played into a 6502 read loop, deck transport, ROM mapping, absent when not fitted (`tests/apple1.test.ts`) | Pass | 2026-10-21 |
+| ACI with the real ROM: `300.31FW` writes memory to tape and `400.41FR` reads the recording back into other memory, byte for byte, both from the raw toggle times and from the Save menu's `.wav` mounted back through the tape service; plus a recording played into a 6502 read loop, deck transport, ROM mapping, absent when not fitted (`tests/apple1.test.ts`) | Pass | 2026-10-21 |
 | [`tests/m6820.test.ts`](../../tests/m6820.test.ts) — PIA registers, flags and handshake | Pass | 2026-10-20 |
 | Screenshot against the real 2513 ROM (Monitor dump and punctuation row) | Glyphs correct by eye | 2026-10-20 |
 | Hosted `apple1/apple1.rom` against an independently supplied Woz Monitor hex dump (`FF00`–`FFFF`, 256 bytes): identical, md5 `bdbf2e88ac2183050ac7f7b9a6a363c1` | Pass | 2026-10-21 |

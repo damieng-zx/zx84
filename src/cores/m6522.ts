@@ -11,6 +11,8 @@
  * CPU interrupt line. The chip never calls back into the machine.
  */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 // Interrupt flag register bits.
 export const VIA_IFR_CA2 = 0x01;
 export const VIA_IFR_CA1 = 0x02;
@@ -233,5 +235,31 @@ export class M6522 {
       this.t2Counter = 0xFFFF;
       this.ifr |= VIA_IFR_T2;
     }
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write the registers, both timers, PB7, the port input levels and the
+   *  handshake lines (their last level decides what counts as the next edge). */
+  saveState(w: StateSink): void {
+    w.u8(this.ora); w.u8(this.orb); w.u8(this.ddra); w.u8(this.ddrb);
+    w.u8(this.acr); w.u8(this.pcr); w.u8(this.sr); w.u8(this.ifr); w.u8(this.ier);
+    w.u16(this.t1Counter); w.u16(this.t1Latch); w.bool(this.t1Running);
+    w.u16(this.t2Counter); w.u16(this.t2Latch); w.bool(this.t2Running);
+    w.bool(this.pb7);
+    w.u8(this.portAInput); w.u8(this.portBInput);
+    w.bool(this.ca1); w.bool(this.cb1); w.bool(this.ca2); w.bool(this.cb2);
+  }
+
+  /** Restore what `saveState` wrote, without calling the port callbacks (the
+   *  devices behind the ports restore their own state). */
+  loadState(r: StateSource): void {
+    this.ora = r.u8(); this.orb = r.u8(); this.ddra = r.u8(); this.ddrb = r.u8();
+    this.acr = r.u8(); this.pcr = r.u8(); this.sr = r.u8(); this.ifr = r.u8(); this.ier = r.u8();
+    this.t1Counter = r.u16(); this.t1Latch = r.u16(); this.t1Running = r.bool();
+    this.t2Counter = r.u16(); this.t2Latch = r.u16(); this.t2Running = r.bool();
+    this.pb7 = r.bool();
+    this.portAInput = r.u8(); this.portBInput = r.u8();
+    this.ca1 = r.bool(); this.cb1 = r.bool(); this.ca2 = r.bool(); this.cb2 = r.bool();
   }
 }

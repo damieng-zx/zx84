@@ -20,6 +20,7 @@
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import { ACE_ROM_SIZE } from './constants.ts';
 
 /** 1KB per chip; the offset inside a chip is always addr & 0x3FF. */
@@ -158,5 +159,21 @@ export class AceMemory implements IMachineMemory {
     this.charRam.fill(0);
     this.ram.fill(0);
     this.expansion?.fill(0);
+  }
+
+  /** The three RAM chips and the RAM pack (the ROM is not state). */
+  saveState(w: StateWriter): void {
+    w.raw(this.vram);
+    w.raw(this.charRam);
+    w.raw(this.ram);
+    w.raw(this.expansion ?? new Uint8Array(0));
+  }
+
+  /** The caller has checked the RAM pack is the size the state was saved with. */
+  loadState(r: StateReader): void {
+    r.rawInto(this.vram);
+    r.rawInto(this.charRam);
+    r.rawInto(this.ram);
+    if (this.expansion) r.rawInto(this.expansion);
   }
 }

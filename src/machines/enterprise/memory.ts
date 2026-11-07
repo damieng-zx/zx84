@@ -9,6 +9,7 @@
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import {
   EP_SEGMENT_SIZE, EP_SEGMENTS, EP_VIDEO_FIRST_SEGMENT,
 } from './constants.ts';
@@ -114,6 +115,21 @@ export class EnterpriseMemory implements IMachineMemory {
   }
 
   get ramBankCount(): number { return this.ram.length / EP_SEGMENT_SIZE; }
+
+  /** The RAM and the four page registers (ROMs are not state). */
+  saveState(w: StateWriter): void {
+    w.u32(this.ram.length);
+    w.raw(this.ram);
+    w.raw(this.pages);
+  }
+
+  loadState(r: StateReader): void {
+    if (r.u32() !== this.ram.length) throw new Error('Snapshot RAM size does not match this machine');
+    r.rawInto(this.ram);
+    const pages = new Uint8Array(4);
+    r.rawInto(pages);
+    for (let p = 0; p < 4; p++) this.setPage(p, pages[p]);
+  }
 
   /** Power-on: every page shows segment 0, the start of EXOS. RAM is left as
    *  it is — EXOS tests and clears it itself. */

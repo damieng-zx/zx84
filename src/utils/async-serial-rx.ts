@@ -9,6 +9,8 @@
  * from the start-bit edge) and samples every bit in the middle of its cell.
  */
 
+import type { StateSink, StateSource } from './state-stream.ts';
+
 export interface RxFormat {
   readonly dataBits: 7 | 8;
   readonly parity: 'none' | 'even' | 'odd';
@@ -90,5 +92,21 @@ export class AsyncSerialReceiver {
       }
       this.next += this.bitCycles;
     }
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /** Write the frame in progress (state, next sample time, bits so far). The
+   *  bit time and format are the owner's to restore. */
+  saveState(w: StateSink): void {
+    w.u8(this.state); w.f64(this.next);
+    w.u8(this.bit); w.u16(this.shift); w.u8(this.ones);
+    w.bool(this.parityBad); w.u8(this.stopSeen); w.bool(this.stopBad);
+  }
+
+  loadState(r: StateSource): void {
+    this.state = r.u8() as S; this.next = r.f64();
+    this.bit = r.u8(); this.shift = r.u16(); this.ones = r.u8();
+    this.parityBad = r.bool(); this.stopSeen = r.u8(); this.stopBad = r.bool();
   }
 }

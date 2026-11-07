@@ -55,7 +55,7 @@ and FDX Disk BASIC) sit in the switchable ROM area alongside the base firmware.
 | Banked memory | all | ✅ | IOBYTE on port 00h: bits 0–3 RAM page, bits 4–6 ROM page at 0x2000, bit 7 all-RAM (CP/M) mode. 16 KiB block 0 is always common at 0xC000. Unfitted blocks read 0xFF and drop writes |
 | Keyboard matrix | all | ✅ | 8 drive lines × 10 sense lines on ports 05h/06h; F1–F8 are matrix keys; country code fixed to English |
 | Joystick sockets | all | ✅ | Two Atari-style sockets wired in parallel with the keyboard |
-| Cassette interface | all | ◐ | Playback is a logical byte stream served to the ROM load routine; port 03h output is latched but not decoded (see Not emulated) |
+| Cassette interface | all | ◐ | Logical byte streams: LOAD/VERIFY are served to the ROM tape routine and SAVE is recorded from it; port 03h output is latched but not decoded (see Not emulated) |
 | Printer port (04h) | all | ✗ | Not surfaced |
 | Uncommitted PIO (07h) | all | ✗ | Not surfaced |
 | DART / RS-232 | all | ✗ | Optional on the MTX500/512, standard on the RS128; not emulated |
@@ -90,19 +90,40 @@ ZIP archives are unpacked and only entries that match the table below are offere
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `.rom` | ROM pack | ROM page 2 (cartridge slot) | ✅ | ✗ | 8 KiB to 128 KiB in whole 8 KiB banks; anything else is rejected |
-| `.mtx` | Logical cassette | Tape | ✅ | ✗ | The byte stream the ROM asks for; at least the 18-byte header is required. Served instantly to `LOAD` and `VERIFY` |
-| `.hfe` | Disk | Drive B: (default) or C: | ✅ | ✅ | HFE v1 bitstream. Saved back as `.hfe`. HFE v3 is rejected |
+| `.mtx` | Logical cassette | Tape | ✅ | ✅ | The byte stream the ROM asks for; at least the 18-byte header is required. Served instantly to `LOAD` and `VERIFY`. Save is the latest program the ROM SAVEd (Save menu), named after it |
+| `.hfe` | Disk | Drive B: (default) or C: | ✅ | ✅ | HFE v1 or v3 bitstream. Saved back as `.hfe` (v1) |
 | `.mfloppy` / `.mfloppy-07` | Disk | Drive B: (default) or C: | ✅ | ✅ | Type 07: 80 tracks × 2 sides × 16 × 256-byte sectors (655,360 bytes). Saved as `.mfloppy` |
 | `.mfloppy-03` | Disk | Drive B: (default) or C: | ✅ | ✅ | Type 03: 40 tracks × 2 sides (327,680 bytes). Saved as `.mfloppy-03` |
+| `.mtxstate` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state (see below) |
 
 Disk geometry is chosen from the file size, not the extension; any size other
 than the two above is refused. Disks need the floppy subsystem to be fitted.
 Per-drive write protect is available. Formatting (WRITE TRACK) is supported
 and re-detects the disk's geometry.
 
-There are no snapshot or pulse-level tape formats on this machine.
+**Snapshots.** `.mtxstate` is zx84's native save state, in the same container
+as the Atari's `.a8state` (magic `ZXMT`, a CRC-32 and length checked before
+the machine is touched, deflated when saved): the Z80 with its hidden
+MEMPTR/Q latches and interrupt delays, every RAM block and the paging and
+ROM-card subpage latches, the inserted ROM pack, the TMS9929A, the SN76489A
+mid-count with the port 6 sound latch, the Z80 CTC with its daisy-chain
+latches, the keyboard drive latch, the 80-column card (6845, character and
+attribute RAM, latches, blink phase), the FDX control latch and the WD179x
+down to the byte a transfer has reached, the beam's frame grid, and the
+mounted disks with their writes and names. A restore carries on cycle for
+cycle. The header records the five firmware ROMs' CRCs (a different ROM is
+loaded anyway, with a warning). A state saved with different hardware fitted
+(512 KiB RAM, CP/M system, FDX, 80-column card, drive count) is refused until
+the Hardware or Drives pane matches; one from another model asks to switch to
+it. A state is taken between frames (a frame a debugger stop left open is run
+to its end first). The same state backs browser-refresh resume, and since the
+shell does not keep MTX disks over a reload, the disks travel in that copy too.
+The logical `.mtx` cassette is not part of the state, and drive write protect
+stays a setting.
 
-**Save menu exports:** PNG screenshot, `.scr` (a copy of the 16 KiB VDP VRAM),
+There are no pulse-level tape formats on this machine.
+
+**Save menu exports:** Snapshot `.mtxstate`, Saved tape (`.mtx`), PNG screenshot, `.scr` (a copy of the 16 KiB VDP VRAM),
 RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 
 ---
@@ -113,7 +134,8 @@ RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 | --- | --- | --- |
 | CPU and video timing | ✅ | 313 lines per 50 Hz frame; one VDP line drawn per line of CPU time; no contention |
 | Interrupts | ✅ | The VDP interrupt is a level (frame flag AND enable) sampled into CTC channel 0 as an edge; the CTC raises the Z80 interrupt with its vector |
-| Fast cassette loading | ✅ | The ROM load routine at 0x0AAE is intercepted whenever an `.mtx` image is mounted (ROM mode only); `SAVE` is left to the real routine. There is no setting to turn it off |
+| Fast cassette loading | ✅ | The ROM load routine at 0x0AAE is intercepted whenever an `.mtx` image is mounted (ROM mode only). It returns through 0x0AB0 (`RET Z`) with the registers the real routine leaves (HL past the block, DE 0, Z set). There is no setting to turn it off |
+| Tape recording | ✅ | `SAVE` requests to the same routine (FD68 = 0) are completed instantly and copied into a logical `.mtx` stream, then leave through the routine's own epilogue at 0x0B06. The real routine cannot run here: it times its bits with CTC channel 1 counting an external clock, which is not modelled, so it waited forever. SAVE writes a 20-byte header block (0x0BA1) where LOAD asks for 18 (0x0B4F), so the stream keeps the first 18; the body requests are shared code and line up one for one. A new SAVE header starts a new recording. Offered as **Saved tape** in the Save menu; cleared by a reset |
 | Border size | ✅ | None, half or full border around the 256 × 192 area |
 | Palettes | ✅ | MSX colour-map options in the Display pane |
 | Sound | ✅ | Mono by default, optional stereo placement of the three tone channels, anti-aliasing modes (none, box, mute, low-pass); no beeper, no tape sound |
@@ -129,7 +151,7 @@ RAM `.bin` (all RAM blocks, named like `mtx512-ram-576k.bin`).
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Debugger | ✅ | Breakpoints, memory and port watchpoints, stepping and Z80 disassembly. Memory-region picker: OS ROM, BASIC ROM, Assembler ROM, CP/M Bootstrap ROM, FDX Disk BASIC ROM |
-| Trace | ✗ | Not offered: the descriptor has tracing off and the MCP `trace` tool declines on every machine except the Spectrum |
+| Trace | ✅ | Full (address, disassembly, registers, T-states and operand context, with tight loops folded), a port I/O tally, and ZXTrace — the shared Z80 trace engine; a trace stops capturing at 500,000 lines |
 | Screen OCR / TEXT overlay | ✅ | Reads the VDP text and bitmap modes; with the 80-column display on, OCR returns its text and the TEXT overlay produces nothing |
 | BASIC tools | ◐ | BASIC listing only (program at 0x4000). The system-variables, microdrive and mouse panes are hidden |
 | Software library | ✗ | Not offered for this machine |
@@ -147,14 +169,13 @@ None known.
 
 ## Not emulated
 
-- **Tape recording.** `SAVE` runs the real ROM routine and the byte written to port 03h is latched, but nothing captures it to a file.
+- **The hardware SAVE routine.** CTC channel 1's external clock is not modelled, so the ROM's bit-timed write path never runs; SAVE is always the instant logical one, and port 03h stays a latch.
+- **Recording saves that bypass the ROM header.** Only streams that begin with the ROM SAVE's header request (from 0x0BA4) are recorded.
 - **Pulse-level cassette.** Only the logical `.mtx` stream is supported.
 - **Printer port (04h) and the uncommitted PIO (07h).** Not decoded; reads return 0xFF and writes are ignored.
 - **DART / RS-232.** Not present on any model.
 - **80-column terminal bell.** A read of port 30h returns 0xFF and rings nothing.
-- **HFE v3** images are rejected with an error.
-- **Snapshots.** The machine has no snapshot service.
-- **Execution trace.** Only the Spectrum has a trace engine; the trace menu is not offered here.
+- **Snapshots: the cassette.** `.mtxstate` restores the machine exactly but not the logical `.mtx` cassette's position. No community snapshot format (MEMU's or otherwise) is read.
 
 ## Faithful quirks
 
@@ -178,9 +199,11 @@ real-media results are recorded.
 | `tests/mtx/mtx-memory.test.ts` — RAM sizes per model, common block, all-RAM mode, 512 KiB paging, page 15 hole, ROM-pack banking, firmware page layout | Pass | 2026-10-18 |
 | `tests/mtx/mtx-machine.test.ts` — registration of all models, port decode, sound latch, VDP interrupt into CTC channel 0, RETI wiring, ROM-pack service | Pass | 2026-10-18 |
 | `tests/mtx/mtx-keyboard.test.ts`, `mtx-char-input.test.ts` — matrix scanning, joystick sockets, character-intent typing | Pass | 2026-10-18 |
-| `tests/mtx/mtx-tape.test.ts` — `.mtx` header, chunked `LOAD` / `VERIFY` trap, `SAVE` untouched | Pass | 2026-10-18 |
+| `tests/mtx/mtx-tape.test.ts` — `.mtx` header, chunked `LOAD` / `VERIFY` trap, SAVE never served from the mounted image | Pass | 2026-10-26 |
+| `tests/mtx/mtx-tape-save.test.ts` — SAVE recorder (18 of the 20 header bytes, body order, new header restarts, reset); with the real OS/BASIC/ASSEM ROMs in `mcp/.cache` (skipped otherwise): a BASIC program SAVEd, NEW, the recording mounted and LOADed back, RUN prints its output, and a re-SAVE is byte-identical | Pass | 2026-10-26 |
 | `tests/mtx/mtx-fdx.test.ts`, `mtx-floppy.test.ts`, `mtx-hfe.test.ts` — FDX ports, drive mapping, Type 03/07 and HFE mount and save, CP/M system disk and SiDisc startup, floppy option | Pass | 2026-10-18 |
 | `tests/mtx/mtx-80-column.test.ts` — 80-column ports, rendering, framebuffer switch, CP/M forcing | Pass | 2026-10-18 |
 | `tests/mtx/mtx-rom-service.test.ts`, `mtx-rom-slots.test.ts` — five 8 KiB ROM slots, per-slot override, combined-image split | Pass | 2026-10-18 |
 | `tests/mtx/mtx-transcribe.test.ts` — TEXT overlay driver and styled OCR | Pass | 2026-10-18 |
+| `tests/mtx/mtx-snapshot.test.ts` — `.mtxstate` exact resume (file and refresh) with a sector read in flight, the 80-column card and 512 KiB RAM; disks, writes, names and ROM pack carried; damaged files and mismatched hardware refused untouched | Pass | 2026-10-26 |
 | `tests/media/mtx-mfloppy.test.ts`, `tests/basic/mtx-basic-parser.test.ts` — Type 03/07 sector mapping, BASIC detokenising | Pass | 2026-10-18 |

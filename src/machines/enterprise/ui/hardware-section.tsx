@@ -16,7 +16,7 @@ export function EnterpriseHardwareSection() {
       <label
         class="mf-check"
         title={'EXDOS disk card: a WD1770 and the EXDOS 1.3 ROM, four drives of '
-          + '720K .img disks. A disk in A: boots when it is loaded.'}
+          + 'disks (.img, .dsk, .hfe or .scp). A disk in A: boots when it is loaded.'}
       >
         <input
           type="checkbox"

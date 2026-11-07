@@ -48,6 +48,7 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   pcw8512: 'PCW 8512',
   pcw9256: 'PCW 9256',
   pcw9512: 'PCW 9512',
+  'bbc-a': 'BBC Micro Model A',
   'bbc-b': 'BBC Micro Model B',
   electron: 'Electron',
   apple1: 'Apple I',
@@ -66,6 +67,7 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   atari65xe: 'Atari 65XE',
   atari800xe: 'Atari 800XE',
   atari130xe: 'Atari 130XE',
+  c64: 'Commodore 64',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -95,12 +97,13 @@ export const MODEL_LOCALES: Partial<Record<MachineModel, MachineLocale[]>> = {
   atari65xe: ['uk', 'us'],
   atari800xe: ['uk', 'us'],
   atari130xe: ['uk', 'us'],
+  c64: ['uk', 'us'],
 };
 
 /** Models whose locale variants are TV standards rather than languages. */
 const TV_STANDARD_MODELS: ReadonlySet<MachineModel> = new Set<MachineModel>([
   'atari400', 'atari800', 'atari600xl', 'atari800xl', 'atari1200xl',
-  'atari65xe', 'atari800xe', 'atari130xe',
+  'atari65xe', 'atari800xe', 'atari130xe', 'c64',
 ]);
 const TV_STANDARD_LABELS: Partial<Record<MachineLocale, string>> = { uk: 'PAL', us: 'NTSC' };
 
@@ -137,7 +140,12 @@ function modelEntry(model: MachineModel): MenuItem {
   };
 }
 
-/** Model menu: every machine, behind a submenu for the make that built it. */
+/**
+ * Model menu: every machine, behind a submenu for the make that built it.
+ *
+ * The niche British machines each sold in small numbers, so they share one
+ * "British Obscure" group at the end rather than a one-model submenu apiece.
+ */
 export const MODEL_MENU: MenuItem[] = [
   {
     value: 'sinclair',
@@ -179,14 +187,6 @@ export const MODEL_MENU: MenuItem[] = [
     ],
   },
   {
-    value: 'tatung',
-    label: 'Tatung',
-    children: [
-      modelEntry('einstein-tc01'),
-      modelEntry('einstein-256'),
-    ],
-  },
-  {
     value: 'msx',
     label: 'MSX',
     children: [
@@ -196,34 +196,10 @@ export const MODEL_MENU: MenuItem[] = [
     ],
   },
   {
-    value: 'memotech',
-    label: 'Memotech',
-    children: [
-      modelEntry('mtx500'),
-      modelEntry('mtx512'),
-      modelEntry('rs128'),
-    ],
-  },
-  {
-    value: 'camputers',
-    label: 'Camputers',
-    children: [
-      modelEntry('lynx48'),
-      modelEntry('lynx96'),
-      modelEntry('lynx128'),
-    ],
-  },
-  {
-    value: 'jupiter',
-    label: 'Jupiter Cantab',
-    children: [
-      modelEntry('jupiter-ace'),
-    ],
-  },
-  {
     value: 'acorn',
     label: 'Acorn',
     children: [
+      modelEntry('bbc-a'),
       modelEntry('bbc-b'),
       modelEntry('electron'),
     ],
@@ -241,14 +217,6 @@ export const MODEL_MENU: MenuItem[] = [
     ],
   },
   {
-    value: 'enterprise',
-    label: 'Enterprise',
-    children: [
-      modelEntry('ep64'),
-      modelEntry('ep128'),
-    ],
-  },
-  {
     value: 'atari',
     label: 'Atari',
     children: [
@@ -260,6 +228,35 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('atari65xe'),
       modelEntry('atari800xe'),
       modelEntry('atari130xe'),
+    ],
+  },
+  {
+    value: 'commodore',
+    label: 'Commodore',
+    children: [
+      modelEntry('c64'),
+    ],
+  },
+  {
+    value: 'british-obscure',
+    label: 'British Obscure',
+    children: [
+      // Einstein — Tatung's UK division.
+      modelEntry('einstein-tc01'),
+      modelEntry('einstein-256'),
+      // Memotech MTX.
+      modelEntry('mtx500'),
+      modelEntry('mtx512'),
+      modelEntry('rs128'),
+      // Camputers Lynx.
+      modelEntry('lynx48'),
+      modelEntry('lynx96'),
+      modelEntry('lynx128'),
+      // Jupiter Cantab.
+      modelEntry('jupiter-ace'),
+      // Enterprise.
+      modelEntry('ep64'),
+      modelEntry('ep128'),
     ],
   },
 ];

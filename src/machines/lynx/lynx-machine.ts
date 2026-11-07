@@ -2,12 +2,14 @@
  * LynxMachine — the Camputers Lynx motherboard.
  *
  * A Z80 at 4MHz (6MHz on the 128K), a Motorola 6845 sequencing the raster over three one-bit
- * colour planes, a ten-line keyboard read through the address bus, an 8-bit
+ * colour planes, a ten-line keyboard read through the address bus, a 6-bit
  * sound DAC on port 0x84 and, on the 96K/128K, an FD1793 floppy controller —
  * which is a WD1793, so the existing WD179x core covers it.
  *
  * Hardware behaviour follows MAME's `camputers/camplynx.cpp`, the only
  * detailed public description of this machine.
+ *
+ * Snapshots are zx84's own `.lynxstate` (`snapshots/lynx-state.ts`).
  */
 
 import { Z80 } from '@/cores/z80.ts';
@@ -17,11 +19,15 @@ import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
-  BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, MachineTraceMode,
+  BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind,
   SettingsView,
 } from '@/machines/machine.ts';
 import {
@@ -52,6 +58,31 @@ const OCR_UNAVAILABLE =
 /** The Lynx's only audio is a DAC on the mixer's beeper channel, so there is
  *  no PSG to keep in step with the sample rate. */
 const NO_PSG = { setSampleRate(_rate: number): void { /* no PSG fitted */ } };
+
+/**
+ * The sound DAC's output for each 6-bit code, 0..1.
+ *
+ * Camputers' 128K motherboard diagram (sheet 5, "Input/Output") latches D0-D5
+ * of an OUT to port 0x84 into a 40174 hex flip-flop (IC25, cleared by /RESET)
+ * whose outputs drive a binary-weighted resistor ladder into one node: D5
+ * through 75K, D4 150K, D3 300K, D2 620K, D1 1.2M, D0 2.4M (R38-R40, R35-R37),
+ * with 39K (R41) to 0V. D6 and D7 go nowhere. The node voltage is the sum of
+ * the set bits' conductances over a fixed total, so each code's level is its
+ * conductance over full scale's — linear but for D2's 620K, the nearest E24
+ * value to 600K, which leaves that bit 3% light.
+ */
+const DAC_LEVELS: Float64Array = (() => {
+  const ohms = [2_400_000, 1_200_000, 620_000, 300_000, 150_000, 75_000];   // D0..D5
+  let full = 0;
+  for (const r of ohms) full += 1 / r;
+  const out = new Float64Array(64);
+  for (let code = 0; code < 64; code++) {
+    let g = 0;
+    for (let bit = 0; bit < 6; bit++) if (code & (1 << bit)) g += 1 / ohms[bit];
+    out[code] = g / full;
+  }
+  return out;
+})();
 
 /** Frames of quiet before tape turbo lets go, so the gap between two blocks
  *  does not drop the machine back to 1x and then straight up again. */
@@ -84,6 +115,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** The cassette deck. The Lynx has a real motor bit, so playback is gated on
    *  the motor rather than on read cadence the way the CPC's has to be. */
   readonly tape: TapeDeck;
+  /** Edges of the cassette output since the last reset — what SAVE wrote. */
+  readonly tapeRecorder = new PulseRecorder();
 
   readonly mixer: AudioMixer;
   readonly audio = new Audio();
@@ -101,7 +134,8 @@ export class LynxMachine extends BaseMachine implements Machine {
   /** True while tape turbo is engaged — the Tape pane's TURBO lamp. */
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
-  /** Port 0x84's DAC value while the cassette motor is off. */
+  /** The sound DAC's 6-bit latch: D0-D5 of port 0x84, written while the
+   *  cassette motor is off (see DAC_LEVELS). */
   dacLevel = 0;
   /** Port 0x80 as last written. */
   private port80 = 0;
@@ -194,6 +228,7 @@ export class LynxMachine extends BaseMachine implements Machine {
     this.dacLevel = 0;
     this.tapeMotorRunning = false;
     this.tapeLastAdvanceT = 0;
+    this.tapeRecorder.reset();
     this.tape.paused = true;
     this._tapeTurboActive = false;
     this._tapeTurboCooldown = 0;
@@ -231,10 +266,13 @@ export class LynxMachine extends BaseMachine implements Machine {
     return this.tape.earBit !== 0;
   }
 
-  /** Tape output. Saving to a wav is not something this emulator does, so the
-   *  bit is dropped — but it must not reach the DAC or the speaker screams
-   *  through every SAVE. */
-  cassetteOutput(_high: boolean): void { /* nothing records */ }
+  /** Tape output: the ROM's SAVE square wave on port 0x84 bit 5 while the
+   *  motor runs. It is timed into the recorder (the Save menu decodes it back
+   *  to a .tap) and kept off the DAC, or the speaker screams through every
+   *  SAVE. */
+  cassetteOutput(high: boolean): void {
+    this.tapeRecorder.observe(high ? 1 : 0, this.cpu.tStates);
+  }
 
   /**
    * The deck (re)started — rewind, play, a fresh mount. The advance clock is
@@ -258,12 +296,103 @@ export class LynxMachine extends BaseMachine implements Machine {
     }
   }
 
+  // ── Snapshot state (.lynxstate) ────────────────────────────────────────
+
+  /** CRC-32 of the ROM store (the system images and the DOS ROM, as loaded),
+   *  for the snapshot header. */
+  stateRomCrcs(): number[] { return [crc32(this.memory.rom)]; }
+
+  /** Run the rest of a frame a stop left open, so the machine is between
+   *  frames (where a snapshot is taken). */
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /**
+   * Write the machine's sections of a `.lynxstate` (see
+   * snapshots/lynx-state.ts): the disk-interface configuration first, so a
+   * restore can refuse a mismatch before it changes anything, then the CPU,
+   * the frame grid, the RAM and bank latches, the 6845 and port 0x80/DAC
+   * latches, the drives (`withMedia`) and the FD1793. The cassette is not
+   * part of the state.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CONF', () => { w.bool(this.hasDisk); w.u8(this.driveCount); });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('VID ', () => this.crtc.saveState(w));
+    w.section('PORT', () => {
+      w.u8(this.port80); w.u8(this.dacLevel); w.bool(this.tapeMotorRunning);
+    });
+    w.section('MEDA', () => {
+      w.bool(withMedia);
+      if (withMedia) this.services.disks.saveState(w);
+    });
+    w.section('FDC ', () => this.fdc.saveState(w));
+  }
+
+  /** Restore a state written by {@link saveState}. The frame loop must be
+   *  stopped. Throws before changing anything if the disk interface or the
+   *  number of drives differs from this machine's. */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const hasDisk = s.bool();
+      const drives = s.u8();
+      if (hasDisk !== this.hasDisk) {
+        throw new Error(`This snapshot was saved with the disk interface ${hasDisk ? 'fitted' : 'removed'}; ${hasDisk ? 'fit' : 'remove'} it in the Hardware pane and load it again`);
+      }
+      if (hasDisk && drives !== this.driveCount) {
+        throw new Error(`This snapshot was saved with ${drives} drives and this Lynx has ${this.driveCount}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.crtc.loadState(r.section('VID '));
+    {
+      const s = r.section('PORT');
+      this.port80 = s.u8();
+      this.dacLevel = s.u8() & 0x3f;
+      this.tapeMotorRunning = s.bool();
+      this.video.altGreen = (this.port80 & 0x10) !== 0;
+    }
+    {
+      // The disks go in before the controller, so a transfer in flight finds
+      // its track and sector in them.
+      const s = r.section('MEDA');
+      if (s.bool()) this.services.disks.loadState(s);
+    }
+    this.fdc.loadState(r.section('FDC '));
+    this.afterStateLoad();
+  }
+
+  /** What no snapshot holds: the host's keys are whatever they are now, and
+   *  nothing is part-way through a frame or a tape-turbo run. */
+  private afterStateLoad(): void {
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.keyboard.reset();
+    this._tapeTurboActive = false;
+    this._tapeTurboCooldown = 0;
+    this.tapeLastAdvanceT = this.cpu.tStates;
+    this.audio.reset();
+    this.mixer.reset();
+    this.needsDisplay = true;
+  }
+
   // ── Debug SPI ──────────────────────────────────────────────────────────
 
-  /** Execution tracing is not wired up yet; the MCP tool degrades rather than
-   *  failing. */
-  startTrace(_mode: MachineTraceMode = 'full'): void { /* not yet */ }
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn/afterInsn feed it (debug/z80/trace.ts). */
+  protected override tracer = new Z80Trace(this);
 
   // ── Screen OCR ─────────────────────────────────────────────────────────
   //
@@ -421,6 +550,7 @@ ${text}`;
 
     const lines = this.fLines;
     const tPerLine = this.tPerFrame / lines;
+    const keyboard = this.keyboard;
     let lastAudioT = this.cpu.tStates;
 
     for (; this.fLine < lines; this.fLine++) {
@@ -430,6 +560,9 @@ ${text}`;
       const lineEnd = line + 1 === lines ? this.frameEndT : this.frameStartT + (line + 1) * tPerLine;
 
       while (this.cpu.tStates < lineEnd) {
+        // BREAK holds /INT low for as long as it is down, so the CPU takes an
+        // interrupt at every instruction boundary where it has them enabled.
+        if (keyboard.breakDown) this.cpu.interrupt();
         if (this.checkStops(this.cpu.pc)) {
           // The frame stays open; the next call carries on in this line.
           this.midFrame = true;
@@ -443,9 +576,8 @@ ${text}`;
         if (!skipAudio) {
           const elapsed = this.cpu.tStates - lastAudioT;
           if (elapsed > 0) {
-            // The DAC is an 8-bit level and the mixer's beeper channel is one
-            // bit, so only the top bit carries for now.
-            this.mixer.accumulate(this.dacLevel >> 7, elapsed);
+            // The DAC's level, through the speaker's DC blocker like a beeper.
+            this.mixer.accumulateLevel(DAC_LEVELS[this.dacLevel], elapsed);
             this.mixer.generateSamples(this.audio, null, false);
             lastAudioT = this.cpu.tStates;
           }

@@ -20,7 +20,7 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
   return {
     hiddenPanes: HIDDEN,
     memoryLayout: true,
-    trace: false,
+    trace: true,
     // Eight fixed colours from three one-bit planes: nearest the ZX palette's
     // bright half, which is what 'spectrum' names.
     colorMap: 'spectrum',
@@ -46,8 +46,9 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     tape: 'deck',
     tapeSound: false,
     tapeExtensions: ['.tap', '.zip'],
-    // No snapshot or screen-dump service, but a raw RAM dump is universal.
-    saveMenu: ['screenshot-png', 'ram-bin'],
+    // zx84's own snapshot; no screen-dump service, but a raw RAM dump is universal.
+    // 'tape-tap' downloads what the ROM has SAVEd to cassette (as a Lynx .tap).
+    saveMenu: ['snapshot-lynxstate', 'tape-tap', 'screenshot-png', 'ram-bin'],
     zipPolicy: 'media',
     persistMedia: disk,
     bootDisk: false,

@@ -11,6 +11,7 @@ import type { TapeBlock } from '@/media/tape/tap.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
 import { wavToPulseBlocks } from '@/media/tape/wav.ts';
+import { spectrumSaveToTzx } from '@/machines/spectrum/tape-save.ts';
 
 /** One-line pane label for a tape block (data blocks show flag + length). */
 export function tapeBlockInfo(b: TapeBlock, index: number): TapeBlockInfo {
@@ -113,7 +114,15 @@ export class SpectrumTapeService implements TapeService {
     return true;
   }
 
-  stashState(): TapeStashState | null {
+  /** What the machine has SAVEd since the last reset, as .tzx bytes, or null
+   *  when nothing recognisable has been written to the MIC line. The ROM (or
+   *  any saver of the user's own) drives MIC and the recorder times it — see
+   *  tape-save.ts — so this is whatever the machine actually wrote. */
+  recordedBytes(): { data: Uint8Array; filename: string } | null {
+    return spectrumSaveToTzx(this.s.micRecorder.pulses(this.s.cpu.tStates));
+  }
+
+    stashState(): TapeStashState | null {
     return {
       blocks: [...this.s.tape.blocks],
       position: this.s.tape.position,

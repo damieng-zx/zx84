@@ -14,6 +14,7 @@
  */
 
 import { Crtc6845 } from '@/cores/crtc-6845.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 export const MTX_80_COLUMN_WIDTH = 640;
 export const MTX_80_COLUMN_HEIGHT = 240;
@@ -181,6 +182,26 @@ export class Mtx80ColumnCard {
       }
     }
     this.frame++;
+  }
+
+  /** The 6845, character and attribute RAM, the address/data latches and the
+   *  blink counter. Whether the card is fitted is configuration. */
+  saveState(w: StateWriter): void {
+    this.crtc.saveState(w);
+    w.raw(this.characters);
+    w.raw(this.attributes);
+    w.u8(this.addressLow); w.u8(this.addressHigh);
+    w.u8(this.characterData); w.u8(this.attributeData);
+    w.u32(this.frame);
+  }
+
+  loadState(r: StateReader): void {
+    this.crtc.loadState(r);
+    r.rawInto(this.characters);
+    r.rawInto(this.attributes);
+    this.addressLow = r.u8(); this.addressHigh = r.u8();
+    this.characterData = r.u8(); this.attributeData = r.u8();
+    this.frame = r.u32();
   }
 
   text(): string {

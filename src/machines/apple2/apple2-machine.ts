@@ -15,6 +15,8 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
+import type { M6502Isa } from '@/debug/m6502/disasm.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
 import { soundDeviceGains } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -35,7 +37,11 @@ import { Apple2Keyboard } from './apple2-keyboard.ts';
 import { Apple2Paddles } from './apple2-paddles.ts';
 import { Apple2Charset, Apple2eCharset, type Apple2Font } from './apple2-charset.ts';
 import { Apple2Video, type Apple2VideoMode, type Apple2VideoState } from './apple2-video.ts';
+import { scannerAddress } from './apple2-scanner.ts';
+import { apple2Chips } from './apple2-chips.ts';
+import type { ChipSection } from '@/debug/chip-state.ts';
 import { Apple2Cassette } from './apple2-cassette.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import { Disk2 } from './peripherals/disk2.ts';
 import { Mockingboard } from './peripherals/mockingboard.ts';
 import { Videx, VIDEX_SLOT } from './peripherals/videx.ts';
@@ -43,6 +49,8 @@ import { apple2Descriptor } from './descriptor.ts';
 import { wireApple2Io } from './apple2-io.ts';
 import { wireApple2eIo } from './apple2e-io.ts';
 import { createApple2Services, type Apple2Services } from './services/index.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Frames between flash-phase flips (the text-mode "flashing" attribute). */
 const FLASH_FRAMES = 16;
@@ -80,8 +88,10 @@ export class Apple2Machine extends BaseMachine implements Machine {
   host: MachineHost | null = null;
   readonly services: Apple2Services;
 
-  /** An NMOS 6502, or on the Enhanced //e a CMOS 65C02. */
+  /** An NMOS 6502, or on the Enhanced //e and //c a CMOS 65C02 (see `ModelInfo.cpuPart`). */
   readonly cpu: M6502;
+  /** The CPU's instruction set, as the cycle tables name it. */
+  private readonly isa: M6502Isa;
   readonly memory: Apple2Memory;
   readonly keyboard: Apple2Keyboard;
   readonly paddles = new Apple2Paddles();
@@ -92,7 +102,14 @@ export class Apple2Machine extends BaseMachine implements Machine {
   readonly charset: Apple2Font;
   readonly video = new Apple2Video();
   readonly cassette = new Apple2Cassette();
-  readonly disk2 = new Disk2(() => this.cpu.tStates);
+  /** Times the $C020 cassette-output toggles — what a SAVE writes to tape —
+   *  for the Save menu's recording (services/tape.ts). */
+  readonly tapeRecorder = new PulseRecorder();
+  /** Cycles run before the last RESET-key press: the key resets the 6502's
+   *  cycle count but not the tape, so the recorder's clock carries on from here. */
+  private tapeClockBase = 0;
+  /** The Disk II turns its disk from the exact cycle of each access to it. */
+  readonly disk2 = new Disk2((write) => this.busCycle(write === true));
   readonly speaker = new Apple2Speaker();
   readonly mixer = new AudioMixer(APPLE2_CPU_CLOCK);
   readonly audio = new Audio();
@@ -134,12 +151,14 @@ export class Apple2Machine extends BaseMachine implements Machine {
   /** The //e's memory (MMU switches, auxiliary RAM); only valid on that model. */
   get mmu(): Apple2eMemory { return this.memory as Apple2eMemory; }
   get isIie(): boolean { return this.modelInfo.iie; }
+  get isIic(): boolean { return this.modelInfo.iic; }
 
   constructor(model: Apple2Model, display?: IScreenRenderer | null) {
     super();
     this.model = model;
     this.modelInfo = apple2ModelInfo(model);
-    this.cpu = this.modelInfo.cmos ? new M65C02() : new M6502();
+    this.cpu = this.modelInfo.cpuPart ? new M65C02(this.modelInfo.cpuPart) : new M6502();
+    this.isa = this.modelInfo.cpuPart ?? false;
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
     // The 6502 core makes its bus accesses before it counts the cycles.
     this.deferAccessStamps = true;
@@ -167,6 +186,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
       this.memory.writeByte(addr, val);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
     };
+    this.memory.floatingBus = (addr) => this.floatingBus(addr);
     this.mixer.beeperGain = 1;
     this.mixer.psgGain = 0;
     if (this.modelInfo.iie) wireApple2eIo(this);
@@ -272,10 +292,54 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   // ── Frame probe / status inputs ────────────────────────────────────────
 
-  get vblActive(): boolean {
-    const line = (this.cpu.tStates % APPLE2_TSTATES_PER_FRAME) / APPLE2_CYCLES_PER_LINE;
-    return line >= APPLE2_VBL_LINE;
+  /** The CPU cycle of the bus access to `addr` that is in progress (the 6502
+   *  core makes an instruction's accesses before it counts its cycles, so the
+   *  access's own cycle is worked out from the opcode), or the current count
+   *  outside an instruction. */
+  accessCycle(addr: number, write: boolean): number {
+    if (!this.insnActive) return this.cpu.tStates;
+    const pc = this.insnPc;
+    return accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, write, this.isa, this.cpu.pageCrossed);
   }
+
+  /** Whether the beam is in vertical blanking on the cycle of the read of
+   *  `addr` in progress (RDVBLBAR is its inverse). */
+  vblAtAccess(addr: number): boolean {
+    const t = this.accessCycle(addr, false) % APPLE2_TSTATES_PER_FRAME;
+    return t >= APPLE2_VBL_LINE * APPLE2_CYCLES_PER_LINE;
+  }
+
+  /** Reading the opcode of the instruction that is itself reading the floating
+   *  bus must not come back here. */
+  private floating = false;
+
+  /** The byte on the data bus when a read of `addr` is not answered by
+   *  anything: whatever the video scanner fetched on that cycle (see
+   *  apple2-scanner.ts). Soft switches that only have a side effect, empty slots
+   *  and absent auxiliary RAM all read this. */
+  floatingBus(addr: number): number {
+    let t: number;
+    if (this.floating) {
+      t = this.cpu.tStates;
+    } else {
+      this.floating = true;
+      t = this.accessCycle(addr, false);
+      this.floating = false;
+    }
+    return this.memory.ram[this.scannerAddressAt(t)];
+  }
+
+  /** The RAM address the video scanner reads on CPU cycle `t`, with the display
+   *  switches as they are now. */
+  scannerAddressAt(t: number): number {
+    const iie = this.modelInfo.iie;
+    // With 80STORE the PAGE2 switch pages the CPU's RAM, not the picture's.
+    const page2 = this.page2 && !(iie && this.mmu.store80);
+    return scannerAddress(t % APPLE2_TSTATES_PER_FRAME, this.textMode, this.mixed, this.hires, page2, iie);
+  }
+
+  /** The game port and the video scanner, for the debugger's `chip_state`. */
+  chips(): readonly ChipSection[] { return apple2Chips(this); }
 
   get cassetteInputBit(): boolean {
     this.cassette.advanceTo(this.cpu.tStates / APPLE2_CPU_CLOCK);
@@ -287,9 +351,17 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.activity.beeperToggled = true;
   }
 
-  /** $C020: cassette output. Counted for the activity readout; the Apple II
-   *  has no cassette-in feedback, so nothing else depends on it. */
-  pulseCassetteOutput(): void { this.activity.cassetteToggles++; }
+  /** $C020: cassette output. Any read or write flips the output flip-flop;
+   *  the edge is timed on the access's own cycle of the instruction (the
+   *  6502 core runs the bus before counting cycles) and recorded for the Save
+   *  menu, and counted for the activity readout. */
+  pulseCassetteOutput(write: boolean): void {
+    this.activity.cassetteToggles++;
+    this.tapeRecorder.toggle(this.tapeClockBase + this.accessCycle(0xC020, write));
+  }
+
+  /** The recorder's clock now: cycles since the machine was last reset. */
+  get tapeClock(): number { return this.tapeClockBase + this.cpu.tStates; }
 
   setBorderSize(mode: BorderMode): void {
     const frac = mode === 2 ? 1 : mode === 1 ? 0.5 : 0;
@@ -324,6 +396,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
    *  pass RESET through with CTRL held. Returns whether it reached the CPU. */
   pressResetKey(): boolean {
     if (this.modelInfo.iie && !this.keyboard.ctrlHeld) return false;
+    this.tapeClockBase += this.cpu.tStates;
     this.cpu.reset();
     this.memory.reset();
     this.cpu.setIRQ(false);
@@ -336,7 +409,10 @@ export class Apple2Machine extends BaseMachine implements Machine {
   }
 
   private resetHardware(): void {
+    this.refreshResumed = false;
     this.cpu.reset();
+    this.tapeRecorder.reset();
+    this.tapeClockBase = 0;
     this.resetFrameCount();
     this.memory.reset();
     if (this.modelInfo.autostart) {
@@ -377,7 +453,7 @@ export class Apple2Machine extends BaseMachine implements Machine {
 
   // ── Beam ───────────────────────────────────────────────────────────────
 
-  /** The raster is a function of the cycle count (see `vblActive`), so frames
+  /** The raster is a function of the cycle count (see `vblAtAccess`), so frames
    *  sit on multiples of a frame's cycles and `t` is the cycle in it. */
   beam(): BeamPos { return this.gridBeam(); }
   beamInfo(): BeamInfo {
@@ -435,13 +511,21 @@ export class Apple2Machine extends BaseMachine implements Machine {
    *  value. */
   private catchUpVideo(addr: number, write: boolean): void {
     if (!this.frameOpen) return;
-    const pc = this.insnPc;
-    const t = accessTime(this.cpu.tStates, this.peekOpcode(pc), pc, addr, write, this.modelInfo.cmos);
+    const t = this.accessCycle(addr, write);
     this.finishVideoLines(t);
     if (this.videoLine >= APPLE2_VBL_LINE) return;
     const lineStart = this.videoLineEndT - APPLE2_CYCLES_PER_LINE;
     this.syncVideoState();
     this.video.fetchLine(this.videoState, this.videoLine, t - lineStart - FIRST_COLUMN_CYCLE + 1);
+  }
+
+  /** The CPU cycle of the bus access in progress to a slot I/O address (the
+   *  6502 core makes its accesses before it counts the instruction's cycles),
+   *  or the current count outside an instruction. Loads, stores and the
+   *  read-modify-write steps of an I/O access fall on a cycle that depends only
+   *  on the opcode, not the address. */
+  private busCycle(write: boolean): number {
+    return this.accessCycle(0xC0E0, write);
   }
 
   protected runFrame(): void {
@@ -610,6 +694,171 @@ export class Apple2Machine extends BaseMachine implements Machine {
     return { data: this.memory.ram.slice(), filename: `${this.model}-ram-48k.bin` };
   }
 
-  startTrace(_mode = 'full'): void {}
-  stopTrace(): string { return ''; }
+  /** Execution trace: BaseMachine's startTrace/stopTrace drive it and
+   *  beforeInsn feeds it (debug/m6502/trace.ts). */
+  protected override tracer = new M6502Trace(this, {
+    io: [[0xC000, 0xC0FF]],
+    // Reads of the soft switches flip them, and of $C800-$CFFF (re)select the
+    // card that owns the expansion ROM.
+    noRead: [[0xC000, 0xC0FF], [0xC800, 0xCFFF]],
+    ioLabel: apple2IoLabel,
+  });
+
+  // ── Snapshots (.a2state; see shared/native-state.ts for the container) ───
+
+  /** Set when a state without its media (the browser-refresh copy) has been
+   *  restored: the shell then remounts the persisted disks, and that must not
+   *  reboot or move the heads (see the media service). Cleared by any reset. */
+  refreshResumed = false;
+
+  /** CRC-32s of the system ROM, the //e's internal ROM, the Disk II card's
+   *  ROM and the Videx card's (0 for what is not there), for the snapshot
+   *  header. */
+  stateRomCrcs(): number[] {
+    const disk = this.memory.slotRom[6];
+    return [
+      crc32(this.memory.rom),
+      this.modelInfo.iie ? crc32(this.mmu.internalRomImage) : 0,
+      this.options.disk2 && disk ? crc32(disk) : 0,
+      this.videx ? crc32(this.videx.rom) : 0,
+    ];
+  }
+
+  /** The cards a state depends on, as the Hardware pane names them. */
+  private static cardsName(fitted: readonly boolean[]): string {
+    const names = ['Disk II', 'language card', '80-column card', 'Mockingboard'].filter((_, i) => fitted[i]);
+    return names.length === 0 ? 'no cards' : names.join(', ');
+  }
+
+  /** Run the rest of a frame a stop left part-way, with every stop set aside,
+   *  so the machine is between frames (a snapshot is taken there). */
+  private completeFrame(): void {
+    if (!this.midFrame) return;
+    withStopsDisarmed(this, () => {
+      this.resumeSkipPc = -1;
+      this.stepFrame();
+    });
+  }
+
+  /**
+   * Write the machine's state between frames: the CPU, the soft switches,
+   * the memory (with the language card and, on the //e, the auxiliary RAM and
+   * MMU), the keyboard latch, the game port (timers, annunciators and the
+   * sticks as held), the fitted cards and the
+   * Disk II controller. The picture is fetched afresh every frame, so nothing
+   * of the line in progress is carried. `withMedia` adds the disks and the
+   * tape; the refresh path leaves them to the shell. Keys held on the host are
+   * live input, not machine state.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    // The cards first, so a restore can refuse a mismatch before it changes
+    // anything.
+    w.section('CONF', () => {
+      const o = this.options;
+      for (const on of [o.disk2, o.languageCard, o.eightyColumn, o.mockingboard]) w.bool(on);
+      w.u8(o.drives);
+    });
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameNumber); w.f64(this.frameStartT); w.f64(this.frameEndT);
+      w.bool(this.textMode); w.bool(this.mixed); w.bool(this.page2); w.bool(this.hires);
+      w.bool(this.col80); w.bool(this.altCharset); w.bool(this.dhires);
+      w.bool(this.flashPhase); w.u8(this.flashFrame);
+      w.u8(this.speaker.level);
+    });
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('KBD ', () => this.keyboard.saveState(w));
+    w.section('PDL ', () => this.paddles.saveState(w));
+    w.section('MOCK', () => this.mockingboard?.saveState(w));
+    w.section('VIDX', () => this.videx?.saveState(w));
+    w.section('TAPE', () => {
+      this.cassette.saveState(w, withMedia);
+      // What the program has written to the cassette output so far.
+      this.tapeRecorder.saveState(w);
+      w.f64(this.tapeClockBase);
+    });
+    // The disks go before the controller, which a remount would otherwise reset.
+    w.section('MEDA', () => {
+      w.bool(withMedia);
+      if (withMedia) this.services.disks.saveState(w);
+    });
+    w.section('DSK2', () => this.disk2.saveState(w));
+  }
+
+  /**
+   * Restore a state written by `saveState` into this machine, which is the
+   * same model; one saved with other cards or another drive count is refused
+   * before anything changes. The frame loop must be stopped. The ROMs, settings and, for a state without media,
+   * the drives and tape stay as they are.
+   */
+  loadState(r: StateReader): void {
+    {
+      const s = r.section('CONF');
+      const saved = [s.bool(), s.bool(), s.bool(), s.bool()];
+      const drives = s.u8();
+      const o = this.options;
+      const live = [o.disk2, o.languageCard, o.eightyColumn, o.mockingboard];
+      if (saved.some((on, i) => on !== live[i])) {
+        throw new Error(`This snapshot was saved with ${Apple2Machine.cardsName(saved)} and this machine has ${Apple2Machine.cardsName(live)}; change it in the Hardware pane and load it again`);
+      }
+      if (o.disk2 && drives !== o.drives) {
+        throw new Error(`This snapshot was saved with ${drives} drives and this machine has ${o.drives}; change it in the Drives pane and load it again`);
+      }
+    }
+    this.midFrame = false;
+    this.clearInterrupts();
+    this.cpu.loadState(r.section('CPU '));
+    {
+      const s = r.section('MACH');
+      this.frameNumber = s.f64(); this.frameStartT = s.f64(); this.frameEndT = s.f64();
+      this.textMode = s.bool(); this.mixed = s.bool(); this.page2 = s.bool(); this.hires = s.bool();
+      this.col80 = s.bool(); this.altCharset = s.bool(); this.dhires = s.bool();
+      this.flashPhase = s.bool(); this.flashFrame = s.u8();
+      this.speaker.level = s.u8() & 1;
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.keyboard.loadState(r.section('KBD '));
+    this.paddles.loadState(r.section('PDL '));
+    {
+      const s = r.section('MOCK');
+      this.mockingboard?.loadState(s);
+    }
+    {
+      const s = r.section('VIDX');
+      this.videx?.loadState(s);
+    }
+    {
+      const s = r.section('TAPE');
+      this.cassette.loadState(s);
+      this.tapeRecorder.loadState(s);
+      this.tapeClockBase = s.f64();
+    }
+    let withMedia: boolean;
+    {
+      const s = r.section('MEDA');
+      withMedia = s.bool();
+      if (withMedia) this.services.disks.loadState(s);
+    }
+    this.disk2.loadState(r.section('DSK2'));
+    if (this.mockingboard) this.cpu.setIRQ(this.mockingboard.irq);
+
+    this.refreshResumed = !withMedia;
+    this.activity.beeperToggled = false;
+    this.activity.cassetteToggles = 0;
+    this.activity.kbdReads = 0;
+    this.audio.reset();
+    this.mixer.reset();
+    this.syncVideoState();
+    this.video.render(this.videoState);
+    this.needsDisplay = true;
+  }
+}
+
+/** Portio-trace names for the Apple II's $C0xx soft switches and slot I/O. */
+function apple2IoLabel(addr: number): string {
+  if (addr >= 0xC090) return `SLOT${(addr >> 4) & 7}`;
+  if (addr >= 0xC050 && addr < 0xC058) return 'VIDEO';
+  if (addr >= 0xC058 && addr < 0xC060) return 'ANN';
+  return ['KBD', 'KBDSTR', 'CASOUT', 'SPKR', 'STROBE', '', 'INPUT', 'PDLTRG', 'LC'][(addr >> 4) & 0xF] ?? '';
 }

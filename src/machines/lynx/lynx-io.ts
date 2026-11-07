@@ -55,7 +55,12 @@ function portIn(m: LynxMachine, port: number): number {
     return 0xfb | (m.cassetteInput() ? 4 : 0);
   }
 
-  if (low === PORT_CRTC_ADDR) return m.crtc.readStatus();
+  // The Lynx's CRTC is a plain 6845 ("IC40 6845" on Camputers' diagrams),
+  // with no status register: its address register is write-only, so a read
+  // of 0x86 finds nothing driving the bus. The status register is a feature
+  // of later variants (UM6845R, R6545) the Lynx does not use. The MiSTer
+  // Lynx48 core, which runs the stock ROMs, reads 0xFF here too.
+  if (low === PORT_CRTC_ADDR) return 0xff;
   if (low === PORT_CRTC_DATA) return m.crtc.readRegister();
 
   if (m.hasDisk && low >= PORT_FDC_READ && low <= PORT_FDC_READ + 3) {
@@ -101,10 +106,11 @@ function portOut(m: LynxMachine, port: number, value: number): void {
       return;
 
     case PORT_DAC:
-      // With the motor running this is the cassette output (bit 5 as a square
-      // wave); otherwise it is the sound DAC.
+      // With the motor running this is the cassette output (bit 5, the DAC's
+      // top bit, as a square wave); otherwise it is the sound DAC, whose latch
+      // holds D0-D5 only.
       if (m.tapeMotorOn) m.cassetteOutput((v & 0x20) === 0);
-      else m.dacLevel = v;
+      else m.dacLevel = v & 0x3f;
       return;
 
     case PORT_CRTC_ADDR:

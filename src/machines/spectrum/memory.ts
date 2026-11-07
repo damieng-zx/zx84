@@ -89,6 +89,12 @@ export class SpectrumMemory implements IMachineMemory {
    *  Cleared by reset. */
   portEFF7 = 0;
 
+  /** Scorpion ZS-256 Turbo+ clock latch: true runs the CPU at 7 MHz. Set by an
+   *  IN from the 7FFD address, cleared by an IN from 1FFD and by reset. Kept
+   *  with the paging registers so the SZX writer, which is handed the memory,
+   *  can carry it. */
+  cpuTurbo = false;
+
   /** How 7FFD (and, on the Scorpion, 1FFD) form the RAM and ROM page numbers. */
   readonly scheme: PagingScheme;
 
@@ -387,6 +393,7 @@ export class SpectrumMemory implements IMachineMemory {
     this.port7FFD = 0;
     this.port1FFD = 0;
     this.portEFF7 = 0;
+    this.cpuTurbo = false;
     this.pagingLocked = false;
     this.currentBank = 0;
     this.currentROM = 0;

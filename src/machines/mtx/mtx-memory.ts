@@ -1,4 +1,5 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { MtxModel } from './models.ts';
 
 const BLOCK_SIZE = 0x4000;
@@ -166,6 +167,27 @@ export class MtxMemory implements IMachineMemory {
     // The motherboard RAM is working memory, while the 512 KiB expansion is
     // also used as CP/M's volatile RAM disc and survives the reset line.
     for (let i = 0; i < this.baseRamBlocks; i++) this.ramBanks[i].fill(0);
+  }
+
+  /** The page register, the ROM-card subpage latch, every RAM block and the
+   *  ROM pack (which is not persisted elsewhere, and whose insertion resets
+   *  the machine, so the state carries it). The caller has checked the RAM
+   *  size matches. */
+  saveState(w: StateWriter): void {
+    w.u8(this.ioByte);
+    w.u8(this.romSubpage);
+    w.u16(this.ramBanks.length);
+    for (const bank of this.ramBanks) w.raw(bank);
+    w.bool(this.romPack !== null);
+    if (this.romPack) w.bytes(this.romPack);
+  }
+
+  loadState(r: StateReader): void {
+    this.ioByte = r.u8();
+    this.romSubpage = r.u8();
+    if (r.u16() !== this.ramBanks.length) throw new Error('Snapshot RAM size does not match this MTX');
+    for (const bank of this.ramBanks) r.rawInto(bank);
+    this.romPack = r.bool() ? r.bytes(ROM_PACK_MAX_SIZE) : null;
   }
 
   private ramLocation(addr: number): { bank: Uint8Array; offset: number } | null {

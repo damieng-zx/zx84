@@ -100,7 +100,7 @@ export class EinsteinFrameProbe implements FrameProbe {
     out.tapePosition = 0;
     out.casBlock = -1;
     out.fastRomLoading = false;
-    out.tracingActive = false;
+    out.tracingActive = this.m.traceActive;
 
     // Drive A:/B: track/sector readout + LED (WD1770 units 0/1).
     const fdc = m.fdc;

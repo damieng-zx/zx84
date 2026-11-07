@@ -147,9 +147,18 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
       case 0x30: // Einstein 256: port A = printer data low nibble + strobe;
         //          0x31 = port A interrupt mask. Not modelled (no printer).
         break;
-      case 0x38: // ADC0844 (TC-01): a write starts a conversion; INTR
-        //          asserts when it completes (ADC interrupt source).
-        if (!is256) m.adcDoneAt = m.cpu.tStates + EINSTEIN_ADC_CONVERSION_T;
+      case 0x38: // ADC0844 (TC-01): the byte is the MUX address (b2 set:
+        //          single-ended, b1-b0 the channel) and starts a
+        //          conversion; INTR asserts when it completes (ADC
+        //          interrupt source). Einstein 256: the pseudo-ADC
+        //          latches the selection and interrupts at once.
+        if (is256) {
+          m.pseudoAdc = val & 0xFF;
+          m.boardIntPending |= EINSTEIN_INT_ADC;
+        } else {
+          m.adcChannel = val & 3;
+          m.adcDoneAt = m.cpu.tStates + EINSTEIN_ADC_CONVERSION_T;
+        }
         break;
       // 0x10 (8251): no-op for now.
     }
@@ -214,21 +223,23 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
         return 0xFF;
       case 0x28: // Z80 CTC
         return ctc.read(reg);
-      case 0x30: // Einstein 256: joystick/printer ports. 0x30 = joy 1 + printer
-        //          status (idle high), 0x32 = joy 2; 0x31 is write-only.
+      case 0x30: // Einstein 256: joystick/printer ports, b4-b0 a stick's
+        //          fire/right/left/down/up (active low) and b6-b5 printer
+        //          status (idle high). 0x30 is port A, 0x32 port B; 0x31 is
+        //          write-only. Port B's fire is status bit 0 and its stick the
+        //          pseudo-ADC's first pair, so it is joystick 1 (player 1).
         if (is256) {
-          if (reg === 0) return 0x60 | kbd.joystickByte(1);
-          if (reg === 2) return 0x60 | kbd.joystickByte(2);
+          if (reg === 0) return 0x60 | kbd.joystickByte(2, m.joystickDirBits(1));
+          if (reg === 2) return 0x60 | kbd.joystickByte(1, m.joystickDirBits(0));
           return 0xFF;
         }
         return 0xFF;
-      case 0x38: // Einstein 256 pseudo-ADC: joystick centred.
-        if (is256) return 0x7F;
-        // TC-01 ADC0844 (0x38–0x3F): no analogue joystick attached, so every
-        // channel converts a centred stick — mid-scale, as MAME's analogue
-        // ports default to 0x80.
-        m.boardIntPending &= ~EINSTEIN_INT_ADC;     // ADC0844 /RD clears INTR
-        return 0x80;
+      case 0x38:
+        m.boardIntPending &= ~EINSTEIN_INT_ADC;     // reading clears INTR
+        // Einstein 256: a digital stick read as an ADC (0x00 / 0x7F / 0xFF).
+        if (is256) return m.pseudoAdcRead();
+        // TC-01 ADC0844 (0x38–0x3F): the last conversion's result.
+        return m.adcResult;
       default:   // 8251 data, PIO, ADC, unmapped
         return 0xFF;
     }

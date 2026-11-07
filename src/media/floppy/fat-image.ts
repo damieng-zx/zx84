@@ -9,6 +9,9 @@
  */
 
 import type { DskImage, DskSector, DskTrack } from './disk-image.ts';
+import { sniffDiskContainer } from './disk-detect.ts';
+import { parseFloppyImage } from './hfe.ts';
+import { detectMsxGeometry, isMsxImg, parseMsxRaw } from './msx-disk.ts';
 
 const SECTOR_BYTES = 512;
 
@@ -72,7 +75,7 @@ export function parseFatImage(data: Uint8Array, label = 'FAT12 IMG'): DskImage |
         sectors.push({ c, h, r: s + 1, n: 2, st1: 0, st2: 0, data: d });
         sectorMap.set(s + 1, s);
       }
-      sides.push({ sectors, sectorMap, gap3: 84, filler: 0xE5 });
+      sides.push({ sectors, sectorMap, gap3: 84, filler: 0xE5, encoding: 'mfm' });
     }
     tracks.push(sides);
   }
@@ -84,6 +87,27 @@ export function parseFatImage(data: Uint8Array, label = 'FAT12 IMG'): DskImage |
     diskFormat: label,
     protection: '',
   };
+}
+
+/**
+ * Any disk file a PC-compatible FAT machine (EXDOS) can be given: a container
+ * recognised by its signature — HFE (v1/v3, FM or MFM), SCP flux, Teledisk or a
+ * CPC-style (extended) DSK — decoded track by track; otherwise a headerless
+ * dump, after dropping an MSX `.img` header byte, laid out by its boot sector
+ * or size (see {@link fatGeometry}) or, failing that, by the MSX media
+ * descriptor (truncated and padded dumps). Null when nothing fits. Disks of
+ * other geometries than 720K come through intact; whether the machine's DOS
+ * can read them is up to it.
+ */
+export function parseFatFloppy(data: Uint8Array, label = 'FAT12 IMG'): DskImage | null {
+  if (sniffDiskContainer(data) !== null) return parseFloppyImage(data);
+  const raw = isMsxImg(data) ? data.subarray(1) : data;
+  const fat = parseFatImage(raw, label);
+  if (fat) return fat;
+  if (!detectMsxGeometry(raw)) return null;
+  const msx = parseMsxRaw(raw);
+  msx.diskFormat = label;
+  return msx;
 }
 
 /** One entry of a FAT root directory. */

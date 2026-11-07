@@ -26,6 +26,7 @@ import { ScreenText, OCR_GRIDS, detectGrid } from '@/ocr/spectrum.ts';
 import type { FontSource, OcrResult, OcrGridName, SpectrumOcrGrid } from '@/ocr/ocr.ts';
 import { trapTapeLoad } from '@/machines/spectrum/tape-loader.ts';
 import { LoaderDetector } from '@/media/tape/loader-detector.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import { installMemoryHooks, wirePortIO } from '@/machines/spectrum/io.ts';
 import { KempstonJoystick } from '@/machines/spectrum/peripherals/joysticks.ts';
 import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
@@ -71,8 +72,9 @@ const UNVERIFIED_DISPLAY_START: ReadonlySet<string> = new Set([
 ]);
 
 import type { SpectrumModel } from '@/models.ts';
-import { betaRomInSystemRom, isPentagonClass, isScorpionClass } from '@/machines/spectrum/models.ts';
+import { betaRomInSystemRom, hasBoardIssueOption, isPentagonClass, isPlus2AClass, isScorpionClass } from '@/machines/spectrum/models.ts';
 import { withTrdosMenuEntry } from '@/machines/spectrum/pentagon-menu.ts';
+import { ScorpionBoard } from '@/machines/spectrum/scorpion.ts';
 import { IOActivity } from '@/machines/spectrum/activity.ts';
 
 // Re-export IOActivity from its neutral home so existing imports from
@@ -216,6 +218,25 @@ export class Spectrum extends BaseMachine implements Machine {
   /** Currah µSpeech (16K/48K/128K/+2) — SP0256-AL2 speech synthesiser + 2KB ROM. */
   currah = new CurrahUSpeech();
 
+  /** Set by installMemoryHooks: how many bytes from the start of the displayed
+   *  bank a CPU write must flush the beam for (bitmap + attributes). */
+  setVramFlushLen: (len: number) => void = () => {};
+
+  /** Follow the Pentagon 1024's EFF7 bit 5 (hardware multicolour: one
+   *  attribute per bitmap byte, at 0x6000-0x77FF). EFF7 is 0 on every other
+   *  model, so this is a no-op there. Called on an EFF7 write, at reset and at
+   *  each frame start (a snapshot load sets EFF7 directly). */
+  syncPentagonVideo(): void {
+    const perByte = (this.memory.portEFF7 & 0x20) !== 0;
+    if (perByte === this.ula.attrPerByte) return;
+    this.ula.attrPerByte = perByte;
+    this.setVramFlushLen(perByte ? 0x3800 : 0x1B00);
+  }
+
+  /** Scorpion ZS-256 board logic (even-M1 wait, Turbo+ clock, #FF port, Magic
+   *  button); null on every other model. See scorpion.ts. */
+  readonly scorpion: ScorpionBoard | null;
+
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
   // The `turbo` flag plus running/starting/rafId/needsDisplay and the wall-clock
@@ -266,6 +287,9 @@ export class Spectrum extends BaseMachine implements Machine {
   /** Tape auto play/stop detector — decides when the tape runs and exposes
    *  `loaderActive` to engage tape turbo. Never touches CPU/tape data. */
   loaderDetector = new LoaderDetector();
+  /** Times the MIC line (port 0xFE bit 3) — what SAVE writes to tape. Read
+   *  back as a .tzx by the tape service (see tape-save.ts). */
+  readonly micRecorder = new PulseRecorder();
 
   /** T-state at which the tape was last advanced (for sub-instruction accuracy) */
   tapeLastAdvanceT = 0;
@@ -345,6 +369,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.keyboard = new SpectrumKeyboard();
     this.ula = new ULA(this.keyboard);
+    this.setBoardIssue2(false);
     this.display = display ?? null;
     this.audio = new Audio();
     // Initial AY rate tracks the Audio default; start() updates it once the
@@ -362,8 +387,10 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tape.is48K = this.variant.is48K;
     this.fdc = new UPD765A();
     this.trace = new SpectrumTrace(this);
+    this.tracer = this.trace;
     installMemoryHooks(this);
     wirePortIO(this);
+    this.scorpion = isScorpionClass(model) ? new ScorpionBoard(this) : null;
 
     this.tape.onPlayStateChange = () => {
       this.loaderDetector.onTapePlayStateChange();
@@ -432,7 +459,6 @@ export class Spectrum extends BaseMachine implements Machine {
     this.mixer.ayGain = gains.psg ?? 1;
     this.mixer.auxGain = gains.specdrum;
     this.mixer.monoGain = gains.uspeech ?? 1;
-    this.ula.micAudible = view.get('mic-audible', true);
     // The SpecDrum needs no ROM, so it is fitted/removed live here (and read once
     // at build by prepare()).
     this.setSpecdrumFitted(view.get('specdrum', false));
@@ -441,6 +467,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.tapeSoundEnabled = view.get('tape-sound', true);
     this.tapeAutoRewind = view.get('tape-auto-rewind', false);
     this.scanlineAccuracy = view.get('scanline-accuracy', 'high') as 'high' | 'mid' | 'low';
+    this.setBoardIssue2(view.get('spectrum-issue2', false));
     applyAySettings(this.ay, view);
     this.joystick.enabled = view.get<string>('joy-p1', 'kempston') === 'kempston'
       || view.get<string>('joy-p2', 'sinclair2') === 'kempston';
@@ -450,6 +477,23 @@ export class Spectrum extends BaseMachine implements Machine {
       this.currah.pageOut(this.memory);
       this.currah.enabled = false;
     }
+  }
+
+  /** True when the 16K/48K is fitted as an Issue 1/2 board (see setBoardIssue2). */
+  get boardIssue2(): boolean { return this.issue2Board; }
+  private issue2Board = false;
+
+  /**
+   * Choose the board's EAR/MIC network, which decides what port 0xFE bit 6
+   * reads back after an OUT with no tape signal: Issue 1/2 boards read bit 3
+   * OR bit 4, Issue 3 boards (and the 128K/+2) bit 4 alone, and the +2A/+3
+   * gate array never feeds the output back. Only the 16K and 48K offer the
+   * choice; elsewhere `on` is ignored. Takes effect at once (a board fact, not
+   * something software sets), so a reset is not needed.
+   */
+  setBoardIssue2(on: boolean): void {
+    this.issue2Board = on && hasBoardIssueOption(this.model);
+    this.ula.setEarFeedback(this.issue2Board ? 'issue2' : isPlus2AClass(this.model) ? 'none' : 'issue3');
   }
 
   /**
@@ -592,6 +636,7 @@ export class Spectrum extends BaseMachine implements Machine {
     this.cpu.reset();
     this.ay.reset();
     this.ula.reset();
+    this.micRecorder.reset();
     this.keyboard.reset();
     this.audio.reset();
     this.fdc.reset();
@@ -624,6 +669,8 @@ export class Spectrum extends BaseMachine implements Machine {
     // Beta Disk is paged OUT at reset; TR-DOS ROM maps itself in via the M1
     // fetch trap (0x3Dxx) once BASIC enters it. See beta-disk.ts.
     this.betaDisk.reset();
+    this.scorpion?.reset();
+    this.syncPentagonVideo();
     // The µSpeech drops out on reset and its ROM maps itself in again on the first
     // interrupt (the M1 fetch at 0x0038).
     this.currah.reset();
@@ -867,6 +914,7 @@ export class Spectrum extends BaseMachine implements Machine {
     // Low mode skips this — renderFrame() handles flash internally.
     // (A resumed frame keeps the render position it had reached.)
     if (!resuming) {
+      this.syncPentagonVideo();
       if (this._scanAcc > 0) this.ula.advanceFlash();
       const borderTop = this.ula.borderTop;
       const borderLeft = this.ula.borderLeft;

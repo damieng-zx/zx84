@@ -55,18 +55,78 @@ describe('ASIC — horizontal centring composes with hscroll/extendBorder', () =
     expect(a.startX(48)).toBe(0);
   });
 
-  it('unlocked hscroll shifts the centred base left by hscroll pixels', () => {
+  it('soft scroll and border extend leave the display window where it is', () => {
+    // CPCWiki "ASIC", SSCR: both act on the pixels inside the window.
     const a = new TestAsic();
     a.locked = false;
     a.hscroll = 5;
-    expect(a.startX(40)).toBe(64 - 5);   // 59
+    a.extendBorder = true;
+    expect(a.startX(40)).toBe(64);
+  });
+});
+
+describe('ASIC soft scroll register (&6804) on the rendered line', () => {
+  // CPCWiki "ASIC", SSCR: bits 3..0 delay the line by 0-15 mode-2 pixels, so
+  // the image moves right and its last pixels are lost behind the right
+  // border; bit 7 extends the border over the first 2 bytes (16 mode-2
+  // pixels) of each line. Mode 2 here: byte 0x80 lights one pixel (pen 1) at
+  // the left of each byte.
+  const BORDER = 0xFF000001;
+  const PEN0 = 0xFF000010;
+  const PEN1 = 0xFF000020;
+
+  function render(hscroll: number, extend: boolean, readVideo: (addr: number) => number): Uint32Array {
+    const a = new Asic();
+    a.locked = false;
+    a.asicPalette[0] = PEN0;
+    a.asicPalette[1] = PEN1;
+    a.asicPalette[16] = BORDER;
+    a.cpuWrite(0x2804, (extend ? 0x80 : 0) | hscroll);
+    a.write(0x80 | 0x02);                 // RMR: mode 2
+    a.onHSync();                          // latch the mode
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    a.renderScanline(px, 0, { maRow: 0x3000, ra: 0, hDisplayed: 40, vDisplay: true }, readVideo);
+    return px;
+  }
+  const firstByteOnly = (addr: number): number => (addr === 0xC000 ? 0x80 : 0x00);
+
+  it('no scroll: the first pixel of the line is at the window start', () => {
+    const px = render(0, false, firstByteOnly);
+    expect(px[64]).toBe(PEN1);
+    expect(px[65]).toBe(PEN0);
   });
 
-  it('unlocked extendBorder shifts the centred base right by 16 pixels', () => {
-    const a = new TestAsic();
-    a.locked = false;
-    a.extendBorder = true;
-    expect(a.startX(40)).toBe(64 + 16);  // 80
+  it('a delay of 5 moves that pixel 5 mode-2 pixels right', () => {
+    const px = render(5, false, firstByteOnly);
+    expect(px[64 + 5]).toBe(PEN1);
+    expect(px[64]).toBe(PEN0);            // the gap holds data, not border
+  });
+
+  it("the delayed line's last pixels go behind the right border", () => {
+    const px = render(5, false, () => 0xFF);
+    expect(px[64 + 640 - 1]).toBe(PEN1);  // still the window's last pixel
+    expect(px[64 + 640]).toBe(BORDER);    // nothing spills past the window
+  });
+
+  it('border extend covers the first 16 pixels of the line with the border colour', () => {
+    const px = render(0, true, () => 0xFF);
+    expect(px[64]).toBe(BORDER);
+    expect(px[64 + 15]).toBe(BORDER);
+    expect(px[64 + 16]).toBe(PEN1);
+    expect(px[64 + 639]).toBe(PEN1);      // the right edge is unchanged
+  });
+
+  it('while locked the register has no effect', () => {
+    const a = new Asic();
+    a.cpuWrite(0x2804, 0x85);
+    const px = new Uint32Array(CPC_SCREEN_WIDTH * CPC_SCREEN_HEIGHT);
+    a.write(0x01);                        // pen 1 ...
+    a.write(0x40 | 0x0A);                 // ... hardware colour 10 (border stays 0)
+    a.write(0x80 | 0x02);
+    a.onHSync();
+    a.renderScanline(px, 0, { maRow: 0x3000, ra: 0, hDisplayed: 40, vDisplay: true }, firstByteOnly);
+    expect(px[64]).not.toBe(px[0]);       // content, not border, at the window start
+    expect(px[63]).toBe(px[0]);
   });
 });
 

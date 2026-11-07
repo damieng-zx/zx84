@@ -8,6 +8,7 @@
  */
 
 import type { DskImage } from '@/media/floppy/disk-image.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 export interface BbcDiscController {
   /** Read a register in the floppy window (0xFE80-0xFE87). */
@@ -40,4 +41,8 @@ export interface BbcDiscController {
   getUnitTrack(unit: number): number;
   /** Unit a FORMAT just completed on, or -1 (cleared by the probe). */
   formattedUnit: number;
+
+  /** Snapshot: the controller's state, taken after the discs are restored. */
+  saveState(w: StateWriter): void;
+  loadState(r: StateReader): void;
 }

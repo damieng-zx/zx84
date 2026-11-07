@@ -471,15 +471,187 @@ describe('readCpcSnaModel', () => {
     expect(readCpcSnaModel(gx)).toEqual({ model: 'gx4000', version: 3 });
   });
 
-  it('falls back to 6128 for the unknown (3) and unmodelled 464-Plus (5) type bytes', () => {
+  it('falls back to 6128 for the unknown (3) type byte', () => {
     const data = saveCpcSna(new CpcMachine('cpc6128', null), 3);
     data[0x6D] = 3;
     expect(readCpcSnaModel(data).model).toBe('cpc6128');
+  });
+
+  it('loads a 464 Plus (5) snapshot as the nearest modelled Plus, the 6128 Plus', () => {
+    // CPCWiki SNA: 5 = 464 Plus. It has the ASIC (so the Plus chunks apply)
+    // and 64K; the 6128 Plus is the closest Plus model zx84 has.
+    const data = saveCpcSna(new CpcMachine('cpc6128', null), 3);
     data[0x6D] = 5;
-    expect(readCpcSnaModel(data).model).toBe('cpc6128');
+    expect(readCpcSnaModel(data).model).toBe('cpc6128plus');
   });
 
   it('rejects a file without the MV - SNA signature', () => {
     expect(() => readCpcSnaModel(new Uint8Array(512))).toThrow(/signature/);
+  });
+});
+
+describe('CPC .SNA v3 CRTC type and internal counters', () => {
+  // cpcwiki SNA v3: 0xA4 CRTC type (0 HD6845S/UM6845, 1 UM6845R, 2 MC6845,
+  // 3 the CPC+ ASIC's, 4 the Pre-ASIC); 0xA9 horizontal character counter,
+  // 0xAB character row (VCC), 0xAC raster (RA), 0xAD vertical total adjust
+  // counter, 0xAE HSYNC width counter, 0xAF VSYNC width counter, 0xB0 flags
+  // (bit 0 VSYNC, bit 1 HSYNC, bit 7 vertical total adjust active).
+
+  /** A v3 6128 snapshot with the standard CRTC set (64 chars, 39 rows of 8,
+   *  VSYNC row 30 width 8). */
+  function standardSna(): Uint8Array {
+    const data = v3Header(2, 0);
+    const regs = [63, 40, 46, 0x8E, 38, 0, 25, 30, 0, 7, 0, 0, 0x30, 0, 0, 0, 0, 0];
+    data.set(regs, 0x43);
+    return data;
+  }
+
+  it('fits the snapshot\'s CRTC type on a 6128, and maps the Pre-ASIC (4) to type 3', () => {
+    const m = new CpcMachine('cpc6128', null);
+    const data = standardSna();
+    data[0xA4] = 1;
+    applyCpcSna(data, m);
+    expect(m.crtc.type).toBe(1);
+    expect(m.crtc.regs[3]).toBe(0x0E);         // a UM6845R has no VSYNC width field
+    data[0xA4] = 4;
+    applyCpcSna(data, m);
+    expect(m.crtc.type).toBe(3);
+  });
+
+  it('keeps the Plus on its ASIC CRTC whatever the byte says', () => {
+    const m = new CpcMachine('cpc6128plus', null);
+    const data = v3Header(4, 0);
+    data[0xA4] = 0;
+    applyCpcSna(data, m);
+    expect(m.crtc.type).toBe(3);
+  });
+
+  it('writes the fitted CRTC type on save', () => {
+    const m = new CpcMachine('cpc6128', null);
+    m.crtc.setType(2);
+    expect(saveCpcSna(m, 3)[0xA4]).toBe(2);
+    expect(saveCpcSna(new CpcMachine('gx4000', null), 3)[0xA4]).toBe(3);
+  });
+
+  it('resumes the raster mid-frame: row 10, raster 3, character 20', () => {
+    const m = new CpcMachine('cpc6128', null);
+    const data = standardSna();
+    data[0xA9] = 20; data[0xAB] = 10; data[0xAC] = 3;
+    applyCpcSna(data, m);
+    expect(m.crtc.rowCounter).toBe(10);
+    expect(m.crtc.rasterAddress).toBe(3);
+    expect(m.crtc.rowAddress).toBe(0x3000 + 10 * 40);   // R12/R13 + VCC·R1
+    // The frame in progress is 83 lines and 20 characters (4 T each) in.
+    const lineT = 64 * 4;
+    expect(m.beam().t).toBe(83 * lineT + 20 * 4);
+    // Running on finishes that frame: VSYNC begins at row 30 (line 240).
+    const t0 = m.cpu.tStates;
+    let vsyncAt = -1;
+    while (m.cpu.tStates - t0 < (312 - 83) * lineT) {
+      m.cpu.step();
+      if (vsyncAt < 0 && m.crtc.vsyncActive) vsyncAt = m.cpu.tStates - t0;
+      if (m.cpu.tStates - t0 > 4 * lineT) break;
+    }
+    m.tick();
+    expect(m.crtc.rowCounter).toBe(0);           // the next frame has begun...
+    // ...after exactly the rest of the resumed frame (one NOP of overshoot).
+    expect(m.cpu.tStates - t0 - ((312 - 83) * lineT - 20 * 4)).toBeLessThan(8);
+    expect(vsyncAt).toBe(-1);                     // not before line 240
+  });
+
+  it('restores an active VSYNC with the lines it has left', () => {
+    const m = new CpcMachine('cpc6128', null);
+    const data = standardSna();
+    data[0xAB] = 30; data[0xAC] = 2;              // third VSYNC line
+    data[0xAF] = 2; data[0xB0] = 0x01;
+    applyCpcSna(data, m);
+    expect(m.crtc.vsyncActive).toBe(true);
+    expect(m.crtc.vsyncRemaining).toBe(6);        // width 8, 2 done
+  });
+
+  it('a stopped-mid-frame machine saves the counters it is at, and they load back', () => {
+    const src = new CpcMachine('cpc6128', null);
+    const data = standardSna();
+    data[0xA9] = 50; data[0xAB] = 31; data[0xAC] = 5;   // VSYNC row, past HSYNC start
+    data[0xAF] = 5; data[0xB0] = 0x03; data[0xAE] = 4;
+    applyCpcSna(data, src);
+    const saved = saveCpcSna(src, 3);
+    expect(saved[0xA9]).toBe(50);
+    expect(saved[0xAB]).toBe(31);
+    expect(saved[0xAC]).toBe(5);
+    expect(saved[0xAF]).toBe(5);
+    expect(saved[0xAE]).toBe(4);                   // HCC 50 − R2 46
+    expect(saved[0xB0]).toBe(0x03);
+  });
+
+  it('a snapshot taken between frames saves the start of the next frame', () => {
+    const m = new CpcMachine('cpc6128', null);
+    const saved = saveCpcSna(m, 3);
+    expect([saved[0xA9], saved[0xAB], saved[0xAC], saved[0xB0] & 0x82]).toEqual([0, 0, 0, 0]);
+  });
+});
+
+describe('CPC .SNA with a RAM expansion', () => {
+  // cpcwiki SNA: memory beyond the base 64K follows in order — MEM1 the
+  // 6128's second 64K (Dk'tronics block 0), MEM1-4 a 256K expansion; the
+  // uncompressed size can be 64K, 128K, 320K or 576K.
+  function expanded(kb: 0 | 256 | 512): CpcMachine {
+    const m = new CpcMachine('cpc6128', null);
+    m.memory.setExpansion(kb);
+    for (let b = 0; b < m.memory.ramBankCount; b++) m.memory.getRamBank(b).fill(b + 1);
+    return m;
+  }
+
+  it('v2 dumps 320K flat on a 6128 with 256K', () => {
+    const data = saveCpcSna(expanded(256), 2);
+    expect(data[0x6B] | (data[0x6C] << 8)).toBe(320);
+    expect(data.length).toBe(256 + 320 * 1024);
+    expect(data[256 + 19 * SLOT]).toBe(20);        // bank 19, last of block 3
+  });
+
+  it('v3 carries MEM0..MEM8 on a 6128 with 512K and loads them back', () => {
+    const data = saveCpcSna(expanded(512), 3);
+    const m = expanded(512);
+    for (let b = 0; b < m.memory.ramBankCount; b++) m.memory.getRamBank(b).fill(0);
+    applyCpcSna(data, m);
+    expect(m.memory.getRamBank(35)[100]).toBe(36);
+    expect(m.memory.getRamBank(12)[0]).toBe(13);
+  });
+
+  it('refuses expansion RAM on a machine without the expansion, before changing anything', () => {
+    const data = saveCpcSna(expanded(256), 2);
+    const m = new CpcMachine('cpc6128', null);
+    m.cpu.pc = 0x1234;
+    expect(() => applyCpcSna(data, m)).toThrow(/256K RAM expansion/);
+    expect(m.cpu.pc).toBe(0x1234);
+  });
+
+  it('restores the selected 64K block from the RAM byte (0x41 bits 3-5)', () => {
+    const src = expanded(256);
+    src.memory.setRamConfig(0xC0 | (3 << 3) | 4);
+    const m = expanded(256);
+    applyCpcSna(saveCpcSna(src, 3), m);
+    expect(m.memory.pagingState().slotBanks[1]).toBe(16);
+  });
+});
+
+describe('CPC refresh resume (SnapshotService.saveSync / restoreSync)', () => {
+  it('carries expansion RAM and the CRTC raster position across a rebuild', async () => {
+    const a = new CpcMachine('cpc6128', null);
+    a.memory.setExpansion(256);
+    a.memory.getRamBank(18)[7] = 0x6B;
+    const header = saveCpcSna(a, 3);
+    expect(header[0x6B] | (header[0x6C] << 8)).toBe(0);      // v3 holds memory in MEM chunks
+    const blob = a.services.snapshots!.saveSync!()!;
+    const b = new CpcMachine('cpc6128', null);
+    b.memory.setExpansion(256);
+    expect(await b.services.snapshots!.restoreSync!(blob)).toBe(true);
+    expect(b.memory.getRamBank(18)[7]).toBe(0x6B);
+    b.stop();
+  });
+
+  it('refuses a snapshot from another model', async () => {
+    const blob = new CpcMachine('cpc464', null).services.snapshots!.saveSync!()!;
+    expect(await new CpcMachine('cpc6128', null).services.snapshots!.restoreSync!(blob)).toBe(false);
   });
 });

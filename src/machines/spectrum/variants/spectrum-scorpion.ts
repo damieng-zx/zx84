@@ -22,7 +22,8 @@ export const spectrumScorpion: MachineVariant = Object.freeze({
 
   contentionPattern: CONTENTION_NONE,
   hasIOContention: false,
-  // The real board has an attribute floating bus on port 0xFF; not modelled.
+  // No Sinclair-style floating bus: the board's #FF attribute port is decoded
+  // separately (A0, A1, A2, A5 high) by ScorpionBoard (scorpion.ts).
   hasFloatingBus: false,
   hasGateArrayFloatingBus: false,
 

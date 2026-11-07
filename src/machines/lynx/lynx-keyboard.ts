@@ -9,10 +9,20 @@
  *
  * The matrix is MAME's `camplynx.cpp` LINE0-LINE9, plus SHIFT LOCK at [0,3] —
  * a cell MAME leaves unnamed and the MiSTer Lynx48 core identifies. Between
- * them they account for every cap on the deck but BREAK, which is not a matrix
- * key at all (it pulls the CPU's interrupt line), and for every cell but [9,4],
- * which no cap reaches. The host map is by physical position; the Lynx has no
- * function keys, so nothing here competes with the browser for F1-F12.
+ * them they account for every cap on the deck but BREAK, and for every cell
+ * but [9,4], which no cap reaches. The host map is by physical position; the
+ * Lynx has no function keys, so nothing here competes with the browser for
+ * F1-F12.
+ *
+ * BREAK is not a matrix key at all. Camputers' keyboard circuit diagram draws
+ * it as a lone push-button from keyboard-connector pin 6 to 0V (R9, 4K7, pulls
+ * the pin up), and the 128K motherboard diagram (sheet 5, "Input/Output") runs
+ * that pin, PL1/6 "BREAK", straight onto the Z80's /INT line, wire-ORed with
+ * the 6845's interrupt one-shot. Holding BREAK therefore holds /INT low: a
+ * maskable interrupt the CPU takes whenever it has interrupts enabled, for as
+ * long as the key is down. What that does is the ROM's business (Computing
+ * Today's June 1983 review found it "appears to do nothing in particular";
+ * ESC is the key that stops a program). The host's Pause key is BREAK.
  */
 
 const LINES = 10;
@@ -49,9 +59,15 @@ const KEY_MAP: Record<string, Cell> = {
   ArrowUp: [0, 4], ArrowDown: [0, 5], ArrowLeft: [9, 2], ArrowRight: [9, 5],
 };
 
+/** The host key that is BREAK: Pause, the PC keyboard's own break key. */
+const BREAK_CODE = 'Pause';
+
 export class LynxKeyboard {
   /** Per-line column state, active low. 0xFF = every key on that line up. */
   private readonly matrix = new Uint8Array(LINES).fill(0xFF);
+
+  /** BREAK is down, holding the CPU's /INT line low (see the header). */
+  breakDown = false;
 
   /** The ten scanned lines, for the on-screen keyboard to read state from.
    *  Live buffer; callers copy what they keep. */
@@ -69,8 +85,12 @@ export class LynxKeyboard {
     else this.matrix[line] |= mask;
   }
 
+  /** Press or release BREAK. */
+  setBreak(pressed: boolean): void { this.breakDown = pressed; }
+
   /** Handle a host key event by physical code. Returns true if mapped. */
   handleKeyEvent(code: string, pressed: boolean): boolean {
+    if (code === BREAK_CODE) { this.breakDown = pressed; return true; }
     const cell = KEY_MAP[code];
     if (!cell) return false;
     this.setKey(cell[0], cell[1], pressed);
@@ -79,5 +99,6 @@ export class LynxKeyboard {
 
   reset(): void {
     this.matrix.fill(0xFF);
+    this.breakDown = false;
   }
 }

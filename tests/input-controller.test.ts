@@ -51,6 +51,9 @@ const mockState = vi.hoisted(() => {
 
     spectrumPresent: true,
     joystickPresent: true,
+    /** The machine's joystick takes proportional axes (JoystickInput.analog). */
+    joystickAnalog: false,
+    analogCalls: [] as Array<{ axis: string; value: number; player: number }>,
   };
 });
 
@@ -94,7 +97,15 @@ vi.mock('@/shell/context.ts', () => ({
           // The real SpectrumInputService resets the keyboard matrix AND the
           // shared joystick key-state counters (see services/input.ts).
           releaseAll: () => { mockState.keyboardResetCount++; mockState.joystickResetCount++; },
-          joystick: mockState.joystickPresent ? { press: () => {} } : null,
+          joystick: mockState.joystickPresent
+            ? (mockState.joystickAnalog
+              ? {
+                press: () => {},
+                analog: (axis: string, value: number, player: number) =>
+                  mockState.analogCalls.push({ axis, value, player }),
+              }
+              : { press: () => {} })
+            : null,
         },
       },
     } : null;
@@ -200,6 +211,8 @@ function resetMockState(): void {
   mockState.setJoyMapP2Calls.length = 0;
   mockState.spectrumPresent = true;
   mockState.joystickPresent = true;
+  mockState.joystickAnalog = false;
+  mockState.analogCalls.length = 0;
 
   // Minimal document for the DOM-touching setDpadHighlight helper.
   (globalThis as any).document = {
@@ -805,5 +818,98 @@ describe('input-controller — regressions', () => {
     // A correct implementation would not have made any progress because P2
     // has no gamepad. Today the deadzone gets captured from P1's gamepad.
     expect(mockState.setConfigStepCalls).not.toContain('');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Gamepad polling — proportional axes (JoystickInput.analog)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('gamepad polling — analogue axes', () => {
+  /** A stick on axes 0 (X) and 1 (Y), +X right and +Y down, as the
+   *  configuration step would bind it. */
+  const stickConfig = (): GamepadConfig => makeConfig({
+    deadzone: [0.02, 0, 0, 0],
+    left:  { type: 'axis', index: 0, direction: 'negative' },
+    right: { type: 'axis', index: 0, direction: 'positive' },
+    up:    { type: 'axis', index: 1, direction: 'negative' },
+    down:  { type: 'axis', index: 1, direction: 'positive' },
+  });
+
+  it('sends a stick bound to one axis proportionally (less its resting offset), not as directions', () => {
+    mockState.joystickAnalog = true;
+    mockState.joyMapP1Mode = 'gamepad';
+    mockState.gamepadCfgP1 = stickConfig();
+    setGamepads(makeGamepad({ axes: [0.52, -1, 0, 0] }), null);
+    const ic = new InputController();
+    ic.pollGamepads();
+    const x = mockState.analogCalls.find(c => c.axis === 'x')!;
+    const y = mockState.analogCalls.find(c => c.axis === 'y')!;
+    expect(x.value).toBeCloseTo(0.5, 6);
+    expect(x.player).toBe(0);
+    expect(y.value).toBe(-1);
+    expect(mockState.joyPressCalls.filter(c => c.dir !== 'fire')).toEqual([]);
+  });
+
+  it('flips the sign when the binding says the axis runs the other way', () => {
+    mockState.joystickAnalog = true;
+    mockState.joyMapP1Mode = 'gamepad';
+    mockState.gamepadCfgP1 = makeConfig({
+      deadzone: [0, 0],
+      left:  { type: 'axis', index: 0, direction: 'positive' },
+      right: { type: 'axis', index: 0, direction: 'negative' },
+    });
+    setGamepads(makeGamepad({ axes: [0.25, 0] }), null);
+    const ic = new InputController();
+    ic.pollGamepads();
+    expect(mockState.analogCalls).toEqual([{ axis: 'x', value: -0.25, player: 0 }]);
+  });
+
+  it('keeps D-pad (button) bindings digital even when the machine takes analogue', () => {
+    mockState.joystickAnalog = true;
+    mockState.joyMapP1Mode = 'gamepad';
+    mockState.gamepadCfgP1 = makeConfig();
+    setGamepads(makeGamepad({ buttons: [false, false, false, false, false, false, false,
+      false, false, false, false, false, true] }), null);   // button 12 = up
+    const ic = new InputController();
+    ic.pollGamepads();
+    expect(mockState.analogCalls).toEqual([]);
+    expect(mockState.joyPressCalls).toEqual([{ dir: 'up', pressed: true, type: 'kempston' }]);
+  });
+
+  it('stays digital when the machine has no analogue inputs', () => {
+    mockState.joyMapP1Mode = 'gamepad';
+    mockState.gamepadCfgP1 = stickConfig();
+    setGamepads(makeGamepad({ axes: [0.9, 0, 0, 0] }), null);
+    const ic = new InputController();
+    ic.pollGamepads();
+    expect(mockState.analogCalls).toEqual([]);
+    expect(mockState.joyPressCalls).toEqual([{ dir: 'right', pressed: true, type: 'kempston' }]);
+  });
+
+  it('treats a small deflection as centred and resends only when it moves', () => {
+    mockState.joystickAnalog = true;
+    mockState.joyMapP1Mode = 'gamepad';
+    mockState.gamepadCfgP1 = stickConfig();
+    setGamepads(makeGamepad({ axes: [0.07, 0, 0, 0] }), null);   // 0.05 off rest: inside the dead zone
+    const ic = new InputController();
+    ic.pollGamepads();
+    expect(mockState.analogCalls).toEqual([]);                    // still centred: nothing to send
+    setGamepads(makeGamepad({ axes: [0.62, 0, 0, 0] }), null);
+    ic.pollGamepads();
+    ic.pollGamepads();
+    expect(mockState.analogCalls.filter(c => c.axis === 'x')).toHaveLength(1);
+  });
+
+  it('centres a deflected axis on blur', () => {
+    mockState.joystickAnalog = true;
+    mockState.joyMapP1Mode = 'gamepad';
+    mockState.gamepadCfgP1 = stickConfig();
+    setGamepads(makeGamepad({ axes: [-0.98, 0, 0, 0] }), null);
+    const ic = new InputController();
+    ic.pollGamepads();
+    mockState.analogCalls.length = 0;
+    ic.onBlur();
+    expect(mockState.analogCalls).toEqual([{ axis: 'x', value: 0, player: 0 }]);
   });
 });

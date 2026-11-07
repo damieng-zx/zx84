@@ -5,6 +5,8 @@
     - setRegisters(regs)         — bulk frame load (YM file driven)
 */
 
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
 // AY-3-8910 DAC voltage levels (5-bit register, 32 entries) — measured
 // values (the "Hacker Kay" AY-3-8910 levels). Despite the register being 5
 // bits, the DAC ladder only produces 16 distinguishable voltages:
@@ -552,5 +554,43 @@ export class AY3891x {
 
   setStereoMode(mode: AYStereoMode): void {
     this.stereoMode = mode;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────
+  /** The registers, the latched register address and the generators (tone,
+   *  noise, envelope) mid-cycle. The output filters, stereo placement and
+   *  resampler settings belong to the host's audio path, not the chip. */
+  saveState(w: StateSink): void {
+    w.raw(this.regs);
+    w.u8(this.selectedReg);
+    w.f64(this.cycleFrac);
+    for (let ch = 0; ch < 3; ch++) {
+      w.f64(this.toneCounter[ch]); w.u8(this.toneOutput[ch]); w.u16(this.tonePeriod[ch]);
+      w.u8(this.amplitude[ch]);
+    }
+    w.f64(this.noiseCounter); w.u8(this.noisePeriod); w.u8(this.noiseOutput);
+    w.u32(this.noiseRng); w.u8(this.noisePrescale);
+    w.f64(this.envCounter); w.u32(this.envPeriod); w.u8(this.envShape); w.u8(this.envStep);
+    w.bool(this.envHolding); w.u8(this.envVolume); w.u8(this.envAttack);
+    w.bool(this.envContinue); w.bool(this.envAlternate); w.bool(this.envHold);
+    w.u8(this.mixer);
+  }
+
+  loadState(r: StateSource): void {
+    r.rawInto(this.regs);
+    this.selectedReg = r.u8();
+    this.cycleFrac = r.f64();
+    for (let ch = 0; ch < 3; ch++) {
+      this.toneCounter[ch] = r.f64(); this.toneOutput[ch] = r.u8(); this.tonePeriod[ch] = r.u16();
+      this.amplitude[ch] = r.u8();
+    }
+    this.noiseCounter = r.f64(); this.noisePeriod = r.u8(); this.noiseOutput = r.u8();
+    this.noiseRng = r.u32(); this.noisePrescale = r.u8();
+    this.envCounter = r.f64(); this.envPeriod = r.u32(); this.envShape = r.u8(); this.envStep = r.u8();
+    this.envHolding = r.bool(); this.envVolume = r.u8(); this.envAttack = r.u8();
+    this.envContinue = r.bool(); this.envAlternate = r.bool(); this.envHold = r.bool();
+    this.mixer = r.u8();
+    this._dcPrevL = 0; this._dcPrevR = 0; this._dcOutL = 0; this._dcOutR = 0;
+    this._lpOutL = 0; this._lpOutR = 0;
   }
 }

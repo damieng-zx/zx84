@@ -43,7 +43,8 @@ const HIDDEN = [
 const BASE_UI: MachineUiCapabilities = {
   hiddenPanes: HIDDEN,
   memoryLayout: true,
-  trace: false,
+  trace: true,
+  traceModes: ['full', 'portio'],
   colorMap: 'atari',
   accuracy: false,
   builtinDisk: true,

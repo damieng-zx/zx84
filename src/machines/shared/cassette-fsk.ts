@@ -18,6 +18,8 @@
  * detection.
  */
 
+import type { StateReader, StateWriter } from './state-io.ts';
+
 export class CassetteFsk {
   /** Demodulated data line: 1 = mark (2400 Hz / idle), 0 = space (1200 Hz). */
   level = 1;
@@ -107,5 +109,17 @@ export class CassetteFsk {
     this.carrier = false;
     this.set(1, now);
     this.startLevel = 1;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  saveState(w: StateWriter): void {
+    w.u8(this.level); w.f64(this.levelSince); w.u8(this.startLevel); w.bool(this.carrier);
+    w.f64(this.lastEdge); w.f64(this.toneSince); w.bool(this.signal);
+  }
+
+  loadState(r: StateReader): void {
+    this.level = r.u8(); this.levelSince = r.f64(); this.startLevel = r.u8(); this.carrier = r.bool();
+    this.lastEdge = r.f64(); this.toneSince = r.f64(); this.signal = r.bool();
   }
 }

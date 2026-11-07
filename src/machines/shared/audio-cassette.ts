@@ -11,6 +11,7 @@
  */
 
 import { parseWav, isWav } from '@/media/tape/wav.ts';
+import type { StateReader, StateWriter } from './state-io.ts';
 
 /** The comparator's dead band as a fraction of the recording's mean level: wide enough
  *  to ride over the noise on a digitised tape, narrow enough to follow its weakest pulses. */
@@ -108,5 +109,73 @@ export class AudioCassette {
 
   get finished(): boolean {
     return this.samples !== null && this.cursor >= this.samples.length;
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /**
+   * Write the deck's position and comparator; with `withMedia`, the recording
+   * too. The recording is stored as what the comparator makes of it rather
+   * than as audio: the run of levels it settles on, sample by sample, which
+   * is all that ever reaches the machine. Played back through the same
+   * comparator that run gives the same toggles at the same samples, and it is
+   * a few kilobytes where the audio is megabytes. Without the media (the
+   * browser-refresh path) the shell remounts the recording from its store.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    w.f64(this.lastTime);
+    w.bool(withMedia);
+    if (!withMedia) return;
+    const samples = this.samples;
+    w.bool(samples !== null);
+    if (!samples) return;
+    w.str(this._name);
+    w.f64(this.sampleRate);
+    w.u32(samples.length);
+    // Runs of the comparator's settled sign (-1, +1, or 0 before the first
+    // sample clears the dead band), resolved from the start of the tape as
+    // `advanceTo` does after a mount or rewind.
+    const runs: number[] = [];
+    let sign = 0;
+    let runSign = 0;
+    let runLen = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i];
+      sign = s > this.deadBand ? 1 : s < -this.deadBand ? -1 : sign;
+      if (sign === runSign) { runLen++; continue; }
+      if (runLen > 0) runs.push(runSign, runLen);
+      runSign = sign;
+      runLen = 1;
+    }
+    if (runLen > 0) runs.push(runSign, runLen);
+    w.u32(runs.length / 2);
+    for (let i = 0; i < runs.length; i += 2) { w.u8(runs[i] + 1); w.u32(runs[i + 1]); }
+    w.u32(this.cursor); w.f64(this.pos); w.i32(this.lastSign); w.u8(this.level); w.bool(this.playing);
+  }
+
+  loadState(r: StateReader): void {
+    this.lastTime = r.f64();
+    if (!r.bool()) return;
+    if (!r.bool()) { this.eject(); return; }
+    const name = r.str();
+    const sampleRate = r.f64();
+    const length = r.u32();
+    if (length > 1 << 30) throw new Error('Snapshot is corrupt (cassette)');
+    const samples = new Float32Array(length);
+    let at = 0;
+    for (let n = r.u32(); n > 0; n--) {
+      const sign = r.u8() - 1;
+      const run = r.u32();
+      if (at + run > length) throw new Error('Snapshot is corrupt (cassette)');
+      samples.fill(sign, at, at + run);
+      at += run;
+    }
+    this.samples = samples;
+    this.sampleRate = sampleRate;
+    // Levels of exactly ±1 against a half-unit dead band: every settled sample
+    // clears it and every unsettled (0) one does not, as before.
+    this.deadBand = 0.5;
+    this._name = name;
+    this.cursor = r.u32(); this.pos = r.f64(); this.lastSign = r.i32(); this.level = r.u8(); this.playing = r.bool();
   }
 }

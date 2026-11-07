@@ -93,6 +93,7 @@ export class AtariFrameProbe implements FrameProbe {
     out.tapeFinished = this.m.cassette.loaded && this.m.cassette.finished;
     out.tapePosition = 0;
     out.casBlock = casReads > 0 ? this.m.cassette.currentFile() : -1;
+    out.tracingActive = this.m.traceActive;
 
     const drives = this.m.services.disks.states;
     // The pane has four slots; the ones with no drive fitted read as absent.

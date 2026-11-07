@@ -103,6 +103,9 @@ export class MtxKeyboard {
    *  to read key state from. Live buffer; callers copy what they keep. */
   get rows(): Uint16Array { return this.matrix; }
 
+  /** The drive-line latch (port 5), for a snapshot. */
+  get driveLatch(): number { return this.driveMask; }
+
   selectDrive(mask: number): void {
     this.driveMask = mask & 0xFF;
   }

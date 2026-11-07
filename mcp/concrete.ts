@@ -16,6 +16,7 @@ import type { AtariMachine } from '../src/machines/atari/atari-machine.ts';
 import type { MsxMachine } from '../src/machines/msx/msx-machine.ts';
 import type { EinsteinMachine } from '../src/machines/einstein/einstein-machine.ts';
 import type { MtxMachine } from '../src/machines/mtx/mtx-machine.ts';
+import type { C64Machine } from '../src/machines/c64/c64-machine.ts';
 import type { UPD765A } from '../src/cores/upd765a.ts';
 import type { Machine } from '../src/machines/machine.ts';
 import { state, type InitMachineOptions } from './state.ts';
@@ -51,6 +52,11 @@ export function activeMsx(): MsxMachine | null {
 /** The active machine as an EinsteinMachine, or null otherwise. */
 export function activeEinstein(): EinsteinMachine | null {
   return narrow<EinsteinMachine>('einstein');
+}
+
+/** The active Commodore 64, or null otherwise. */
+export function activeC64(): C64Machine | null {
+  return narrow<C64Machine>('c64');
 }
 
 /** The active Memotech MTX motherboard, or null otherwise. */

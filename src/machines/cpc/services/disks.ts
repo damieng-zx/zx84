@@ -21,7 +21,7 @@ export class CpcDiskService implements DiskService {
 
   get drives(): readonly DriveDescriptor[] {
     const c = this.c;
-    if (!c.config.hasFDC) return [];
+    if (!c.hasFdc) return [];
     const motorUnit = c.fdc.motorOn ? c.fdc.currentUnit & 1 : -1;
     const out: DriveDescriptor[] = [];
     for (let u = 0; u < c.driveCount; u++) {

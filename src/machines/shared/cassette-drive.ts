@@ -15,6 +15,8 @@
 import { TapeDeck, TAPE_REF_HZ, type TapeBlock } from '@/media/tape/tap.ts';
 import { UefRecorder } from '@/media/tape/uef.ts';
 import { CassetteFsk } from './cassette-fsk.ts';
+import { readTapeBlocks, writeTapeBlocks } from '@/media/tape/tape-block-state.ts';
+import type { StateReader, StateWriter } from './state-io.ts';
 
 /** Frames the tape-turbo stays engaged after the tape stops being consumed,
  *  riding out the gaps between blocks so acceleration doesn't stutter. */
@@ -126,6 +128,42 @@ export class CassetteDrive {
     } else {
       this.turboActive = false;
       this.turboCooldown = 0;
+    }
+  }
+
+  // ── Snapshot state ────────────────────────────────────────────────────────
+
+  /**
+   * Write the relay, the demodulator, the turbo hold-off and what has been
+   * recorded; with `withMedia`, the tape itself and where the deck is in it,
+   * to the T-state. Without it (the browser-refresh path) the tape is left
+   * to the shell, which remounts it from its own store.
+   */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    w.bool(this.motorOn); w.u8(this.prevEar); w.bool(this.fskLive);
+    w.u32(this.turboCooldown); w.bool(this.turboActive);
+    this.fsk.saveState(w);
+    this.recorder.saveState(w);
+    w.bool(withMedia);
+    if (!withMedia) return;
+    w.str(this.name); w.bool(this.userPaused);
+    writeTapeBlocks(w, this.deck.blocks);
+    this.deck.saveState(w);
+  }
+
+  loadState(r: StateReader): void {
+    this.motorOn = r.bool(); this.prevEar = r.u8(); this.fskLive = r.bool();
+    this.turboCooldown = r.u32(); this.turboActive = r.bool();
+    this.fsk.loadState(r);
+    this.recorder.loadState(r);
+    if (r.bool()) {
+      // The deck's own pause flag comes back as it was (a stop-the-tape block
+      // sets it too), so it is not re-derived from the relay here.
+      this.name = r.str(); this.userPaused = r.bool();
+      this.deck.blocks = readTapeBlocks(r);
+      this.deck.loadState(r);
+    } else {
+      this.applyRun();
     }
   }
 }
