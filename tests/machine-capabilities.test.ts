@@ -40,6 +40,7 @@ const SNAPSHOT_FORMAT: Partial<Record<SaveMenuItem, string>> = {
   'snapshot-elkstate': '.elkstate',
   'snapshot-a1state': '.a1state',
   'snapshot-a2state': '.a2state',
+  'snapshot-c64state': '.c64state',
 };
 
 /** Build a machine headlessly — no renderer, no ROM. */

@@ -34,6 +34,8 @@ const CHANGELOG: { version: string; items: string[] }[] = [
       'MSX: Konami SCC sound, pulse-level cassette and more cartridge mappers',
       'Spectrum: Issue 2 and Issue 3 board option and uPD765A SCAN commands; Scorpion even-M1 wait, Turbo+ and Magic button; Pentagon 1024 multicolour',
       'Lynx: sound uses the full 6-bit DAC and BREAK interrupts the CPU',
+      'WD1793 READ ADDRESS fixes on the floppy controllers',
+      'The niche British machines are grouped under British Obscure in the machine menu',
       'Fixed BBC flashing colours',
       'Spectrum model ids now use a zx prefix (old ids still work)',
       'Peripheral fixes: +D printer port, Beta FDC reset, Multiface 128 hiding, Interface 1 idle ports, Kempston and Cursor joysticks, AMX PIO interrupts',
