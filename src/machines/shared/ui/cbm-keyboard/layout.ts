@@ -1,5 +1,6 @@
 /**
- * The Commodore 64's keyboard face: every cap with its legends and where it
+ * The Commodore breadbin keyboard face (the C64's, and the VIC-20's, which
+ * has the same caps in the same places): every cap with its legends and where it
  * sits, laid out as on the machine (measured from a photograph of one) on a
  * 40-unit key pitch, with the caps touching.
  *
@@ -11,7 +12,7 @@
  * the first four rows, and the space bar sits under the bottom row. A margin of
  * case shows all round the keys.
  *
- * A cap's `name` is the matrix key it presses (see `C64_MATRIX`). Three caps
+ * A cap's `name` is the matrix key it presses (each machine's matrix: `C64_MATRIX`, `VIC20_MATRIX`). Three caps
  * are not plain matrix keys: RESTORE pulls the NMI line, SHIFT LOCK is a
  * latching switch that holds the left SHIFT down, and the other modifiers
  * (SHIFT, CTRL, C=) latch for one keystroke so a single pointer can type a
@@ -20,9 +21,9 @@
 
 import type { SceneBox } from '@/ui/components/KeyboardScene.tsx';
 
-export type C64KeyAction = 'key' | 'modifier' | 'shift-lock' | 'restore';
+export type CbmKeyAction = 'key' | 'modifier' | 'shift-lock' | 'restore';
 
-export interface C64KeyDef {
+export interface CbmKeyDef {
   /** Unique cap id. */
   readonly id: string;
   /** The matrix key pressed (`C64_MATRIX`); absent for RESTORE and SHIFT LOCK. */
@@ -33,7 +34,7 @@ export interface C64KeyDef {
   readonly shift?: string;
   /** What is printed on the cap's front face: the colour a CTRL or C= chord gives. */
   readonly front?: string;
-  readonly action: C64KeyAction;
+  readonly action: CbmKeyAction;
   /** The function keys are grey, the rest dark. */
   readonly grey?: boolean;
   /** A word or symbol cap rather than a character. */
@@ -57,15 +58,15 @@ const X0 = 0.25;
 const RIGHT_EDGE = 16.5;
 const FKEY_X = 17.25;
 
-export const C64_KEYBOARD_SCENE = { width: (FKEY_X + 2 - X0) * U + 2 * PAD_X, height: 5 * U + 2 * PAD_Y, unit: 1 } as const;
+export const CBM_KEYBOARD_SCENE = { width: (FKEY_X + 2 - X0) * U + 2 * PAD_X, height: 5 * U + 2 * PAD_Y, unit: 1 } as const;
 
-const keys: C64KeyDef[] = [];
+const keys: CbmKeyDef[] = [];
 
 interface Opts {
   name?: string;
   shift?: string;
   front?: string;
-  action?: C64KeyAction;
+  action?: CbmKeyAction;
   word?: boolean;
 }
 
@@ -147,4 +148,4 @@ put(3, 4, slashX - 3, 'space', '', { word: true });
   keys.push({ id: main, name: main, main, front: shift, action: 'key', grey: true, box });
 });
 
-export const C64_KEYS: readonly C64KeyDef[] = keys;
+export const CBM_KEYS: readonly CbmKeyDef[] = keys;

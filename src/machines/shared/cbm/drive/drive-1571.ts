@@ -33,7 +33,7 @@ import {
 import { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 import { Drive1541 } from './drive-1541.ts';
-import type { C64DriveModel } from './drive-unit.ts';
+import type { CbmDriveModel } from './drive-unit.ts';
 
 /** The drive's time base: ticks of its fastest clock. */
 export const DRIVE_1571_BASE_HZ = 2_000_000;
@@ -43,7 +43,7 @@ export const DRIVE_1571_ROM_SIZE = 0x8000;
 const FDC_TICK_CYCLES = DRIVE_1571_BASE_HZ / 50;
 
 export class Drive1571 extends Drive1541 {
-  override readonly model: C64DriveModel = '1571';
+  override readonly model: CbmDriveModel = '1571';
   override readonly clockHz: number = DRIVE_1571_BASE_HZ;
   override readonly romSize: number = DRIVE_1571_ROM_SIZE;
   readonly cia = new Mos6526();

@@ -25,7 +25,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64' | 'vic20';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -379,6 +379,7 @@ export type SaveMenuItem =
   | 'snapshot-a1state'
   | 'snapshot-a2state'
   | 'snapshot-c64state'
+  | 'snapshot-vic20state'
   | 'screenshot-png'
   | 'screen-scr'
   | 'ram-bin'
@@ -568,6 +569,9 @@ export interface MachineHost {
    *  that carries the board revision), so the panes and the next session agree
    *  with the running machine. Absent headless. */
   setFlagSetting?(key: string, on: boolean): void;
+  /** The same for a setting with a text value (the RAM expansion a program
+   *  needs, chosen before the machine is rebuilt for it). Absent headless. */
+  setTextSetting?(key: string, value: string): void;
   /** The operator's EPROM box: persistence + rebuild ops backing RomService.
    *  Provided by the shell (rom-manager + model switch); absent headless. */
   roms?: RomHostOps;

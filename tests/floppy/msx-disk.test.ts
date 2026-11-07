@@ -133,7 +133,12 @@ describe('MSX raw geometry', () => {
   it('round-trips a dump through the image model unchanged', () => {
     for (const total of [1440, 720, 360]) {
       const src = dump(total, total === 1440 ? 0xF9 : total === 720 ? 0xF8 : 0xFC);
-      expect(serializeMsxRaw(parseMsxRaw(src))).toEqual(src);
+      const out = serializeMsxRaw(parseMsxRaw(src));
+      // Compared by hand: a deep-equal of three images up to 720K is slow enough
+      // to time the test out.
+      expect(out.length, `${total} sectors: size`).toBe(src.length);
+      const first = out.findIndex((b, i) => b !== src[i]);
+      expect(first, `${total} sectors: first byte that differs`).toBe(-1);
     }
   });
 

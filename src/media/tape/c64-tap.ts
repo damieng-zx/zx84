@@ -1,17 +1,19 @@
 /**
- * Commodore 64 raw tape images (.tap, "C64-TAPE-RAW").
+ * Commodore raw tape images (.tap, "C64-TAPE-RAW"), for the C64 and the VIC-20.
  *
  * A .tap holds the time between successive falling edges of the Datasette's
- * read line — the edges that trigger CIA 1's FLAG input — so it carries
- * KERNAL and turbo-loader recordings alike. After the 20-byte header each
- * byte is a pulse length in units of 8 cycles of the PAL C64's clock;
- * a zero byte is a pulse too long for that. Version 0 leaves the length of a
+ * read line — the edges that trigger CIA 1's FLAG input on the 64, VIA 2's
+ * CA1 on the VIC-20 — so it carries KERNAL and turbo-loader recordings
+ * alike. After the 20-byte header each byte is a pulse length in units of 8
+ * cycles of the clock of the machine it was made on (the header's platform
+ * and video standard say which: a PAL C64 unless they say otherwise); a zero
+ * byte is a pulse too long for that. Version 0 leaves the length of a
  * zero unsaid (it is taken as the longest a byte can hold); version 1 follows
  * it with the exact length in cycles as a 24-bit little-endian number.
  *
  * Header: "C64-TAPE-RAW" (12 bytes), version (0/1; 2 is the C16's half-wave
- * format, not read here), platform, video standard, a reserved byte, then
- * the data length (u32 LE).
+ * format, not read here), platform (0 C64, 1 VIC-20), video standard (0 PAL,
+ * 1 NTSC), a reserved byte, then the data length (u32 LE).
  *
  * For the shared pulse deck each pulse becomes two half-waves, so the deck's
  * level falls once per pulse, at its end. The tape is split into blocks at
@@ -23,8 +25,52 @@ import { TAPE_REF_HZ, type CswBlock, type TapeBlock } from './tap.ts';
 
 const MAGIC = 'C64-TAPE-RAW';
 const HEADER_SIZE = 20;
-/** The PAL C64's clock, which the pulse units are counted in. */
+/** The PAL C64's clock, which the pulse units are counted in by default. */
 export const C64_TAP_CLOCK = 985_248;
+
+/** The KERNAL's tape pulses, in cycles of its machine: short, medium, long. */
+export interface KernalPulses {
+  readonly short: number;
+  readonly medium: number;
+  readonly long: number;
+}
+
+/** The C64 KERNAL's: TAP bytes $30, $42, $56. */
+export const C64_KERNAL_PULSES: KernalPulses = { short: 0x30 * 8, medium: 0x42 * 8, long: 0x56 * 8 };
+/** The VIC-20 KERNAL's: TAP bytes $2C, $40, $54. Its timer constants come out
+ *  at nearly the same cycle counts as the C64's, so at its faster clock the
+ *  pulses are shorter in time. Measured from the VIC-20 KERNAL's own SAVE. */
+export const VIC20_KERNAL_PULSES: KernalPulses = { short: 0x2C * 8, medium: 0x40 * 8, long: 0x54 * 8 };
+
+/** Which machine's clock a .tap's pulses count: the header's platform and
+ *  video standard bytes, and the clock they mean. */
+export interface TapFormat {
+  readonly platform: number;
+  readonly video: number;
+  /** Cycles a second of the machine the pulses are counted on. */
+  readonly clock: number;
+  /** The pulses that machine's KERNAL writes (for generated tapes). */
+  readonly kernal: KernalPulses;
+}
+
+/** The clock a .tap's pulses count, from its platform and video standard
+ *  bytes: the C64's or the VIC-20's, PAL or NTSC. Anything else is taken as
+ *  a PAL C64, as tapes have always been read here. */
+export function tapClock(platform: number, video: number): number {
+  if (platform === 1) return video === 1 ? 1_022_727 : 1_108_405;
+  if (platform === 0 && video === 1) return 1_022_727;
+  return C64_TAP_CLOCK;
+}
+
+export function tapFormat(platform: number, video: number): TapFormat {
+  return {
+    platform, video, clock: tapClock(platform, video),
+    kernal: platform === 1 ? VIC20_KERNAL_PULSES : C64_KERNAL_PULSES,
+  };
+}
+
+/** The PAL C64's tapes. */
+export const C64_TAP_PAL: TapFormat = tapFormat(0, 0);
 /** A pulse this long (cycles) is silence on the tape: a block boundary. */
 const GAP_CYCLES = 20_000;
 
@@ -40,8 +86,10 @@ export interface C64TapeFile {
 
 export interface C64Tape {
   readonly version: number;
-  /** Pulse lengths in cycles. */
+  /** Pulse lengths in cycles of `clock`. */
   readonly pulses: Uint32Array;
+  /** The clock the pulses count (see `tapClock`). */
+  readonly clock: number;
   readonly blocks: TapeBlock[];
   readonly files: readonly C64TapeFile[];
 }
@@ -52,8 +100,8 @@ export function isC64Tap(data: Uint8Array): boolean {
   return true;
 }
 
-/** The pulse lengths (cycles) of a .tap. Throws on a malformed file. */
-export function readC64TapPulses(data: Uint8Array): { version: number; pulses: Uint32Array } {
+/** The pulse lengths (cycles of `clock`) of a .tap. Throws on a malformed file. */
+export function readC64TapPulses(data: Uint8Array): { version: number; pulses: Uint32Array; clock: number } {
   if (!isC64Tap(data)) throw new Error('not a C64 .tap');
   const version = data[12];
   if (version > 1) throw new Error(`C64 .tap version ${version} is not supported`);
@@ -71,15 +119,18 @@ export function readC64TapPulses(data: Uint8Array): { version: number; pulses: U
       out[n++] = 256 * 8;
     }
   }
-  return { version, pulses: out.subarray(0, n) };
+  return { version, pulses: out.subarray(0, n), clock: tapClock(data[13], data[14]) };
 }
 
 /** Parse a .tap into deck blocks. */
 export function parseC64Tap(data: Uint8Array): C64Tape {
-  const { version, pulses } = readC64TapPulses(data);
+  const { version, pulses, clock } = readC64TapPulses(data);
   const blocks: TapeBlock[] = [];
   const files: C64TapeFile[] = [];
-  const ratio = TAPE_REF_HZ / C64_TAP_CLOCK;
+  const ratio = TAPE_REF_HZ / clock;
+  // The KERNAL's pulses are told apart by their length in cycles of the
+  // machine that wrote them: the C64's and the VIC-20's KERNALs write nearly
+  // the same counts, at different clocks.
   let start = 0;
   const flush = (end: number): void => {
     if (end <= start) return;
@@ -110,7 +161,7 @@ export function parseC64Tap(data: Uint8Array): C64Tape {
     if (pulses[i] >= GAP_CYCLES) flush(i + 1);
   }
   flush(pulses.length);
-  return { version, pulses, blocks, files };
+  return { version, pulses, clock, blocks, files };
 }
 
 function hex4(v: number): string { return v.toString(16).toUpperCase().padStart(4, '0'); }
@@ -209,10 +260,11 @@ export function petsciiChar(b: number): string {
 // ── Writing ─────────────────────────────────────────────────────────────────
 
 /**
- * Build a version-1 .tap from full pulse lengths in cycles (falling edge to
- * falling edge). Pulses too long for a byte are written exactly.
+ * Build a version-1 .tap from full pulse lengths in cycles of `format`'s
+ * clock (falling edge to falling edge), its header naming that machine.
+ * Pulses too long for a byte are written exactly.
  */
-export function encodeC64Tap(pulses: ArrayLike<number>): Uint8Array {
+export function encodeC64Tap(pulses: ArrayLike<number>, format: TapFormat = C64_TAP_PAL): Uint8Array {
   const body: number[] = [];
   for (let i = 0; i < pulses.length; i++) {
     const p = Math.round(pulses[i]);
@@ -224,6 +276,8 @@ export function encodeC64Tap(pulses: ArrayLike<number>): Uint8Array {
   const out = new Uint8Array(HEADER_SIZE + body.length);
   for (let i = 0; i < MAGIC.length; i++) out[i] = MAGIC.charCodeAt(i);
   out[12] = 1;
+  out[13] = format.platform;
+  out[14] = format.video;
   const len = body.length;
   out[16] = len & 0xFF; out[17] = (len >> 8) & 0xFF; out[18] = (len >> 16) & 0xFF; out[19] = (len >>> 24) & 0xFF;
   out.set(body, HEADER_SIZE);
@@ -237,10 +291,6 @@ export interface KernalFileInput {
   readonly data: Uint8Array;
 }
 
-/** The KERNAL's pulse lengths in cycles: short, medium and long. */
-const PULSE_SHORT = 0x30 * 8;
-const PULSE_MEDIUM = 0x42 * 8;
-const PULSE_LONG = 0x56 * 8;
 /** Leader before a block's first copy, and between its two copies. */
 const LEADER_PULSES = 3000;
 const REPEAT_LEADER_PULSES = 79;
@@ -259,60 +309,66 @@ function petsciiName(name: string): number[] {
 }
 
 /** One KERNAL byte: the long-medium marker, eight bits LSB first, odd parity. */
-function pushKernalByte(out: number[], byte: number): void {
-  out.push(PULSE_LONG, PULSE_MEDIUM);
+function pushKernalByte(out: number[], byte: number, p: KernalPulses): void {
+  out.push(p.long, p.medium);
   let ones = 0;
   for (let bit = 0; bit < 8; bit++) {
     const one = ((byte >> bit) & 1) === 1;
     if (one) ones++;
-    out.push(...(one ? [PULSE_MEDIUM, PULSE_SHORT] : [PULSE_SHORT, PULSE_MEDIUM]));
+    out.push(...(one ? [p.medium, p.short] : [p.short, p.medium]));
   }
-  out.push(...((ones & 1) === 0 ? [PULSE_MEDIUM, PULSE_SHORT] : [PULSE_SHORT, PULSE_MEDIUM]));
+  out.push(...((ones & 1) === 0 ? [p.medium, p.short] : [p.short, p.medium]));
 }
 
 /** One copy of a block: the sync countdown, the payload, its XOR checksum and
  *  the end-of-data marker. `first` counts down from $89, the repeat from $09. */
-function pushKernalCopy(out: number[], payload: ArrayLike<number>, first: boolean): void {
+function pushKernalCopy(out: number[], payload: ArrayLike<number>, first: boolean, p: KernalPulses): void {
   const top = first ? 0x89 : 0x09;
-  for (let k = 0; k < 9; k++) pushKernalByte(out, top - k);
+  for (let k = 0; k < 9; k++) pushKernalByte(out, top - k, p);
   let check = 0;
   for (let i = 0; i < payload.length; i++) {
-    pushKernalByte(out, payload[i]);
+    pushKernalByte(out, payload[i], p);
     check ^= payload[i];
   }
-  pushKernalByte(out, check);
-  out.push(PULSE_LONG, PULSE_SHORT);
+  pushKernalByte(out, check, p);
+  out.push(p.long, p.short);
 }
 
 /** A block as the KERNAL writes it: leader, first copy, short leader, repeat. */
-function pushKernalBlock(out: number[], payload: ArrayLike<number>): void {
-  for (let i = 0; i < LEADER_PULSES; i++) out.push(PULSE_SHORT);
-  pushKernalCopy(out, payload, true);
-  for (let i = 0; i < REPEAT_LEADER_PULSES; i++) out.push(PULSE_SHORT);
-  pushKernalCopy(out, payload, false);
+function pushKernalBlock(out: number[], payload: ArrayLike<number>, p: KernalPulses): void {
+  for (let i = 0; i < LEADER_PULSES; i++) out.push(p.short);
+  pushKernalCopy(out, payload, true, p);
+  for (let i = 0; i < REPEAT_LEADER_PULSES; i++) out.push(p.short);
+  pushKernalCopy(out, payload, false, p);
   out.push(BLOCK_GAP);
 }
 
 /**
  * A .tap holding `files` as the KERNAL would have SAVEd them: for each, a
  * 192-byte header block (type, start and end address, 16-character name) then
- * a data block with the program. A program at $0801 is a relocatable one
- * (type 1) and any other is fixed in place (type 3). Empty files are skipped.
+ * a data block with the program. A program at the start of BASIC
+ * (`basicStarts`: $0801 on the 64) is a relocatable one (type 1) and any
+ * other is fixed in place (type 3). Empty files are skipped. The pulses are
+ * the lengths `format`'s machine's KERNAL writes, in its cycles.
  */
-export function encodeKernalTap(files: readonly KernalFileInput[]): Uint8Array {
+export function encodeKernalTap(
+  files: readonly KernalFileInput[],
+  format: TapFormat = C64_TAP_PAL,
+  basicStarts: readonly number[] = [0x0801],
+): Uint8Array {
   const pulses: number[] = [];
   for (const file of files) {
     if (file.data.length === 0) continue;
     const end = (file.start + file.data.length) & 0xFFFF;
     const header = new Array<number>(192).fill(0x20);
-    header[0] = file.start === 0x0801 ? 1 : 3;
+    header[0] = basicStarts.includes(file.start) ? 1 : 3;
     header[1] = file.start & 0xFF; header[2] = (file.start >> 8) & 0xFF;
     header[3] = end & 0xFF; header[4] = end >> 8;
     petsciiName(file.name).forEach((c, k) => { header[5 + k] = c; });
-    pushKernalBlock(pulses, header);
-    pushKernalBlock(pulses, file.data);
+    pushKernalBlock(pulses, header, format.kernal);
+    pushKernalBlock(pulses, file.data, format.kernal);
   }
-  return encodeC64Tap(pulses);
+  return encodeC64Tap(pulses, format);
 }
 
 /** Full pulses from the half-waves a recorder timed on the write line: each

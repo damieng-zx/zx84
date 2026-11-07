@@ -6,8 +6,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { C64Machine } from '@/machines/c64/c64-machine.ts';
-import { Drive1541 } from '@/machines/c64/drive/drive-1541.ts';
-import { Drive1581 } from '@/machines/c64/drive/drive-1581.ts';
+import { Drive1541 } from '@/machines/shared/cbm/drive/drive-1541.ts';
+import { Drive1581 } from '@/machines/shared/cbm/drive/drive-1581.ts';
 import { blankD64, parseD64, serializeG64 } from '@/media/floppy/c64-disk.ts';
 import { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import { blankD81, blankD81Bytes, D81_SIZE, isD81, parseD81, serializeD81 } from '@/media/floppy/c64-d81.ts';

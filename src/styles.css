@@ -512,6 +512,11 @@ body:not(.sinclair-mode):not(.cpc-mode) .section-label::after {
   grid-column: 1 / -1;
 }
 
+/* Every VIC-20 Hardware option takes a whole row. */
+.vic20-hw-row {
+  grid-column: 1 / -1;
+}
+
 .slider-row .slider-value { color: #555; }
 .pane input[type="range"] { background: #ccc; }
 
