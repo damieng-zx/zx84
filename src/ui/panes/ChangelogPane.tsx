@@ -2,7 +2,7 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
-    version: '0.10.0',
+    version: '0.11.0',
     items: [
       'Add Atari 8-bit support: 400, 800, XL and XE, NTSC and PAL',
       'Add Apple I and the Apple II family: ][, ][+, //e, Enhanced //e and //c',
