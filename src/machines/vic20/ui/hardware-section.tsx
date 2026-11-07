@@ -21,7 +21,7 @@ function rebuild(): void {
 export function Vic20HardwareSection() {
   return (
     <>
-      <div class="slider-row">
+      <div class="slider-row vic20-hw-row">
         <span
           class="slider-label"
           title={'Expansion RAM on the cartridge port. 3K fills $0400-$0FFF; 8K, 16K and 24K '
@@ -44,7 +44,7 @@ export function Vic20HardwareSection() {
           </For>
         </select>
       </div>
-      <div class="multiface-row">
+      <div class="multiface-row vic20-hw-row">
         <label class="mf-check" title="Fit 8K of RAM at $A000-$BFFF (BLK5), where cartridges usually go">
           <input
             type="checkbox"
@@ -59,7 +59,7 @@ export function Vic20HardwareSection() {
           RAM at $A000 (BLK5)
         </label>
       </div>
-      <div class="multiface-row">
+      <div class="multiface-row vic20-hw-row">
         <label
           class="mf-check"
           title="Plug a disk drive (device 8) into the serial bus: a 1541, 1571 or 1581, chosen in the Drives pane"
