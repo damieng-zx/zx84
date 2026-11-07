@@ -138,8 +138,8 @@ Tests must be written critically against a known-correct specification, not as a
 
 - **`dev` is the long-lived integration branch.** All PRs branch from and merge
   into `dev`. `main` tracks released code — the release commit lands there, and
-  `dev` runs ahead of it between releases. Neither merge deploys by itself;
-  production is cut by pushing a `vX.Y.Z` tag (see [Releasing](#releasing) below).
+  `dev` runs ahead of it between releases. **Merging to `main` auto-deploys to
+  production** (see [Releasing](#releasing) below).
 - **Starting new work: sync `dev`, then create a sibling worktree from its tip.**
   First bring `dev` up to date (`git fetch origin && git checkout dev && git pull`),
   then create a new sibling worktree branched off the freshly-synced tip
@@ -159,12 +159,13 @@ Tests must be written critically against a known-correct specification, not as a
 
 ### Releasing
 
-Production is **tag-driven**. Cloudflare no longer auto-deploys `main`; instead,
-pushing a `vX.Y.Z` git tag triggers the `Deploy to Cloudflare` GitHub Action
-(`.github/workflows/deploy.yml`), which builds that exact commit and runs
-`wrangler deploy`. **The most recently pushed release tag is what Cloudflare
-serves.** Merging to `dev` or `main` never touches production by itself — only
-a pushed tag does.
+Production is **main-driven**: Cloudflare auto-deploys `main`, so merging the
+release commit into `main` — the repo's convention is a `dev` → `main` PR —
+*is* the deployment. Merging to `dev` alone never touches production.
+
+A tag-triggered `Deploy to Cloudflare` workflow also exists
+(`.github/workflows/deploy.yml`) as an explicit way to publish one exact
+commit, but normal releases do not use it.
 
 The app version lives in **two** places that must stay in sync:
 
@@ -176,18 +177,14 @@ The app version lives in **two** places that must stay in sync:
 
 **Steps:**
 
-1. Bump `version` in `package.json` (e.g. `0.7.3` → `0.7.4`).
+1. Bump `version` in `package.json` (e.g. `0.11.0` → `0.12.0`).
 2. Add the matching new entry at the top of the `CHANGELOG` array in
    `src/ui/panes/ChangelogPane.tsx`.
 3. Verify locally: `npx vitest run` (green) and `npx tsc --noEmit` (clean).
-4. Commit both files (`git commit -F <tempfile>`).
-5. Tag and push:
-   ```sh
-   git tag v0.7.4
-   git push && git push --tags
-   ```
-6. Watch the **Actions** tab — the `Deploy to Cloudflare` run publishes production.
-   Confirm the live version superscript and changelog match the release.
+4. Commit both files (`git commit -F <tempfile>`) and merge `dev` into `main`
+   via a PR (`gh pr create --base main --head dev`, then `gh pr merge --merge`).
+5. The merge auto-deploys production. Confirm the live version superscript and
+   changelog match the release.
 
 Version numbers follow the existing `MAJOR.MINOR.PATCH` scheme.
 
