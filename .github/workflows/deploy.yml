@@ -1,8 +1,9 @@
 name: Deploy to Cloudflare
 
-# Production deploys are tag-driven: pushing a `vX.Y.Z` tag builds that exact
-# commit and publishes it to Cloudflare Workers. Merges to `main` do NOT deploy.
-# See RELEASING.md for the release procedure.
+# An explicit, opt-in deploy path: pushing a `vX.Y.Z` tag builds that exact
+# commit and publishes it to Cloudflare Workers. Normal releases instead ride
+# Cloudflare's auto-deploy of `main`; the release procedure is in AGENTS.md
+# (Branching and releases → Releasing).
 on:
   push:
     tags:
