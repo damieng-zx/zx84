@@ -23,8 +23,19 @@
  * and return what the pins actually read after the rest of the board (keyboard
  * matrix, joysticks, serial bus) has pulled on them.
  *
+ * Serial shift register (data sheet): with CRA bit 6 set the chip transmits.
+ * A write to SDR starts it (it is clocked by timer A, so the timer must be
+ * running), shifting the byte out on SP most significant bit first; CNT is an
+ * output that toggles on every timer-A underflow, so a byte takes 16
+ * underflows, each bit is valid on a CNT rising edge, and SP is raised on the
+ * eighth. A write while a byte is going out is sent after it. With CRA bit 6
+ * clear the chip receives: each CNT rising edge from outside (`cntEdge`)
+ * shifts the SP level into the register, and after eight the byte is moved
+ * to SDR and SP is raised. `onShiftOut` reports transmitted bits with the
+ * cycle of their CNT edge, so the other end of the wire can be driven in step.
+ *
  * The core never calls back into the machine except through those two pin
- * functions and `onPortWrite`; the machine polls `irq` itself.
+ * functions, `onPortWrite` and `onShiftOut`; the machine polls `irq` itself.
  */
 
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
@@ -41,6 +52,8 @@ const CR_PBON = 0x02;
 const CR_OUTMODE = 0x04;
 const CR_ONESHOT = 0x08;
 const CR_LOAD = 0x10;
+/** Control register A: the serial register transmits (1) or receives (0). */
+const CRA_SPMODE = 0x40;
 
 /** One interval timer's state. */
 class CiaTimer {
@@ -51,6 +64,10 @@ class CiaTimer {
   toggle = false;
   /** An underflow happened in the last advance (for PB pulse mode). */
   pulsed = false;
+  /** After a `count` that underflowed: the clock (1-based) of the first
+   *  underflow within it, and the clocks between further ones. */
+  firstAt = 0;
+  period = 1;
 
   get running(): boolean { return (this.control & CR_START) !== 0; }
 
@@ -65,6 +82,8 @@ class CiaTimer {
       this.counter -= ticks;
       return 0;
     }
+    this.firstAt = first;
+    this.period = this.latch + 1;
     if ((this.control & CR_ONESHOT) !== 0) {
       this.counter = this.latch;
       this.control &= ~CR_START;
@@ -86,6 +105,8 @@ class CiaTimer {
     this.control = 0;
     this.toggle = false;
     this.pulsed = false;
+    this.firstAt = 0;
+    this.period = 1;
   }
 
   saveState(w: StateSink): void {
@@ -126,6 +147,12 @@ export class Mos6526 {
    *  byte being shifted out is done (0 = idle). */
   sdr = 0;
   private sdrShift = 0;
+  /** The byte being transmitted (SDR may already hold the next one), whether
+   *  one is queued behind it, and the receive shift register with its count. */
+  private srOut = 0;
+  private srPending = false;
+  private srIn = 0;
+  private srInBits = 0;
 
   // ── Time of day (BCD) ────────────────────────────────────────────────────
   todTenths = 0;
@@ -152,6 +179,9 @@ export class Mos6526 {
   portBIn: (driven: number) => number = (d) => d;
   /** A port or its direction register was written (index 0 = A, 1 = B). */
   onPortWrite: ((port: number) => void) | null = null;
+  /** A transmitted bit is valid on SP: the bit, and the absolute cycle of the
+   *  CNT rising edge that clocks it. */
+  onShiftOut: ((bit: number, t: number) => void) | null = null;
 
   /** Port A as the chip drives it: outputs as written, inputs pulled high. */
   get drivenA(): number { return (this.pra | ~this.ddra) & 0xFF; }
@@ -178,6 +208,7 @@ export class Mos6526 {
     this.irq = false;
     this.sdr = 0;
     this.sdrShift = 0;
+    this.srOut = 0; this.srPending = false; this.srIn = 0; this.srInBits = 0;
     this.todTenths = 0; this.todSec = 0; this.todMin = 0; this.todHr = 0x01;
     this.alarmTenths = 0; this.alarmSec = 0; this.alarmMin = 0; this.alarmHr = 0;
     this.todLatched = false;
@@ -199,25 +230,68 @@ export class Mos6526 {
   advanceTo(t: number): void {
     const n = t - this.now;
     if (n <= 0) return;
+    const t0 = this.now;
     this.now = t;
     this.ta.pulsed = false;
     this.tb.pulsed = false;
-    // CNT is not driven by anything on the boards this models, so only the
-    // phi2 and timer-A-underflow input modes count.
+    // The timers count phi2 or timer A's underflows here; edges on CNT arrive
+    // through `cntEdge`, so a timer set to count CNT sits still in between.
     const aUnder = (this.ta.control & 0x20) === 0 ? this.ta.count(n) : 0;
-    if (aUnder > 0) {
-      this.ta.pulsed = true;
-      this.raise(CIA_INT_TA);
-      if (this.sdrShift > 0) {
-        this.sdrShift -= aUnder;
-        if (this.sdrShift <= 0) { this.sdrShift = 0; this.raise(CIA_INT_SP); }
-      }
-    }
+    if (aUnder > 0) this.timerAUnderflowed(aUnder, t0 + this.ta.firstAt, this.ta.period);
     const mode = (this.tb.control >> 5) & 3;
     const bTicks = mode === 0 ? n : mode === 2 ? aUnder : 0;
-    if (bTicks > 0 && this.tb.count(bTicks) > 0) {
+    if (bTicks > 0) this.countB(bTicks);
+  }
+
+  private countB(ticks: number): void {
+    if (this.tb.count(ticks) > 0) {
       this.tb.pulsed = true;
       this.raise(CIA_INT_TB);
+    }
+  }
+
+  /** Timer A underflowed `n` times, the first at cycle `first`, then every
+   *  `period` cycles: its interrupt, and the transmitter's clock. */
+  private timerAUnderflowed(n: number, first: number, period: number): void {
+    this.ta.pulsed = true;
+    this.raise(CIA_INT_TA);
+    if ((this.ta.control & CRA_SPMODE) === 0) return;
+    for (let k = 0; k < n && this.sdrShift > 0; k++) {
+      // Underflow 1 of a byte pulls CNT low, 2 raises it (the first bit is
+      // valid), and so on: every even one is a rising edge.
+      const done = 17 - this.sdrShift;
+      this.sdrShift--;
+      if ((done & 1) === 0) this.onShiftOut?.((this.srOut >> (8 - (done >> 1))) & 1, first + k * period);
+      if (this.sdrShift === 0) {
+        this.raise(CIA_INT_SP);
+        if (this.srPending) {
+          this.srPending = false;
+          this.srOut = this.sdr;
+          this.sdrShift = 16;
+        }
+      }
+    }
+  }
+
+  /**
+   * A rising edge on the CNT pin from outside at cycle `t`, with the SP pin at
+   * level `sp`. It clocks the receiver, and counts on a timer that has been
+   * set to count CNT.
+   */
+  cntEdge(t: number, sp: boolean): void {
+    this.advanceTo(t);
+    const aUnder = (this.ta.control & 0x20) !== 0 ? this.ta.count(1) : 0;
+    if (aUnder > 0) this.timerAUnderflowed(aUnder, t, 1);
+    const mode = (this.tb.control >> 5) & 3;
+    const bTicks = mode === 1 ? 1 : mode >= 2 ? aUnder : 0;
+    if (bTicks > 0) this.countB(bTicks);
+    if ((this.ta.control & CRA_SPMODE) === 0) {
+      this.srIn = ((this.srIn << 1) | (sp ? 1 : 0)) & 0xFF;
+      if (++this.srInBits === 8) {
+        this.srInBits = 0;
+        this.sdr = this.srIn;
+        this.raise(CIA_INT_SP);
+      }
     }
   }
 
@@ -333,8 +407,11 @@ export class Mos6526 {
         break;
       case 0xC:
         this.sdr = v;
-        // Output mode: the byte goes out over 16 timer-A underflows.
-        if ((this.ta.control & 0x40) !== 0) this.sdrShift = 16;
+        // Output mode: the byte goes out over 16 timer-A underflows, or after
+        // the one that is going out now.
+        if ((this.ta.control & CRA_SPMODE) !== 0) {
+          if (this.sdrShift === 0) { this.srOut = v; this.sdrShift = 16; } else this.srPending = true;
+        }
         break;
       case 0xD:
         if ((v & 0x80) !== 0) this.icrMask |= v & 0x1F; else this.icrMask &= ~v & 0x1F;
@@ -343,6 +420,9 @@ export class Mos6526 {
       case 0xE:
         if ((v & CR_LOAD) !== 0) this.ta.counter = this.ta.latch;
         if ((v & CR_START) !== 0 && !this.ta.running) this.ta.toggle = true;
+        if (((v ^ this.ta.control) & CRA_SPMODE) !== 0) {
+          this.sdrShift = 0; this.srPending = false; this.srInBits = 0;
+        }
         this.ta.control = v & ~CR_LOAD;
         break;
       default:
@@ -365,12 +445,27 @@ export class Mos6526 {
     w.f64(this.now);
   }
 
+  /**
+   * The shift register's own state, kept apart from `saveState` so that the
+   * snapshots written before it existed still load: an owner that can be
+   * transmitting or receiving across a snapshot saves it after the rest.
+   */
+  saveSerial(w: StateSink): void {
+    w.u8(this.srOut); w.bool(this.srPending); w.u8(this.srIn); w.u8(this.srInBits);
+  }
+
+  loadSerial(r: StateSource): void {
+    this.srOut = r.u8(); this.srPending = r.bool(); this.srIn = r.u8(); this.srInBits = r.u8();
+  }
+
   loadState(r: StateSource): void {
     this.pra = r.u8(); this.prb = r.u8(); this.ddra = r.u8(); this.ddrb = r.u8();
     this.ta.loadState(r);
     this.tb.loadState(r);
     this.icrFlags = r.u8(); this.icrMask = r.u8(); this.irq = r.bool();
     this.sdr = r.u8(); this.sdrShift = r.u8();
+    // Without `loadSerial` the byte on its way out is the one SDR holds.
+    this.srOut = this.sdr; this.srPending = false; this.srIn = 0; this.srInBits = 0;
     this.todTenths = r.u8(); this.todSec = r.u8(); this.todMin = r.u8(); this.todHr = r.u8();
     this.alarmTenths = r.u8(); this.alarmSec = r.u8(); this.alarmMin = r.u8(); this.alarmHr = r.u8();
     this.todLatched = r.bool(); r.rawInto(this.latch); this.todStopped = r.bool(); this.todDivider = r.u8();

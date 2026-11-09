@@ -14,7 +14,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { C64Machine } from '@/machines/c64/c64-machine.ts';
-import { VicII } from '@/machines/c64/vic-ii.ts';
+import { VicII } from '@/cores/vic-ii.ts';
+import { C64_PALETTE } from '@/machines/c64/palette.ts';
+import { c64Timing } from '@/machines/c64/constants.ts';
 import { C64Memory } from '@/machines/c64/memory.ts';
 import { Asm, OP, expectExactFromFile, romImage } from '../snapshot/native-state-helpers.ts';
 
@@ -123,7 +125,7 @@ describe('C64 PLA', () => {
 
 describe('C64 VIC-II', () => {
   it('holds the CPU over the c-accesses of a bad line and not on other lines', () => {
-    const vic = new VicII(new C64Memory());
+    const vic = new VicII(new C64Memory(), c64Timing(false), C64_PALETTE);
     vic.write(0xD011, 0x1B, 0);                 // DEN, 25 rows, YSCROLL 3
     vic.startLine(0x30, 0);                     // DEN seen on line $30
     const t = 1000 * 63;

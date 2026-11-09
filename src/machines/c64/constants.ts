@@ -7,6 +7,8 @@
  * constants below are the PAL machine's; `c64Timing` gives either.
  */
 
+import { VIC_FIRST_X, VIC_SCREEN_WIDTH } from '@/cores/vic-ii.ts';
+
 /** CPU (phi2) clock of the PAL C64: 17.734475 MHz / 18. */
 export const C64_CPU_CLOCK = 985_248;
 export const C64_CYCLES_PER_LINE = 63;
@@ -19,9 +21,9 @@ export const C64_CYCLES_PER_FRAME = C64_CYCLES_PER_LINE * C64_LINES_PER_FRAME;
  * and the lines from 16 to 287, around the 200-line window (lines 51-250).
  * This is the area a PAL television shows of the frame.
  */
-export const C64_FIRST_X = -8;
+export const C64_FIRST_X = VIC_FIRST_X;
 export const C64_FIRST_LINE = 16;
-export const C64_SCREEN_WIDTH = 384;
+export const C64_SCREEN_WIDTH = VIC_SCREEN_WIDTH;
 export const C64_SCREEN_HEIGHT = 272;
 export const C64_ACTIVE_WIDTH = 320;
 export const C64_ACTIVE_HEIGHT = 200;

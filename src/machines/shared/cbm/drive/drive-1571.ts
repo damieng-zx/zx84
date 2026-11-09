@@ -69,6 +69,19 @@ export class Drive1571 extends Drive1541 {
 
   protected override get minRomSize(): number { return DRIVE_1571_ROM_SIZE; }
 
+  // ── The fast serial bus ─────────────────────────────────────────────────
+
+  /** The CIA whose shift register is the drive's end of the burst bus. */
+  get fastCia(): Mos6526 { return this.cia; }
+
+  /** VIA 1 port A bit 1 is the direction pin: high, the drive sends. A pin the
+   *  DOS has not made an output reads high, so a drive that has just started
+   *  is sending. */
+  get fastTransmitting(): boolean {
+    const via = this.via1;
+    return (((via.ora & via.ddra) | (~via.ddra & 0xFF)) & 0x02) !== 0;
+  }
+
   // ── Power ───────────────────────────────────────────────────────────────
 
   override reset(): void {

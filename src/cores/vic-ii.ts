@@ -6,7 +6,7 @@
  * description of the chip's internals:
  *
  *  - 63 cycles a line and 312 lines a frame (PAL; the NTSC 6567R8 has 65 and
- *    263, see `C64Timing`); the raster counter, its compare register and the
+ *    263, see `VicTiming`); the raster counter, its compare register and the
  *    raster interrupt.
  *  - Bad lines: on lines $30-$F7 whose low three bits equal YSCROLL (while
  *    DEN was set during line $30) the chip reads 40 bytes of the video matrix
@@ -32,10 +32,37 @@
  * X = -8 (wrapped, $1F0), 32 pixels left of the 40-column display window.
  */
 
-import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
-import type { C64Memory } from './memory.ts';
-import { C64_PALETTE } from './palette.ts';
-import { C64_FIRST_X, C64_SCREEN_WIDTH, c64Timing, type C64Timing } from './constants.ts';
+import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+
+/**
+ * What the chip reads through: its 16K view of memory and the 4-bit colour
+ * RAM, which the machine wires up however its board does (the 64's is a
+ * separate 1K RAM, the 128's the same).
+ */
+export interface VicBus {
+  /** A byte of the chip's 16K view (`addr14` is the 14-bit VIC address). */
+  vicRead(addr14: number): number;
+  /** Colour RAM, one nibble per byte, indexed by the video counter. */
+  readonly colorRam: Uint8Array;
+}
+
+/**
+ * The parts of the TV standard the chip itself depends on. The machine's own
+ * timing record is a superset of this.
+ */
+export interface VicTiming {
+  readonly cyclesPerLine: number;
+  /** First raster line in the frame buffer, and how many lines it holds. */
+  readonly firstLine: number;
+  readonly screenHeight: number;
+  /** Line cycle (0-based) of the RC/VCBASE update and the first sprite
+   *  pointer fetch (Bauer's cycle 58 on PAL). */
+  readonly lineEndCycle: number;
+}
+
+/** The frame buffer's X origin (in sprite X coordinates) and width. */
+export const VIC_FIRST_X = -8;
+export const VIC_SCREEN_WIDTH = 384;
 
 /** Interrupt sources ($D019 bits). */
 export const VIC_IRQ_RASTER = 0x01;
@@ -46,7 +73,7 @@ export const VIC_IRQ_SS = 0x04;
 export const EV_VC = 13;          // Bauer cycle 14: VC = VCBASE, c-accesses begin
 export const EV_SPRITE_MCB = 15;  // cycles 15-16: sprite MCBASE advances, DMA ends
 export const EV_SPRITE_DMA = 54;  // cycles 55-56: sprite DMA switched on
-/** Cycle 58 on PAL (`C64Timing.lineEndCycle`): RC/VCBASE, sprite pointer and data fetches. */
+/** Cycle 58 on PAL (`VicTiming.lineEndCycle`): RC/VCBASE, sprite pointer and data fetches. */
 /** First and last cycle the CPU is held by a bad line (BA low at Bauer 12). */
 const BADLINE_BA = 11;
 const BADLINE_END = 54;
@@ -54,7 +81,7 @@ const BADLINE_END = 54;
 /** Frame-buffer pixel reached by the end of line cycle t. */
 function fbXAt(t: number): number {
   const p = 8 * t - 92;
-  return p < 0 ? 0 : p > C64_SCREEN_WIDTH ? C64_SCREEN_WIDTH : p;
+  return p < 0 ? 0 : p > VIC_SCREEN_WIDTH ? VIC_SCREEN_WIDTH : p;
 }
 
 export class VicII {
@@ -111,8 +138,17 @@ export class VicII {
   private lineSprites = 0;
   private lastLine = -1;
 
-  constructor(private readonly mem: C64Memory, readonly timing: C64Timing = c64Timing(false)) {
-    this.pixels = new Uint32Array(C64_SCREEN_WIDTH * timing.screenHeight);
+  /**
+   * @param palette the sixteen colours as 32-bit pixels (`palette[0]` also
+   *   fills a reset frame buffer); the chip makes luminance and chroma, so the
+   *   RGB set is the machine's choice.
+   */
+  constructor(
+    private readonly mem: VicBus,
+    readonly timing: VicTiming,
+    private readonly palette: Uint32Array,
+  ) {
+    this.pixels = new Uint32Array(VIC_SCREEN_WIDTH * timing.screenHeight);
     this.reset();
   }
 
@@ -141,7 +177,7 @@ export class VicII {
     this.row = -1;
     this.drawnX = 0;
     this.gChar = -1;
-    this.pixels.fill(C64_PALETTE[0]);
+    this.pixels.fill(this.palette[0]);
   }
 
   get irq(): boolean { return (this.irqFlags & this.irqMask & 0x0F) !== 0; }
@@ -186,7 +222,7 @@ export class VicII {
       if (this.nextShow[n]) this.lineSprites |= 1 << n;
     }
     const y = line - this.timing.firstLine;
-    this.row = y >= 0 && y < this.timing.screenHeight ? y * C64_SCREEN_WIDTH : -1;
+    this.row = y >= 0 && y < this.timing.screenHeight ? y * VIC_SCREEN_WIDTH : -1;
     this.drawnX = 0;
     this.gChar = -1;
   }
@@ -446,12 +482,12 @@ export class VicII {
     const botCmp = rsel ? 251 : 247;
     const xscroll = regs[0x16] & 7;
     const mode = ((regs[0x11] & 0x60) | (regs[0x16] & 0x10)) >> 4;   // ECM BMM MCM
-    const border = C64_PALETTE[regs[0x20] & 0x0F];
+    const border = this.palette[regs[0x20] & 0x0F];
     const sprites = this.lineSprites;
     const display = this.display;
 
     for (let p = from; p < to; p++) {
-      const x = p + C64_FIRST_X;
+      const x = p + VIC_FIRST_X;
       if (x === leftCmp) {
         if (this.raster === botCmp) this.vBorder = true;
         else if (this.raster === topCmp && this.den) this.vBorder = false;
@@ -509,7 +545,7 @@ export class VicII {
 
       let out = gColor;
       if (sprites !== 0) out = this.mixSprites(x, out, fg, sprites);
-      if (row >= 0) px[row + p] = this.mainBorder ? border : C64_PALETTE[out];
+      if (row >= 0) px[row + p] = this.mainBorder ? border : this.palette[out];
     }
   }
 
@@ -560,7 +596,7 @@ export class VicII {
   /** The line in progress, for the beam (or -1 between frames). */
   get currentLine(): number { return this.lastLine; }
 
-  saveState(w: StateWriter): void {
+  saveState(w: StateSink): void {
     w.raw(this.regs);
     w.u16(this.raster); w.f64(this.lineStart);
     w.u8(this.irqFlags); w.u8(this.irqMask);
@@ -574,7 +610,7 @@ export class VicII {
     w.u8(this.collisionSS); w.u8(this.collisionSB);
   }
 
-  loadState(r: StateReader): void {
+  loadState(r: StateSource): void {
     r.rawInto(this.regs);
     this.raster = r.u16(); this.lineStart = r.f64();
     this.irqFlags = r.u8(); this.irqMask = r.u8();
