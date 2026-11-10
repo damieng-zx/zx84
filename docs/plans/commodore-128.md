@@ -1,6 +1,6 @@
 # Plan: Commodore 128
 
-Status: **decisions settled; Phase 0 (research) and Phase 1 (shared parts) done, the machine itself not started.** Worktree `F:/src/zx/zx84-c128`, branch
+Status: **decisions settled; Phases 0-2 done (research, shared parts, and C128 mode booting to READY on the 40-column screen); drives, VDC display, C64 mode and the UI are not started.** Worktree `F:/src/zx/zx84-c128`, branch
 `feature/c128`, cut from `dev` and fast-forwarded to 12cdae9d (the VIC-20 merge). When the machine lands, this file
 becomes `docs/machines/commodore-128.md`, written to
 [`TEMPLATE.md`](../machines/TEMPLATE.md). Follow
@@ -176,18 +176,18 @@ green. Nothing is committed until you ask.
 | Registers | 12 at `$D500-$D50B`; CR also at `$FF00`; `$FF01-$FF04` write = load PCRA-D into CR |
 | CR | bit 0 `$D000` area (0 = I/O, 1 = ROM/RAM); bit 1 `$4000-$7FFF` (0 = BASIC low ROM, 1 = RAM); bits 3:2 `$8000-$BFFF` (00 = BASIC high ROM, 01 = internal function ROM, 10 = external function ROM, 11 = RAM); bits 5:4 `$C000-$FFFF` (00 = KERNAL, 01 internal, 10 external, 11 RAM); bits 7:6 RAM block |
 | MCR (`$D505`) write | stored as `(v & $7F) \| $30`; bit 0 selects the CPU (**1 = 8502, 0 = Z80**); bit 3 FSDIR (fast serial output); bit 6 = C64 mode |
-| MCR read | low nybble as stored; bit 4 = GAME inverted, bit 5 = EXROM inverted, **bit 7 = 40/80 key released (1 = 40 columns)**; bit 6 as stored |
+| MCR read | low nybble as stored; bits 4 and 5 are the **levels** of the cartridge port's /GAME and /EXROM pins (1 with nothing plugged in: the BIOS does `IN A,(C) / CPL / AND $30` and takes a 0 for a cartridge; an earlier note here said inverted, which sent the first boot into C64 mode), **bit 7 = 40/80 key released (1 = 40 columns)**; bit 6 as stored |
 | RCR (`$D506`) | bits 1:0 common-RAM size 1K / 4K / 8K / 16K; bit 2 common bottom; bit 3 common top; bits 7:6 the RAM block the VIC-IIe sees |
 | P0/P1 | `$D507` P0L, `$D508` P0H, `$D509` P1L, `$D50A` P1H; **the high byte is latched and only takes effect when the low byte is written**; high-byte reads return the top 4 bits set; reset values P0 = page `$00`, P1 = page `$01` |
 | Version | `$D50B` reads `$20` |
 | Z80 view | I/O from the `$Dxxx` port address only when CR bit 0 = 0; the 8502-only parts (cartridge detection, C64 mode) behave as above |
 | 8502 reset | on taking control it reads `$FFFC` from whatever CR then maps |
 
-Two items still *(confirm)*: the shared-RAM window arithmetic for the top-common area (the
-size counts down from `$FFFF`), and whether the 8502's own on-chip port has any 128-mode
-bit with a meaning (CAPS LOCK sense on port bit 6 is expected).
+The two items that were left *(confirm)* are settled by Phase 2: the top common RAM starts at
+64K less its size (`$C000` for the 16K the BIOS sets), and the 8502 port has meanings in 128 mode
+(see Phase 2).
 
-### Phase 1: shared parts the 128 needs *(done, uncommitted)*
+### Phase 1: shared parts the 128 needs *(done, committed as 71d5a02b)*
 - **VIC-II to `src/cores/vic-ii.ts`.** Done. It reads through `VicBus` (`vicRead(addr14)` and
   `colorRam`, which `C64Memory` already had), takes its timing as `VicTiming` (the C64's
   `C64Timing` satisfies it) and its palette as a constructor argument, and saves state through
@@ -217,18 +217,60 @@ Not done, and why (all need the real 128 ROMs running, so they belong to Phase 6
   existing stream); the C128's own snapshot format will, via `saveSerial`.
 - The check "against the real 1571 DOS (its burst commands)" needs a 128 host to issue them.
 
-### Phase 2: C128 mode boots to READY on the 40-column screen
-- `c128/mmu.ts` + `c128/memory.ts`: the whole `$D5xx` / `$FF0x` register set, ROM/RAM/I/O
-  selection per region, RAM blocks, common RAM, page 0/1 relocation, VIC bank view.
-  Tests are written from the Programmer's Reference Guide tables, not from the
-  implementation: each region × ROM-select value, common-RAM boundaries at every size,
-  relocated page 0 reads and writes, and the `$FF01-$FF04` load-config writes.
-- `c128/c128-machine.ts`: reset with the Z80 active, Z80 BIOS runs, hand-off to the
-  8502 through `$D505`. 8502 at 1 MHz only, VIC-IIe as a plain VIC-II, no VDC yet.
-- Keyboard with the 3 extra lines, CAPS LOCK and the 40/80 key; no on-screen pane yet.
-- **Milestone:** headless boot to the BASIC 7.0 banner with `READY.`, typing works,
-  `SYS`/`POKE` of an MMU register changes the map. (Tests skip without the staged ROMs,
-  like the other real-ROM tests.)
+### Phase 2: C128 mode boots to READY on the 40-column screen *(done, uncommitted)*
+- `c128/mmu.ts`: the register file ($D500-$D50B, $FF00-$FF04): CR, the four preconfigurations and
+  their load-config addresses, MCR, RCR, the latched P0/P1 high bytes, common RAM arithmetic, and
+  page 0/1 relocation with the swap of the target page. `c128/memory.ts`: the 8502's map, the Z80's
+  map, the 8502 port, banked colour RAM and the VIC-IIe's window. Tests are from the Programmer's
+  Reference Guide tables, not from the implementation (`tests/c128/mmu.test.ts`,
+  `memory.test.ts`): every region against every ROM-select value, writes under ROM, both RAM
+  blocks, common RAM at every size at the top and the bottom, relocated pages, the load-config
+  writes, the Z80 view and the VIC-IIe view.
+- `c128/c128-machine.ts`: `C128Machine extends BaseMachine` (it does not implement `Machine` yet:
+  descriptor, services and registry are Phase 7). Power-on with the Z80 running the BIOS, hand-over
+  to the 8502 on the MCR write (it starts as if reset, reading `$FFFC` through the map it then
+  has), the 64's line loop with the VIC-II's bus holds, CIA 1 and 2, SID, 8502 at 1 MHz.
+- `c128/keyboard.ts`: the 64's 8 x 8 plus the three extra lines, read from the editor ROM's decode
+  table. `c128/vdc.ts`: register file, RAM and block copy/fill only, no display (Phase 4).
+- `shared/cbm/vic-ii-board.ts` now holds the VIC-II board's timing, geometry and palette, which
+  `c64/constants.ts` and `c64/palette.ts` re-export (an island cannot import another island);
+  `CbmKeyboard` takes a matrix of any width.
+- **Verified with the real ROMs** (`tests/c128/c128-machine.test.ts`, skipped without
+  `mcp/.cache/c128-dev/`): boots in C128 mode to `COMMODORE BASIC V7.0 122365 BYTES FREE` and
+  `READY.`, `PRINT 6*7` prints 42, `BANK 0` and `BANK 1` PEEK different bytes at the same
+  address, `PEEK(54533)` follows the 40/80 key. Without ROMs, a synthetic Z80 BIOS proves the
+  hand-over, the copy through RAM with I/O off, and the Z80 at two T-states to a cycle.
+
+Facts found while doing it (the ROM and the first boot settled them):
+- **MCR read, bits 4 and 5, are the /GAME and /EXROM pin levels** (1 with no cartridge), not inverted.
+- **The 8502 port in 128 mode:** bit 0 chooses the colour RAM bank the CPU sees, bit 1 the bank the
+  VIC-IIe sees (1 is bank 0 in both), bit 2 low shows the character ROM to the VIC-IIe at
+  `$1000-$1FFF` of every bank, bits 3-5 are the Datasette as on the 64, **bit 6 reads low while
+  CAPS LOCK is down** (the editor ROM's scan does `LDA $01 / AND #$40 / EOR #$40`). Pulled up: bits
+  0, 1, 2, 4 and 6; bits 3, 5 and 7 read 0 as inputs.
+- **Colour RAM is 2K**, two 1K banks, not 1K as on the 64.
+- **The character ROM:** the first 4K is the 64's set (identical to `chargen-901225-01.rom`), the
+  second 4K is the 128's, which 128 mode uses.
+- **Keyboard:** the three extra lines are selected by `$D02F` bits 0-2 (low), scan order K0, K1,
+  K2: K0 = HELP 8 5 TAB 2 4 7 1, K1 = ESC + - LINE FEED ENTER 6 9 3, K2 = ALT 0 . up down left
+  right NO SCROLL (PB0 to PB7), keypad keys type the digits.
+- **The VDC is polled during start-up:** the editor waits for the update address to advance after a
+  block fill (`R30`), so a stub with no block operations hangs the boot. The register file now does
+  copy and fill at once.
+- **Z80 IN/OUT:** the high byte of the port address selects the page; `$00-$0F` is RAM at
+  `$Dxxx`, `$D0-$DF` is I/O (here only while CR bit 0 is 0 for every chip, where VICE gates just
+  the MMU: the boot works either way). The Z80's `$0000-$0FFF` writes land in the RAM at
+  `$D000-$DFFF`, and its `$1000-$13FF` is the colour RAM while I/O is on.
+
+Not done in this phase, and why:
+- No drives or serial bus on the C128 yet (CIA 2 reads the serial lines as idle): Phase 6.
+- No joystick, tape, cartridge, snapshot, descriptor or UI: Phase 7.
+- The page 0/1 relocation rules are C128 mode's; C64 mode's (and the VICE source's *(FIXME,
+  to be settled on real hardware)* cases) belong to Phase 5.
+- The Z80 timing is a flat two T-states to a cycle, with no wait states or DMA; the VIC-II's bus
+  holds are applied to it as to the 8502. Debug stops ignore the Z80. Phase 8 refines both if
+  CP/M is wanted.
+- The two-block (128K) machine only: `CR` bit 7 and `RCR` bit 7 are ignored.
 
 ### Phase 3: VIC-IIe extras and 2 MHz
 - `$D02F` keyboard-line output and `$D030` bit 0. Model the CPU clock in 2 MHz mode
