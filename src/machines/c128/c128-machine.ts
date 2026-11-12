@@ -30,6 +30,8 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { accessTime, isReadModifyWrite } from '@/debug/m6502/bus-cycles.ts';
 import { VIC_PALETTE } from '@/machines/shared/cbm/vic-ii-board.ts';
+import { CbmSerialBus, IEC_ATN, IEC_CLK, IEC_DATA } from '@/machines/shared/cbm/serial-bus.ts';
+import type { CbmDriveModel, CbmDriveUnit } from '@/machines/shared/cbm/drive/drive-unit.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { C128Memory } from './memory.ts';
 import { C128Keyboard } from './keyboard.ts';
@@ -67,6 +69,20 @@ export class C128Machine extends BaseMachine {
   readonly cia2 = new Mos6526();
   readonly vdc = new Vdc();
   readonly keyboard = new C128Keyboard();
+  /** The serial bus and the disk drives on it. CIA 2 port A drives the bus as
+   *  on the 64 (ATN, CLK and DATA out on bits 3-5), and CIA 1's shift register
+   *  is the fast serial port, which the MMU's mode register bit 3 points out
+   *  or in. The 128's own drive is a 1571. */
+  readonly iec = new CbmSerialBus(() => {
+    const driven = this.cia2.drivenA;
+    return ((driven & 0x08) ? IEC_ATN : 0) | ((driven & 0x10) ? IEC_CLK : 0) | ((driven & 0x20) ? IEC_DATA : 0);
+  });
+  /** The disk drives on the serial bus, device 8 first; none while unplugged. */
+  get drives(): readonly CbmDriveUnit[] { return this.iec.drives; }
+  /** The first drive (device 8), or null when none is fitted. */
+  get drive(): CbmDriveUnit | null { return this.iec.drive; }
+  /** The drives set up, one model each: what the next build fits. */
+  get driveModels(): readonly CbmDriveModel[] { return this.iec.driveModels; }
 
   readonly mixer: AudioMixer;
   readonly audio = new Audio();
@@ -132,7 +148,27 @@ export class C128Machine extends BaseMachine {
     this.z80.portInHandler = (port) => this.memory.z80In(port);
     this.z80.portOutHandler = (port, val) => this.memory.z80Out(port, val);
     this.wireIo();
+    this.iec.driveModels = ['1571'];
+    this.iec.attachFastSerial(this.cia1, this.timing.clockHz);
+    this.memory.mmu.onFastSerialDir = (out) => { this.iec.fastHostTransmits = out; };
   }
+
+  // ── Disk drives ──────────────────────────────────────────────────────────
+
+  /** Fit these drives, device 8 first (see `CbmSerialBus.fitDrives`). */
+  fitDrives(models: readonly CbmDriveModel[]): void { this.iec.fitDrives(models); }
+
+  /** Put the DOS ROM in every drive of that model. */
+  installDriveRom(model: CbmDriveModel, rom: Uint8Array): void { this.iec.installDriveRom(model, rom); }
+
+  /** Fit a drive running the DOS in `rom`, or take every drive off the bus
+   *  (null); see `CbmSerialBus.installDrive`. The default is a 1571. */
+  installDrive(rom: Uint8Array | null, model: CbmDriveModel = '1571'): void {
+    this.iec.installDrive(rom, model);
+  }
+
+  /** Bring the drives up to the machine's cycle `t`. */
+  private syncDrive(t: number): void { this.iec.syncTo(t, this.timing.clockHz); }
 
   // ── Wiring ───────────────────────────────────────────────────────────────
 
@@ -150,9 +186,14 @@ export class C128Machine extends BaseMachine {
     // the extra lines $D02F selects are part of the columns).
     cia1.portAIn = (driven) => driven & keyboard.columnsFor(cia1.drivenB);
     cia1.portBIn = (driven) => driven & keyboard.rowsForLines(cia1.drivenA, mmu.c64Mode ? 0x07 : this.kbdLines);
-    // CIA 2 port A: VIC bank (bits 0-1); the serial bus lines (bits 6-7) read
-    // high with nothing on the bus.
-    cia2.portAIn = (driven) => (driven & 0x3F) | 0xC0;
+    // CIA 2 port A: VIC bank (bits 0-1), the serial bus outputs through
+    // inverters (ATN 3, CLK 4, DATA 5) and inputs (CLK 6, DATA 7). A line is
+    // low while the machine or any drive pulls it.
+    cia2.portAIn = (driven) => {
+      const clkLow = (driven & 0x10) !== 0 || this.iec.clkLow;
+      const dataLow = (driven & 0x20) !== 0 || this.iec.dataLow;
+      return (driven & 0x3F) | (clkLow ? 0 : 0x40) | (dataLow ? 0 : 0x80);
+    };
     cia2.onPortWrite = (port) => {
       if (port !== 0) return;
       const bank = (~cia2.drivenA) & 3;
@@ -185,12 +226,19 @@ export class C128Machine extends BaseMachine {
           return vdc.read(addr & 1);
         case 0x8: case 0x9: case 0xA: case 0xB:
           return (memory.colorRead(addr) & 0x0F) | (vic.read(0x12) & 0xF0);
-        case 0xC:
-          cia1.advanceTo(this.accessT(addr, false));
+        case 0xC: {
+          const t = this.accessT(addr, false);
+          cia1.advanceTo(t);
+          // The fast serial port's bits arrive from the drive as it runs.
+          if (this.iec.fitted && ((addr & 0x0F) === 0x0C || (addr & 0x0F) === 0x0D)) this.syncDrive(t);
           return cia1.read(addr);
-        case 0xD:
-          cia2.advanceTo(this.accessT(addr, false));
+        }
+        case 0xD: {
+          const t = this.accessT(addr, false);
+          cia2.advanceTo(t);
+          if (this.iec.fitted && (addr & 0x0F) === 0) this.syncDrive(t);
           return cia2.read(addr);
+        }
         default: return 0xFF;
       }
     };
@@ -238,14 +286,23 @@ export class C128Machine extends BaseMachine {
         case 0x8: case 0x9: case 0xA: case 0xB:
           memory.colorWrite(addr, value);
           break;
-        case 0xC:
+        case 0xC: {
           cia1.advanceTo(t);
+          // The shift register and its control: the drive's end must be as
+          // far on as ours when a byte is sent or the direction changes.
+          const fast = this.iec.fitted && ((addr & 0x0F) === 0x0C || (addr & 0x0F) === 0x0E);
+          if (fast) this.syncDrive(t);
           cia1.write(addr, value);
           break;
-        case 0xD:
+        }
+        case 0xD: {
           cia2.advanceTo(t);
+          const bus = this.iec.fitted && ((addr & 0x0F) === 0 || (addr & 0x0F) === 2);
+          if (bus) this.syncDrive(t);
           cia2.write(addr, value);
+          if (bus) this.iec.update();
           break;
+        }
         default: break;
       }
     };
@@ -301,6 +358,7 @@ export class C128Machine extends BaseMachine {
     this.memory.mmu.displayKeyUp = !this.keyboard.display80;
     this.cpu.reset();
     this.z80.reset();
+    this.iec.reset();
     this.running8502 = false;
     this.irqLine = false;
     this.nmiLevel = false;
@@ -411,6 +469,7 @@ export class C128Machine extends BaseMachine {
     this.cia1.todTick();
     this.cia2.todTick();
     if (skipAudio) { this.audioLastT = this.cpu.tStates; this.sid.advanceTo(this.cpu.tStates); }
+    this.syncDrive(this.cpu.tStates);
     this.vdc.tickFrame();
     this.drawVdc();
     this.needsDisplay = true;

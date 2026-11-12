@@ -1,6 +1,6 @@
 # Plan: Commodore 128
 
-Status: **decisions settled; Phases 0-2, 4 and 5 done (research, shared parts, C128 mode booting to READY, the VDC 80-column display, and C64 mode); 2 MHz mode, drives and the UI are not started.** Worktree `F:/src/zx/zx84-c128`, branch
+Status: **decisions settled; Phases 0-2 and 4-6 done (research, shared parts, C128 mode booting to READY, the VDC 80-column display, C64 mode, and the drives with burst mode); 2 MHz mode and the UI are not started.** Worktree `F:/src/zx/zx84-c128`, branch
 `feature/c128`, cut from `dev` and fast-forwarded to 12cdae9d (the VIC-20 merge). When the machine lands, this file
 becomes `docs/machines/commodore-128.md`, written to
 [`TEMPLATE.md`](../machines/TEMPLATE.md). Follow
@@ -207,15 +207,15 @@ The two items that were left *(confirm)* are settled by Phase 2: the top common 
   direction pins (`fastHostTransmits` for the MMU's FSDIR, `fastTransmitting` read from the
   1571's VIA 1 port A bit 1). Tests in `tests/c64/fast-serial-bus.test.ts`.
 
-Not done, and why (all need the real 128 ROMs running, so they belong to Phase 6):
-- Timer mode 3 (count timer A underflows only while CNT is high) is not modelled; nothing on
-  these boards drives CNT high between edges.
-- Whether the KERNAL also watches the SRQ line through CIA 1's /FLAG pin. Read it from the ROM
-  before deciding to model the level.
-- The 1581's burst port (its CIA has no direction pin; the sender is the one whose SPMODE is set).
-- The 1571's snapshot does not carry the shift-register state yet (it would change the
-  existing stream); the C128's own snapshot format will, via `saveSerial`.
-- The check "against the real 1571 DOS (its burst commands)" needs a 128 host to issue them.
+Not done in Phase 1, and how Phase 6 settled it (with the real 128 ROMs and DOS running):
+- Timer mode 3 is still not modelled: nothing seen needs it.
+- SRQ through CIA 1's /FLAG: not needed. `DIRECTORY`, `DLOAD`, `DSAVE`, `COPY` and `HEADER` work
+  with the shift register and CNT alone, so the level is not modelled.
+- The 1581's burst port: its direction pin is CIA port B bit 5 (the DOS makes it an output and
+  sets it to send), which `Drive1581.fastTransmitting` reads. Burst works with the 1581 DOS.
+- The 1571's snapshot still does not carry the shift-register state; the C128's own snapshot
+  format will, via `saveSerial` (Phase 7).
+- The real 1571 DOS's burst commands: the 128's KERNAL issues them and they work (Phase 6).
 
 ### Phase 2: C128 mode boots to READY on the 40-column screen *(done, 58cef7fc)*
 - `c128/mmu.ts`: the register file ($D500-$D50B, $FF00-$FF04): CR, the four preconfigurations and
@@ -330,7 +330,7 @@ vertical scroll directions are from the register descriptions and unchecked agai
 The milestone's `GRAPHIC`/`COLOR` (BASIC 7 draws those on the VIC-IIe) and the `[80 Columns Mode]`
 programs (they need drives, Phase 6) have not been tried yet.
 
-### Phase 5: C64 mode (`GO64`)
+### Phase 5: C64 mode (`GO64`) *(done, 34d276dc)*
 - `$D505` bit 6 and the 64 ROM pair; the MMU then presents the C64's PLA map (reuse the
   PLA rules from `c64/memory.ts` conceptually; the 128 owns its copy). The VIC-IIe's
   extras are masked as the hardware does. 1 MHz forced.
@@ -372,6 +372,27 @@ masked), and the 64-mode keyboard's CAPS LOCK / extra keys are only the matrix's
   as on the 64. Burst-mode reads and writes through CIA 1 SP/CNT and FSDIR, tested with
   the real 1571 and 1581 DOS: `DIRECTORY`, `DLOAD`, `DSAVE`, `HEADER`, `COPY` in BASIC 7.0.
 - `.d71` / `.d81` / `.d64` / `.g64` mounting and saving come with the shared drive services.
+
+**Done:**
+- `c128-machine.ts`: `iec` (a `CbmSerialBus`) with CIA 2 port A as the 64's bus (ATN, CLK, DATA out
+  on bits 3-5, CLK and DATA in on bits 6-7), `drives`, `drive`, `driveModels`, `fitDrives`,
+  `installDriveRom` and `installDrive` (the default model is a 1571). The drives are brought up
+  to the machine's cycle on CIA 2 port A accesses, on CIA 1's shift register and interrupt
+  registers (`$DC0C`, `$DC0D`, `$DC0E`) and at the end of each frame, and start over with the
+  machine. CIA 1 is the fast serial port (`attachFastSerial`) and the MMU's mode register bit 3
+  is its direction (`onFastSerialDir`).
+- `drive-1581.ts`: `fastCia` and `fastTransmitting` (CIA port B bit 5), so the 1581 takes part in
+  burst transfers.
+- **Verified with the real DOS ROMs** (`tests/c128/c128-drives.test.ts`, skipped without
+  `mcp/.cache/dos{1541,1571,1581}.rom` and the 128's under `c128-dev/`): in BASIC 7.0, `DIRECTORY`,
+  `DLOAD` + `RUN`, `DSAVE`, `COPY` and `HEADER` on a 1571 (the machine sends its commands and the
+  drive its data over the burst bus: hundreds of CNT edges per directory), `DIRECTORY` and
+  `DSAVE` on a 1581 (burst too), `DIRECTORY` and `DLOAD` on a 1541 (the ordinary serial bus; the
+  KERNAL probes for burst, gets no answer and falls back), and `LOAD "$",8` from C64 mode with the
+  1571 acting as a 1541.
+
+Not done: `.g64` and the Drives pane (Phase 7), more than one drive tested on a 128 (the bus
+supports four), and the snapshot of a drive's state (Phase 7).
 
 ### Phase 7: media, services and UI
 - Descriptor, services (`media`, `roms`, `tape`, `disks`, `snapshots`, `debug`, `input`,
