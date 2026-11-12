@@ -8,8 +8,9 @@
  * as if it had been reset. The rest is the 64's board with a bigger memory
  * map: a VIC-IIe (the 64's VIC-II with two extra registers), the SID, two 6526
  * CIAs (CIA 1 scans the keyboard, with three more lines than the 64's), and
- * the VDC, which is only a register file for now. See `memory.ts` for the map
- * and `mmu.ts` for the registers that move it.
+ * the VDC (the 80-column chip, drawn by `vdc-display.ts`). The one canvas shows
+ * either video chip: see `showing80`. See `memory.ts` for the map and `mmu.ts`
+ * for the registers that move it.
  *
  * The frame loop is the 64's: it runs line by line, stopping at the cycles
  * where the VIC-II does its per-line work, with the CPU held off the bus for
@@ -33,7 +34,8 @@ import type { IScreenRenderer } from '@/display/renderer.ts';
 import { C128Memory } from './memory.ts';
 import { C128Keyboard } from './keyboard.ts';
 import { Vdc } from './vdc.ts';
-import { c128ScreenText } from './screen-text.ts';
+import { c128ScreenText, vdcScreenText } from './screen-text.ts';
+import { renderVdc, VDC_FRAME_HEIGHT, VDC_FRAME_WIDTH, VDC_PIXEL_ASPECT_X } from './vdc-display.ts';
 import { C128_SCREEN_WIDTH, c128Timing, type C128Timing } from './constants.ts';
 
 /** Indices into the line's events (see `lineEvents`), in the order they fall. */
@@ -46,6 +48,10 @@ const EVT_LINE_END = 3;
 const Z80_TSTATES_PER_CYCLE = 2;
 /** What the 8502's reset sequence costs once it has been handed the bus. */
 const CPU_RESET_CYCLES = 7;
+
+/** Which of the two video chips the one canvas shows: the 40/80 DISPLAY key's
+ *  choice (`auto`), or one of them whatever the key says. */
+export type C128DisplayMode = 'auto' | '40' | '80';
 
 export class C128Machine extends BaseMachine {
   readonly kind = 'c128' as const;
@@ -66,6 +72,11 @@ export class C128Machine extends BaseMachine {
   readonly audio = new Audio();
   display: IScreenRenderer | null;
   private readonly _pixels: Uint8Array;
+  private readonly vdcPixels32 = new Uint32Array(VDC_FRAME_WIDTH * VDC_FRAME_HEIGHT);
+  private readonly vdcPixels = new Uint8Array(this.vdcPixels32.buffer);
+  private displayMode: C128DisplayMode = 'auto';
+  /** Which chip's frame the canvas was last told about. */
+  private announced80 = false;
 
   /** VIC-IIe registers $D02F (the keyboard lines it selects, bits 0-2) and
    *  $D030 (bit 0 is the 2 MHz mode, which is not modelled yet). */
@@ -324,15 +335,20 @@ export class C128Machine extends BaseMachine {
 
   // ── Frame ────────────────────────────────────────────────────────────────
 
-  get pixels(): Uint8Array { return this._pixels; }
-  get frameWidth(): number { return C128_SCREEN_WIDTH; }
-  get frameHeight(): number { return this.timing.screenHeight; }
+  /** Whether the canvas is showing the VDC (80 columns) rather than the VIC-IIe. */
+  get showing80(): boolean {
+    return this.displayMode === 'auto' ? this.keyboard.display80 : this.displayMode === '80';
+  }
+
+  get pixels(): Uint8Array { return this.showing80 ? this.vdcPixels : this._pixels; }
+  get frameWidth(): number { return this.showing80 ? VDC_FRAME_WIDTH : C128_SCREEN_WIDTH; }
+  get frameHeight(): number { return this.showing80 ? VDC_FRAME_HEIGHT : this.timing.screenHeight; }
   get tStatesPerFrame(): number { return this.timing.cyclesPerFrame; }
   get cpuClockHz(): number { return this.timing.clockHz; }
   protected override get frameHz(): number { return this.timing.clockHz / this.timing.cyclesPerFrame; }
 
   protected get audioChip(): Mos6581 { return this.sid; }
-  protected framePixels(): Uint8Array { return this._pixels; }
+  protected framePixels(): Uint8Array { return this.pixels; }
   protected inTurbo(): boolean { return this.turbo; }
   protected override interruptEntryPending(): boolean { return this.running8502 && this.cpu.interruptPending(); }
   protected override cpuCycles(): number { return this.cpu.tStates; }
@@ -360,6 +376,7 @@ export class C128Machine extends BaseMachine {
         this.lineLive = true;
         this.fEvent = 0;
         vic.startLine(this.fLine, lineStart);
+        this.vdc.setBeam(this.fLine / this.timing.linesPerFrame);
         this.updateInterrupts();
       }
       for (; this.fEvent < events.length; this.fEvent++) {
@@ -388,7 +405,21 @@ export class C128Machine extends BaseMachine {
     this.cia1.todTick();
     this.cia2.todTick();
     if (skipAudio) { this.audioLastT = this.cpu.tStates; this.sid.advanceTo(this.cpu.tStates); }
+    this.vdc.tickFrame();
+    this.drawVdc();
     this.needsDisplay = true;
+  }
+
+  /** Draw the VDC's frame when the canvas shows it, and tell the canvas when
+   *  the chip it shows (so its size and the shape of a pixel) has changed. */
+  private drawVdc(): void {
+    const is80 = this.showing80;
+    if (is80) renderVdc(this.vdc, this.vdcPixels32);
+    if (is80 === this.announced80) return;
+    this.announced80 = is80;
+    this.display?.resize(this.frameWidth, this.frameHeight);
+    this.display?.setPixelAspectX(is80 ? VDC_PIXEL_ASPECT_X : 1);
+    this.onScreenChange?.();
   }
 
   /** Feed the SID's samples to the mixer up to now. */
@@ -473,12 +504,23 @@ export class C128Machine extends BaseMachine {
   setDisplay80(down: boolean): void {
     this.keyboard.display80 = down;
     this.memory.mmu.displayKeyUp = !down;
+    this.drawVdc();
+    this.needsDisplay = true;
+  }
+
+  /** Show the 40-column chip, the 80-column chip, or whichever the 40/80 key
+   *  says (the Display menu). */
+  setDisplayMode(mode: C128DisplayMode): void {
+    this.displayMode = mode;
+    this.drawVdc();
+    this.needsDisplay = true;
   }
 
   // ── Debug ────────────────────────────────────────────────────────────────
 
-  /** The 40-column text screen as text. */
+  /** The text screen the canvas shows, as text: 80 columns from the VDC's
+   *  RAM, or 40 from the VIC-IIe's matrix. */
   ocrScreenForMcp(_mode?: string): string {
-    return c128ScreenText(this.memory, this.vic.regs);
+    return this.showing80 ? vdcScreenText(this.vdc) : c128ScreenText(this.memory, this.vic.regs);
   }
 }

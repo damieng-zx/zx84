@@ -6,6 +6,36 @@
 
 import { c64TextChar } from '@/ocr/c64.ts';
 import type { C128Memory } from './memory.ts';
+import { VDC_R, type Vdc } from './vdc.ts';
+
+/**
+ * The VDC's text screen as text: the cells at the display start address, the
+ * editor's screen codes read as on the 64 (the cell's alternate-set attribute
+ * stands for the lower-case set), trailing blanks and blank lines removed.
+ */
+export function vdcScreenText(vdc: Vdc): string {
+  const r = vdc.regs;
+  if ((r[VDC_R.MODE] & 0x80) !== 0) return '[c128] the 80-column screen is in a bitmap mode: no text to read';
+  const mask = vdc.ram.length - 1;
+  const cols = r[VDC_R.HDISP];
+  const rowsN = r[VDC_R.VDISP];
+  const screen = (r[VDC_R.SCREEN_HI] << 8) | r[VDC_R.SCREEN_LO];
+  const attrs = (r[VDC_R.ATTR_HI] << 8) | r[VDC_R.ATTR_LO];
+  const stride = cols + r[VDC_R.ROW_ADD];
+  const colour = (r[VDC_R.MODE] & 0x40) !== 0;
+  const rows: string[] = [];
+  for (let row = 0; row < rowsN; row++) {
+    let line = '';
+    for (let col = 0; col < cols; col++) {
+      const cell = row * stride + col;
+      const lower = colour && (vdc.ram[(attrs + cell) & mask] & 0x80) !== 0;
+      line += c64TextChar(vdc.ram[(screen + cell) & mask], lower) ?? '#';
+    }
+    rows.push(line.replace(/\s+$/, ''));
+  }
+  while (rows.length > 0 && rows[rows.length - 1] === '') rows.pop();
+  return rows.join('\n');
+}
 
 /** The 40×25 text screen, trailing blanks and blank lines at the end removed.
  *  A bitmap mode says so instead. */

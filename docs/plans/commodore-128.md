@@ -1,6 +1,6 @@
 # Plan: Commodore 128
 
-Status: **decisions settled; Phases 0-2 done (research, shared parts, and C128 mode booting to READY on the 40-column screen); drives, VDC display, C64 mode and the UI are not started.** Worktree `F:/src/zx/zx84-c128`, branch
+Status: **decisions settled; Phases 0-2 and 4 done (research, shared parts, C128 mode booting to READY on the 40-column screen, and the VDC's 80-column display); 2 MHz mode, drives, C64 mode and the UI are not started.** Worktree `F:/src/zx/zx84-c128`, branch
 `feature/c128`, cut from `dev` and fast-forwarded to 12cdae9d (the VIC-20 merge). When the machine lands, this file
 becomes `docs/machines/commodore-128.md`, written to
 [`TEMPLATE.md`](../machines/TEMPLATE.md). Follow
@@ -217,7 +217,7 @@ Not done, and why (all need the real 128 ROMs running, so they belong to Phase 6
   existing stream); the C128's own snapshot format will, via `saveSerial`.
 - The check "against the real 1571 DOS (its burst commands)" needs a 128 host to issue them.
 
-### Phase 2: C128 mode boots to READY on the 40-column screen *(done, uncommitted)*
+### Phase 2: C128 mode boots to READY on the 40-column screen *(done, 58cef7fc)*
 - `c128/mmu.ts`: the register file ($D500-$D50B, $FF00-$FF04): CR, the four preconfigurations and
   their load-config addresses, MCR, RCR, the latched P0/P1 high bytes, common RAM arithmetic, and
   page 0/1 relocation with the swap of the target page. `c128/memory.ts`: the 8502's map, the Z80's
@@ -231,7 +231,7 @@ Not done, and why (all need the real 128 ROMs running, so they belong to Phase 6
   to the 8502 on the MCR write (it starts as if reset, reading `$FFFC` through the map it then
   has), the 64's line loop with the VIC-II's bus holds, CIA 1 and 2, SID, 8502 at 1 MHz.
 - `c128/keyboard.ts`: the 64's 8 x 8 plus the three extra lines, read from the editor ROM's decode
-  table. `c128/vdc.ts`: register file, RAM and block copy/fill only, no display (Phase 4).
+  table. `c128/vdc.ts`: register file, RAM and block copy/fill (the display came in Phase 4).
 - `shared/cbm/vic-ii-board.ts` now holds the VIC-II board's timing, geometry and palette, which
   `c64/constants.ts` and `c64/palette.ts` re-export (an island cannot import another island);
   `CbmKeyboard` takes a matrix of any width.
@@ -291,6 +291,44 @@ Not done in this phase, and why:
   update address, copy with overlapping source and destination, fill, attribute bits.
 - **Milestone:** `GRAPHIC`/`COLOR` and the 80-column screen visible; BASIC editor in
   both columns; the programs in `Games - [D64]` marked `[80 Columns Mode]` draw.
+
+**Done (uncommitted):**
+- `c128/vdc-display.ts`: `renderVdc(vdc, out)` draws the registers and RAM into a fixed 704 × 248
+  frame, the 640 × 200 picture centred in a border of R26's background colour (a fixed frame, so a
+  program that changes R1 or R22 cannot resize the canvas). Text and bitmap modes, the 16-byte
+  glyphs from the set at `R28 & $E0 << 8` (alternate set 4K on), monochrome and attribute colours,
+  reverse (per cell and R24 bit 6), underline at R29, flash (alternates with reverse, 1/16 or 1/30),
+  the cursor (steady, none, 1/16, 1/32, over lines R10..R11), the row increment R27, the ninth pixel
+  (semigraphic), cell widths and heights from R22/R9/R23, and both smooth scrolls. The palette is
+  pure RGBI (`0xAA` per colour, `+0x55` with intensity); no monitor-specific brown.
+- `c128/vdc.ts`: `VDC_R` register names, 64K RAM (`new Vdc(VDC_RAM_64K)`), the status register's
+  vertical-blank bit (the machine feeds the beam position with `setBeam` each line from R4/R5/R6/R9),
+  a frame counter for the flash and blink.
+- Machine: one canvas, `showing80` and `setDisplayMode('auto' | '40' | '80')`. The frame size, the
+  pixel buffer and the pixel shape (`VDC_PIXEL_ASPECT_X`, 4:3 over the whole frame) follow the chip
+  shown, and the machine calls `display.resize`, `display.setPixelAspectX` and `onScreenChange`
+  itself when it changes, as the BBC and MTX machines do: **no new shell seam was needed**.
+  `ocrScreenForMcp` reads whichever screen is shown (`vdcScreenText` for 80 columns).
+- Tests: `tests/c128/vdc.test.ts` (ports, update address, fill, copy including overlap, status),
+  `vdc-display.test.ts` (every item above, hand-computed), and machine tests for the display
+  selection, the canvas messages and, with the real ROMs, booting and typing on the 80-column screen.
+
+Facts found while doing it:
+- **The editor's VDC set-up** (read back after a real boot): R0 `$7F`, R1 80, R4 `$26`, R6 25, R9 7,
+  R10 `$60` (blinking 1/32 cursor, lines 0-7), R20 `$08` (attributes at `$0800`), R22 `$78`
+  (8-pixel cells, 8 shown), R23 8, R24 `$20` (flash 1/30), R25 `$40` (attributes on, horizontal
+  scroll **0**), R26 `$F0`, R28 `$20` (set at `$2000`), R29 7.
+- **Auto follows the 40/80 key only, not "the last chip programmed":** the editor programs the whole
+  VDC (and clears its RAM) at start-up in 40-column mode too, so VDC activity cannot tell the chips
+  apart. The Display menu's 40 and 80 settings override the key.
+- Setting the key down after boot (`setDisplay80(true)`) switches what is shown to the VDC, though
+  the editor stays on the screen it chose at reset; a program-driven switch is ESC-X or a reset.
+
+Not done: interlace (R8), the display-enable window (R34/R35), the light pen, a block copy's
+timing and the ready bit (it finishes at once and always reads ready), and the horizontal and
+vertical scroll directions are from the register descriptions and unchecked against a real chip.
+The milestone's `GRAPHIC`/`COLOR` (BASIC 7 draws those on the VIC-IIe) and the `[80 Columns Mode]`
+programs (they need drives, Phase 6) have not been tried yet.
 
 ### Phase 5: C64 mode (`GO64`)
 - `$D505` bit 6 and the 64 ROM pair; the MMU then presents the C64's PLA map (reuse the

@@ -12,6 +12,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { C128Machine } from '@/machines/c128/c128-machine.ts';
+import { C128_SCREEN_WIDTH } from '@/machines/c128/constants.ts';
+import { VDC_FRAME_HEIGHT, VDC_FRAME_WIDTH, VDC_PIXEL_ASPECT_X } from '@/machines/c128/vdc-display.ts';
+import type { IScreenRenderer } from '@/display/renderer.ts';
 import { romImage } from '../snapshot/native-state-helpers.ts';
 
 /** A system ROM image whose Z80 BIOS (at $1000) is `bios` and whose 8502 side is
@@ -247,6 +250,89 @@ describe('C128 VDC register file', () => {
   });
 });
 
+/** A canvas that records what the machine tells it about the frame. */
+function recordingDisplay(): { display: IScreenRenderer; log: string[] } {
+  const log: string[] = [];
+  const display = {
+    resize: (w: number, h: number) => log.push(`resize ${w}x${h}`),
+    setPixelAspectX: (a: number) => log.push(`aspect ${a.toFixed(3)}`),
+  } as unknown as IScreenRenderer;
+  return { display, log };
+}
+
+describe('C128 two displays on one canvas', () => {
+  it('shows the VIC-IIe while the 40/80 key is up and the VDC while it is down, in Auto', () => {
+    const m = new C128Machine(null);
+    m.reset();
+    expect(m.showing80).toBe(false);
+    expect(m.frameWidth).toBe(C128_SCREEN_WIDTH);
+    m.setDisplay80(true);
+    expect(m.showing80).toBe(true);
+    expect([m.frameWidth, m.frameHeight]).toEqual([VDC_FRAME_WIDTH, VDC_FRAME_HEIGHT]);
+    expect(m.pixels.length).toBe(VDC_FRAME_WIDTH * VDC_FRAME_HEIGHT * 4);
+  });
+
+  it('shows the chip the Display menu names whatever the key says', () => {
+    const m = new C128Machine(null);
+    m.reset();
+    m.setDisplayMode('80');
+    expect(m.showing80).toBe(true);
+    m.setDisplay80(true);
+    m.setDisplayMode('40');
+    expect(m.showing80).toBe(false);
+    m.setDisplayMode('auto');
+    expect(m.showing80, 'Auto follows the key again').toBe(true);
+  });
+
+  it('draws the VDC into the frame it reports, border colour included', () => {
+    const m = new C128Machine(null);
+    m.reset();
+    m.vdc.regs[26] = 0x02;                       // background: dark blue
+    m.setDisplayMode('80');
+    m.tick();
+    const px = new Uint32Array(m.pixels.buffer, m.pixels.byteOffset, VDC_FRAME_WIDTH * VDC_FRAME_HEIGHT);
+    expect(px[0]).toBe(0xFFAA0000);              // ABGR: blue 0xAA
+  });
+
+  it('tells the canvas its new size and pixel shape when the chip it shows changes, and only then', () => {
+    const { display, log } = recordingDisplay();
+    const m = new C128Machine(display);
+    m.reset();
+    m.setDisplayMode('80');
+    expect(log[0]).toBe(`resize ${VDC_FRAME_WIDTH}x${VDC_FRAME_HEIGHT}`);
+    expect(log[1]).toBe(`aspect ${VDC_PIXEL_ASPECT_X.toFixed(3)}`);
+    m.tick();
+    m.setDisplayMode('80');
+    expect(log, 'no change, no message').toHaveLength(2);
+    m.setDisplayMode('40');
+    expect(log.slice(2)).toEqual([`resize ${C128_SCREEN_WIDTH}x${m.frameHeight}`, 'aspect 1.000']);
+  });
+
+  it('puts the 80-column picture at 4:3 over the whole frame', () => {
+    expect(VDC_PIXEL_ASPECT_X * VDC_FRAME_WIDTH / VDC_FRAME_HEIGHT).toBeCloseTo(4 / 3, 6);
+  });
+
+  it('reads the text of whichever screen is shown', () => {
+    const m = new C128Machine(null);
+    m.reset();
+    m.vdc.regs[1] = 80; m.vdc.regs[6] = 25;
+    m.vdc.ram.fill(32, 0, 0x0800);
+    m.vdc.ram[0] = 8; m.vdc.ram[1] = 9;
+    m.setDisplayMode('80');
+    expect(m.ocrScreenForMcp()).toBe('HI');
+    m.setDisplayMode('40');
+    expect(m.ocrScreenForMcp()).not.toBe('HI');
+  });
+
+  it('counts the VDC frames, so its flash and cursor blink run', () => {
+    const m = new C128Machine(null);
+    m.reset();
+    const before = m.vdc.frame;
+    m.tick(); m.tick();
+    expect(m.vdc.frame).toBe(before + 2);
+  });
+});
+
 const REAL = 'c128-dev/';
 const basicLo = romImage(REAL + 'basiclo');
 const basicHi = romImage(REAL + 'basichi');
@@ -327,6 +413,47 @@ describe.skipIf(!basicLo || !basicHi || !kernal || !chargen)('C128 with the Comm
     }
   });
 
+  it('boots to the same banner on the 80-column screen when the 40/80 key is down at reset', () => {
+    const m = new C128Machine(null);
+    m.loadRoms(basicLo, basicHi, kernal, chargen);
+    m.setDisplay80(true);
+    m.reset();
+    for (let f = 0; f < 150; f++) m.tick();
+    expect(m.showing80).toBe(true);
+    const text = m.ocrScreenForMcp();
+    expect(text).toContain('COMMODORE BASIC V7.0 122365 BYTES FREE');
+    expect(text.endsWith('READY.')).toBe(true);
+    // The editor's 80-column set-up: 80 × 25 cells of 8 × 8, attributes on, set at $2000.
+    const r = m.vdc.regs;
+    expect([r[1], r[6], r[9], r[22], r[23]]).toEqual([80, 25, 7, 0x78, 8]);
+    expect(r[25] & 0x40, 'colour attributes on').toBe(0x40);
+    // And it is drawn: the cursor block and the letters are not the background.
+    const px = new Uint32Array(m.pixels.buffer, m.pixels.byteOffset, VDC_FRAME_WIDTH * VDC_FRAME_HEIGHT);
+    const background = px[0];
+    expect(px.filter((p) => p !== background).length).toBeGreaterThan(500);
+  });
+
+  it('types on the 80-column screen', () => {
+    const m = new C128Machine(null);
+    m.loadRoms(basicLo, basicHi, kernal, chargen);
+    m.setDisplay80(true);
+    m.reset();
+    for (let f = 0; f < 150; f++) m.tick();
+    type(m, 'PRINT 6*7\n');
+    for (let f = 0; f < 20; f++) m.tick();
+    const lines = m.ocrScreenForMcp().split('\n');
+    const at = lines.lastIndexOf('PRINT 6*7');
+    expect(at).toBeGreaterThan(0);
+    expect(lines[at + 1]).toBe(' 42');
+  });
+
+  it('programs the VDC at start-up whichever screen is chosen, so the last chip programmed cannot pick the display', () => {
+    const m = boot();
+    const r = m.vdc.regs;
+    expect([r[1], r[6]]).toEqual([80, 25]);
+    expect(m.showing80).toBe(false);
+  });
+
   it('reads the 40/80 key as released and the cartridge pins as empty in the mode register', () => {
     const m = boot();
     expect(m.memory.mmu.read(5) & 0xB0).toBe(0xB0);
@@ -345,6 +472,7 @@ describe.skipIf(!basicLo || !basicHi || !kernal || !chargen)('C128 with the Comm
     const up = peek();
     expect(Number(up) & 0xB1).toBe(0xB1);
     m.setDisplay80(true);
+    m.setDisplayMode('40');            // the editor is still on the 40-column screen: read that
     expect(Number(peek()), 'the key down clears bit 7').toBe(Number(up) & 0x7F);
   });
 });
