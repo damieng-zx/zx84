@@ -1,7 +1,8 @@
 /**
  * Commodore 128 memory: two 64K blocks of RAM, the ROMs, two 1K banks of
  * colour RAM, the 8502's on-chip port, and the MMU (`mmu.ts`) that decides
- * what the CPU sees where. This is C128 mode; C64 mode is a later phase.
+ * what the CPU sees where. C128 mode is described first; C64 mode (the MMU's
+ * mode register bit 6) is at the end of this comment.
  *
  * The 8502's view (C128 Programmer's Reference Guide, the MMU's configuration
  * register):
@@ -36,13 +37,24 @@
  * The VIC-IIe reads its own 16K window of RAM in the block RCR bits 7-6 name,
  * at the bank CIA 2 chooses; with the 8502 port's bit 2 low the character ROM
  * shows at $1000-$1FFF of every bank.
+ *
+ * C64 mode: the MMU lets the 8502's port steer the map exactly as on a 64.
+ * 64K of RAM (the block CR names), the 64's BASIC at $A000 (LORAM and HIRAM
+ * high), its KERNAL at $E000 (HIRAM high), and at $D000 the character ROM
+ * (the first 4K of the 128's) or I/O (CHAREN high), either of them only while
+ * LORAM or HIRAM is high. The port's bits 0-2 are those three lines, not the
+ * colour RAM banks (colour RAM is bank 0 for both chips), the VIC-II sees
+ * the character ROM only in banks 0 and 2, the MMU's $FF00-$FF04 are plain
+ * memory, and page 0 and 1 relocation is off (the C64 mode start-up leaves
+ * the pointers at their defaults). The 128's own ROMs are out of the map.
+ * No cartridge is modelled yet: /GAME and /EXROM are taken as high.
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
 import type { VicBus } from '@/cores/vic-ii.ts';
 import {
-  C128_BASIC_HI_SIZE, C128_BASIC_LO_SIZE, C128_CHARGEN_128_OFFSET, C128_CHARGEN_SIZE,
-  C128_KERNAL_SIZE, C128_Z80_BIOS_OFFSET,
+  C128_BASIC64_SIZE, C128_BASIC_HI_SIZE, C128_BASIC_LO_SIZE, C128_CHARGEN_128_OFFSET, C128_CHARGEN_SIZE,
+  C128_KERNAL64_SIZE, C128_KERNAL_SIZE, C128_Z80_BIOS_OFFSET,
 } from './constants.ts';
 import { Mmu } from './mmu.ts';
 
@@ -61,6 +73,14 @@ const PORT_CAPS = 0x40;
 /** The bits that read high with nothing driving them (the others read low). */
 const PORT_PULLED_UP = PORT_COLOUR_CPU | PORT_COLOUR_VIC | PORT_VIC_NO_CHARGEN | PORT_CAS_SENSE | PORT_CAPS;
 
+/** How `c64Byte` is asked: a read (I/O side effects), a peek, or with no I/O. */
+const C64_READ = 0;
+const C64_PEEK = 1;
+/** What C64 mode shows at $D000. */
+const C64_RAM = 0;
+const C64_CHARGEN = 1;
+const C64_IO = 2;
+
 export class C128Memory implements IMachineMemory, VicBus {
   /** Both 64K RAM blocks, block 0 first. */
   readonly ram = new Uint8Array(0x20000);
@@ -70,6 +90,9 @@ export class C128Memory implements IMachineMemory, VicBus {
   readonly kernal = new Uint8Array(C128_KERNAL_SIZE);
   /** The character ROM: the C64's set, then the 128's. */
   readonly chargen = new Uint8Array(C128_CHARGEN_SIZE);
+  /** C64 mode's BASIC and KERNAL. */
+  readonly basic64 = new Uint8Array(C128_BASIC64_SIZE);
+  readonly kernal64 = new Uint8Array(C128_KERNAL64_SIZE);
   /** Colour RAM: two 1K banks, the low nybble of each byte is the colour. */
   readonly colorBanks: readonly [Uint8Array, Uint8Array] = [new Uint8Array(0x400), new Uint8Array(0x400)];
 
@@ -91,6 +114,8 @@ export class C128Memory implements IMachineMemory, VicBus {
   private cpuColor: Uint8Array = this.colorBanks[0];
   private vicColor: Uint8Array = this.colorBanks[0];
   private vicChargen = false;
+  /** The mode the port-dependent state was last worked out for. */
+  private portForC64 = false;
 
   ioRead: IoRead = () => 0xFF;
   ioWrite: IoWrite = () => {};
@@ -100,6 +125,8 @@ export class C128Memory implements IMachineMemory, VicBus {
   onPortChange: (() => void) | null = null;
 
   constructor() {
+    // A change of mode changes what the port's bits steer.
+    this.mmu.onChange = () => { if (this.mmu.c64Mode !== this.portForC64) this.updatePort(); };
     this.reset();
   }
 
@@ -116,11 +143,14 @@ export class C128Memory implements IMachineMemory, VicBus {
     this.updatePort();
   }
 
-  /** Install the ROM images; one that is null keeps what it has. */
+  /** Install the ROM images; one that is null or left out keeps what it has. */
   loadRoms(
     basicLo: Uint8Array | null, basicHi: Uint8Array | null,
     kernal: Uint8Array | null, chargen: Uint8Array | null,
+    basic64: Uint8Array | null = null, kernal64: Uint8Array | null = null,
   ): void {
+    if (basic64) this.basic64.set(basic64.subarray(0, C128_BASIC64_SIZE));
+    if (kernal64) this.kernal64.set(kernal64.subarray(0, C128_KERNAL64_SIZE));
     if (basicLo) this.basicLo.set(basicLo.subarray(0, C128_BASIC_LO_SIZE));
     if (basicHi) this.basicHi.set(basicHi.subarray(0, C128_BASIC_HI_SIZE));
     if (kernal) this.kernal.set(kernal.subarray(0, C128_KERNAL_SIZE));
@@ -146,6 +176,14 @@ export class C128Memory implements IMachineMemory, VicBus {
   /** Follow the port's bits that steer the colour RAM and the VIC-IIe. */
   private updatePort(): void {
     const pins = this.portPins;
+    this.portForC64 = this.mmu.c64Mode;
+    if (this.portForC64) {
+      // The port's low bits are the PLA lines, not colour bank selects.
+      this.cpuColor = this.colorBanks[0];
+      this.vicColor = this.colorBanks[0];
+      this.vicChargen = false;
+      return;
+    }
     this.cpuColor = this.colorBanks[(pins & PORT_COLOUR_CPU) !== 0 ? 0 : 1];
     this.vicColor = this.colorBanks[(pins & PORT_COLOUR_VIC) !== 0 ? 0 : 1];
     this.vicChargen = (pins & PORT_VIC_NO_CHARGEN) === 0;
@@ -213,6 +251,7 @@ export class C128Memory implements IMachineMemory, VicBus {
       return this.portPins;
     }
     const mmu = this.mmu;
+    if (mmu.c64Mode) return this.c64Byte(addr, C64_READ);
     if (mmu.relocated) {
       const page = addr >> 8;
       if (page <= 1 || page === mmu.p0l || page === mmu.p1l) {
@@ -233,6 +272,7 @@ export class C128Memory implements IMachineMemory, VicBus {
       this.writePort(addr, v);
       return;
     }
+    if (mmu.c64Mode) { this.c64Store(addr, v); return; }
     if (mmu.relocated) {
       const page = addr >> 8;
       if (page <= 1 || page === mmu.p0l || page === mmu.p1l) {
@@ -256,6 +296,7 @@ export class C128Memory implements IMachineMemory, VicBus {
     addr &= 0xFFFF;
     if (addr < 2) return addr === 0 ? this.portDdr : this.portPins;
     const mmu = this.mmu;
+    if (mmu.c64Mode) return this.c64Byte(addr, C64_PEEK);
     if (mmu.relocated) {
       const page = addr >> 8;
       if (page <= 1 || page === mmu.p0l || page === mmu.p1l) {
@@ -268,7 +309,46 @@ export class C128Memory implements IMachineMemory, VicBus {
   }
 
   /** Whether $D000-$DFFF is I/O to the 8502 now. */
-  get ioIn(): boolean { return (this.mmu.cr & 0x01) === 0; }
+  get ioIn(): boolean { return this.mmu.c64Mode ? this.c64Plane === C64_IO : (this.mmu.cr & 0x01) === 0; }
+
+  // ── C64 mode ─────────────────────────────────────────────────────────────
+
+  /** What $D000-$DFFF is in C64 mode: RAM, the character ROM or I/O. */
+  private get c64Plane(): number {
+    const p = this.portPins;
+    if ((p & 3) === 0) return C64_RAM;
+    return (p & 4) !== 0 ? C64_IO : C64_CHARGEN;
+  }
+
+  /** The byte the 64's PLA puts at `addr` for the CPU (`how` is a read, a peek
+   *  or a read with no I/O). */
+  private c64Byte(addr: number, how: number): number {
+    const p = this.portPins;
+    switch (addr >> 12) {
+      case 0xA: case 0xB:
+        if ((p & 3) === 3) return this.basic64[addr - 0xA000];
+        break;
+      case 0xD:
+        if ((p & 3) !== 0) {
+          if ((p & 4) === 0) return this.chargen[addr - 0xD000];
+          if (how === C64_READ) return this.ioRead(addr);
+          if (how === C64_PEEK) return this.ioPeek(addr) & 0xFF;
+          return 0xFF;
+        }
+        break;
+      case 0xE: case 0xF:
+        if ((p & 2) !== 0) return this.kernal64[addr - 0xE000];
+        break;
+      default: break;
+    }
+    return this.ram[this.mmu.ramAddress(addr, this.mmu.ramBlock)];
+  }
+
+  /** A write in C64 mode: to I/O when it is in view, otherwise to the RAM under whatever is. */
+  private c64Store(addr: number, v: number): void {
+    if ((addr >> 12) === 0xD && this.c64Plane === C64_IO) { this.ioWrite(addr, v); return; }
+    this.ram[this.mmu.ramAddress(addr, this.mmu.ramBlock)] = v;
+  }
 
   readBlock(addr: number, len: number): Uint8Array {
     const out = new Uint8Array(len);
@@ -351,7 +431,12 @@ export class C128Memory implements IMachineMemory, VicBus {
   /** A byte of the VIC-IIe's 16K view. */
   vicRead(addr14: number): number {
     const a = addr14 & 0x3FFF;
-    if (this.vicChargen && (a & 0x3000) === 0x1000) return this.chargen[C128_CHARGEN_128_OFFSET + (a & 0x0FFF)];
+    if (this.mmu.c64Mode) {
+      // The 64's rule: the character ROM (its 4K set) in banks 0 and 2.
+      if ((a & 0x3000) === 0x1000 && (this.vicBase & 0x4000) === 0) return this.chargen[a & 0x0FFF];
+    } else if (this.vicChargen && (a & 0x3000) === 0x1000) {
+      return this.chargen[C128_CHARGEN_128_OFFSET + (a & 0x0FFF)];
+    }
     return this.ram[(this.mmu.vicBlock << 16) | this.vicBase | a];
   }
 }

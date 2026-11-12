@@ -333,11 +333,62 @@ describe('C128 two displays on one canvas', () => {
   });
 });
 
+describe('C128 machine in C64 mode', () => {
+  function m64(): C128Machine {
+    const m = new C128Machine(null);
+    m.reset();
+    m.memory.mmu.write(5, 0x40);
+    return m;
+  }
+
+  it('reads the 128-only VIC-IIe registers as $FF and ignores writes to them', () => {
+    const m = m64();
+    m.memory.writeByte(0xD02F, 0x00);
+    m.memory.writeByte(0xD030, 0x01);
+    expect(m.memory.readByte(0xD02F)).toBe(0xFF);
+    expect(m.memory.readByte(0xD030)).toBe(0xFF);
+    expect(m.memory.peekByte(0xD02F)).toBe(0xFF);
+  });
+
+  it('has them in C128 mode', () => {
+    const m = new C128Machine(null);
+    m.reset();
+    m.memory.writeByte(0xFF00, 0x00);
+    m.memory.writeByte(0xD02F, 0x05);
+    expect(m.memory.readByte(0xD02F)).toBe(0xFD);
+  });
+
+  it('does not scan the 128 extra keyboard lines, whatever $D02F held before', () => {
+    const m = new C128Machine(null);
+    m.reset();
+    m.memory.writeByte(0xFF00, 0x00);
+    m.memory.writeByte(0xD02F, 0x07 & ~1);        // select K0: HELP, 8, 5, TAB, 2, 4, 7, 1
+    m.keyboard.setKey('help', true);
+    m.memory.writeByte(0xDC00, 0xFF);
+    expect(m.memory.readByte(0xDC01), 'K0 selected: HELP reads').not.toBe(0xFF);
+    m.memory.mmu.write(5, 0x40);
+    m.memory.writeByte(1, 0x07);
+    m.memory.writeByte(0, 0x07);
+    expect(m.memory.readByte(0xDC01), 'in C64 mode the extra lines are not there').toBe(0xFF);
+  });
+
+  it('shows the VIC-II in Auto whatever the 40/80 key says, since the 64 never uses the VDC', () => {
+    const m = m64();
+    m.setDisplay80(true);
+    expect(m.c64Mode).toBe(true);
+    expect(m.showing80).toBe(false);
+    m.setDisplayMode('80');
+    expect(m.showing80, 'unless the menu says 80').toBe(true);
+  });
+});
+
 const REAL = 'c128-dev/';
 const basicLo = romImage(REAL + 'basiclo');
 const basicHi = romImage(REAL + 'basichi');
 const kernal = romImage(REAL + 'kernal');
 const chargen = romImage(REAL + 'chargen');
+const basic64 = romImage(REAL + 'basic64');
+const kernal64 = romImage(REAL + 'kernal64');
 
 /** What a letter, digit or sign is to the keyboard: the key, and whether SHIFT is down. */
 function chord(ch: string): { key: string; shift?: boolean } {
@@ -474,5 +525,67 @@ describe.skipIf(!basicLo || !basicHi || !kernal || !chargen)('C128 with the Comm
     m.setDisplay80(true);
     m.setDisplayMode('40');            // the editor is still on the 40-column screen: read that
     expect(Number(peek()), 'the key down clears bit 7').toBe(Number(up) & 0x7F);
+  });
+});
+
+describe.skipIf(!basicLo || !basicHi || !kernal || !chargen || !basic64 || !kernal64)('C128 in C64 mode with the Commodore ROMs', () => {
+  /** Reset with C= held, as for a C64 mode start, and let it boot. */
+  function boot64(): C128Machine {
+    const m = new C128Machine(null);
+    m.loadRoms(basicLo, basicHi, kernal, chargen, basic64, kernal64);
+    m.reset();
+    m.keyboard.setKey('cbm', true);
+    for (let f = 0; f < 6; f++) m.tick();
+    m.keyboard.setKey('cbm', false);
+    for (let f = 0; f < 150; f++) m.tick();
+    return m;
+  }
+
+  it('boots to the 64 BASIC with C= held at reset: the banner, 38911 bytes free and READY', () => {
+    const m = boot64();
+    expect(m.c64Mode).toBe(true);
+    expect(m.cpuIs8502).toBe(true);
+    const text = m.ocrScreenForMcp();
+    expect(text).toContain('**** COMMODORE 64 BASIC V2 ****');
+    expect(text).toContain('64K RAM SYSTEM  38911 BASIC BYTES FREE');
+    expect(text.endsWith('READY.')).toBe(true);
+  });
+
+  it('shows the 40-column picture at the VIC-II size', () => {
+    const m = boot64();
+    expect(m.showing80).toBe(false);
+    expect(m.frameWidth).toBe(C128_SCREEN_WIDTH);
+  });
+
+  it('types a line, runs it and prints the answer', () => {
+    const m = boot64();
+    type(m, 'PRINT 6*7\n');
+    for (let f = 0; f < 20; f++) m.tick();
+    const lines = m.ocrScreenForMcp().split('\n');
+    const at = lines.lastIndexOf('PRINT 6*7');
+    expect(at).toBeGreaterThan(0);
+    expect(lines[at + 1]).toBe(' 42');
+  });
+
+  it('keeps its own memory: POKE and PEEK through the 64K', () => {
+    const m = boot64();
+    type(m, 'POKE 49152,77:PRINT PEEK(49152)\n');
+    for (let f = 0; f < 20; f++) m.tick();
+    expect(m.memory.ram[0xC000]).toBe(77);
+    expect(m.ocrScreenForMcp()).toContain(' 77');
+  });
+
+  it('is reached from C128 mode by GO64', () => {
+    const m = new C128Machine(null);
+    m.loadRoms(basicLo, basicHi, kernal, chargen, basic64, kernal64);
+    m.reset();
+    for (let f = 0; f < 150; f++) m.tick();
+    expect(m.c64Mode).toBe(false);
+    type(m, 'GO64\n');
+    for (let f = 0; f < 20; f++) m.tick();
+    type(m, 'Y\n');                  // the prompt is a line input: it needs RETURN
+    for (let f = 0; f < 150; f++) m.tick();
+    expect(m.c64Mode).toBe(true);
+    expect(m.ocrScreenForMcp()).toContain('**** COMMODORE 64 BASIC V2 ****');
   });
 });

@@ -1,6 +1,6 @@
 # Plan: Commodore 128
 
-Status: **decisions settled; Phases 0-2 and 4 done (research, shared parts, C128 mode booting to READY on the 40-column screen, and the VDC's 80-column display); 2 MHz mode, drives, C64 mode and the UI are not started.** Worktree `F:/src/zx/zx84-c128`, branch
+Status: **decisions settled; Phases 0-2, 4 and 5 done (research, shared parts, C128 mode booting to READY, the VDC 80-column display, and C64 mode); 2 MHz mode, drives and the UI are not started.** Worktree `F:/src/zx/zx84-c128`, branch
 `feature/c128`, cut from `dev` and fast-forwarded to 12cdae9d (the VIC-20 merge). When the machine lands, this file
 becomes `docs/machines/commodore-128.md`, written to
 [`TEMPLATE.md`](../machines/TEMPLATE.md). Follow
@@ -280,7 +280,7 @@ Not done in this phase, and why:
   on the 1 MHz base. Cycle-count tests with hand-computed loops at both speeds.
 - Check the speed cost; the machine must still hold real time in a desktop browser.
 
-### Phase 4: VDC and the 80-column display
+### Phase 4: VDC and the 80-column display *(done, 69a01414)*
 - `c128/vdc.ts`: register file behind `$D600/$D601`, update/data pointers, text and
   bitmap modes, attributes, flash, cursor, scroll, block copy and fill with their
   timing/ready bit, 16K and 64K RAM. Rendered to its own frame buffer.
@@ -292,7 +292,7 @@ Not done in this phase, and why:
 - **Milestone:** `GRAPHIC`/`COLOR` and the 80-column screen visible; BASIC editor in
   both columns; the programs in `Games - [D64]` marked `[80 Columns Mode]` draw.
 
-**Done (uncommitted):**
+**Done:**
 - `c128/vdc-display.ts`: `renderVdc(vdc, out)` draws the registers and RAM into a fixed 704 × 248
   frame, the 640 × 200 picture centred in a border of R26's background colour (a fixed frame, so a
   program that changes R1 or R22 cannot resize the canvas). Text and bitmap modes, the 16-byte
@@ -337,6 +337,35 @@ programs (they need drives, Phase 6) have not been tried yet.
 - Re-run the C64 machine's own program/tape/disk scenarios against the 128 in 64 mode
   (the same `.prg`, `.t64`, `.tap`, `.crt` fixtures), plus a "boot with the C= key held"
   case.
+
+**Done:**
+- `c128/memory.ts`: with MCR bit 6 set, the map is the 64's PLA, steered by the 8502 port's
+  LORAM, HIRAM and CHAREN: 64K of RAM (the block CR names), the 64's BASIC at `$A000`, its
+  KERNAL at `$E000`, the character ROM (the first 4K of the 128's) or I/O at `$D000` (either only
+  while LORAM or HIRAM is high). The 128's ROMs leave the map, `$FF00-$FF04` are plain memory, page
+  0/1 relocation is off, the port's bits 0-2 stop choosing colour RAM banks (bank 0 for both chips),
+  and the VIC-II sees the character ROM in banks 0 and 2 only. `loadRoms` takes `basic64` and
+  `kernal64` as two more optional images; they are VICE's `basic64` and `kernal64` (8K each).
+- `c128-machine.ts`: `$D02F`/`$D030` read `$FF` and ignore writes in 64 mode (the VIC-IIe's extras
+  are masked), the keyboard's extra lines are not scanned, Auto shows the VIC-II whatever the 40/80
+  key says (`c64Mode` getter).
+- **Both ways in work with the real ROMs:** holding C= through the Z80 BIOS's key scan (it writes the
+  mode register `$F1`, the 8502 then resets through the 64 map and the 64 KERNAL) boots to
+  `**** COMMODORE 64 BASIC V2 ****  64K RAM SYSTEM  38911 BASIC BYTES FREE`; and `GO64` from BASIC 7.0
+  (answer `Y` then RETURN, the prompt is a line input) switches on the fly. Typing, `PRINT 6*7`, and
+  `POKE`/`PEEK` through the 64K work.
+- Tests: `tests/c128/memory.test.ts` (the PLA for all eight port values, writes under ROM, RAM block,
+  `$FF00`, no relocation, colour banks, the VIC's character ROM rule) and the machine tests.
+
+Facts found: the Z80 BIOS leaves the MMU at its defaults for a 64 start (CR `$3E`, RCR 0, pointers 0
+and 1, preconfigurations cleared), so ignoring relocation in 64 mode loses nothing a normal start
+relies on. The VICE source has a thicket of page-0/1 cases for 64 mode (marked as guesses); they
+are not copied here.
+
+Not done: cartridges (the PLA takes /GAME and /EXROM as high; Phase 7 owns cartridges), the C64
+machine's own PRG/T64/TAP/CRT fixtures against the 128 in 64 mode (they need the media services,
+Phase 7), the 1 MHz clock is simply the only clock until Phase 3 adds 2 MHz (which 64 mode must keep
+masked), and the 64-mode keyboard's CAPS LOCK / extra keys are only the matrix's.
 
 ### Phase 6: drives and fast serial
 - 1571 as the default drive (it is the 128's own), 1541 and 1581 selectable, up to four

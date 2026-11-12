@@ -404,3 +404,170 @@ describe('C128 memory: the debugger', () => {
     expect(m.getRamBank(5)[0]).toBe(0x77);
   });
 });
+
+// ── C64 mode ────────────────────────────────────────────────────────────────
+
+const BASIC64 = 0xA6, KERNAL64 = 0xE6, CHAR64 = 0xC6;
+
+/** A 128 switched to C64 mode: the MMU's mode register bit 6, the 64's own ROMs, and I/O answering $1x. */
+function mem64(): C128Memory {
+  const m = mem();
+  m.basic64.fill(BASIC64);
+  m.kernal64.fill(KERNAL64);
+  m.chargen.fill(CHAR64, 0, 0x1000);
+  m.mmu.write(5, 0x40);
+  m.writeByte(0, 0x07);                          // DDR: the three PLA lines are outputs
+  return m;
+}
+
+/** What the 8502 reads at BASIC, the character/I/O area and the KERNAL under a port value. */
+function map64(m: C128Memory, port: number): { basic: number; d: number; kernal: number } {
+  m.writeByte(1, port);
+  return { basic: m.readByte(0xA000), d: m.readByte(0xD000), kernal: m.readByte(0xE000) };
+}
+
+describe('C128 memory: C64 mode map', () => {
+  const RAM = 0x00;
+  const IO = 0x10;
+  // The 64's PLA with nothing in the cartridge port, by (CHAREN, HIRAM, LORAM).
+  const table: [number, string, { basic: number; d: number; kernal: number }][] = [
+    [0b000, 'all RAM', { basic: RAM, d: RAM, kernal: RAM }],
+    [0b001, 'LORAM only: character ROM', { basic: RAM, d: CHAR64, kernal: RAM }],
+    [0b010, 'HIRAM only: character ROM and KERNAL', { basic: RAM, d: CHAR64, kernal: KERNAL64 }],
+    [0b011, 'BASIC, character ROM, KERNAL', { basic: BASIC64, d: CHAR64, kernal: KERNAL64 }],
+    [0b100, 'CHAREN alone: still all RAM', { basic: RAM, d: RAM, kernal: RAM }],
+    [0b101, 'LORAM and CHAREN: I/O', { basic: RAM, d: IO, kernal: RAM }],
+    [0b110, 'HIRAM and CHAREN: I/O and KERNAL', { basic: RAM, d: IO, kernal: KERNAL64 }],
+    [0b111, 'BASIC, I/O, KERNAL', { basic: BASIC64, d: IO, kernal: KERNAL64 }],
+  ];
+
+  it.each(table)('port %i (%s)', (port, _name, want) => {
+    const m = mem64();
+    expect(map64(m, port)).toEqual(want);
+  });
+
+  it('reads the 64 BASIC and KERNAL from their own ROMs, not the 128\'s', () => {
+    const m = mem64();
+    m.writeByte(1, 7);
+    expect(m.readByte(0xBFFF)).toBe(BASIC64);
+    expect(m.readByte(0xFFFF)).toBe(KERNAL64);
+    expect(m.readByte(0x4000), 'no low BASIC ROM in this mode').toBe(0);
+    expect(m.readByte(0x8000), 'and nothing at $8000').toBe(0);
+    expect(m.readByte(0xC000), 'nor the editor at $C000').toBe(0);
+  });
+
+  it('starts with the pulled-up port lines reading 1, so the KERNAL and BASIC are in view', () => {
+    const m = new C128Memory();
+    m.basic64.fill(BASIC64);
+    m.kernal64.fill(KERNAL64);
+    m.mmu.write(5, 0x40);
+    expect(m.readByte(0xA000)).toBe(BASIC64);
+    expect(m.readByte(0xFFFC)).toBe(KERNAL64);
+  });
+
+  it('writes go to the RAM under a ROM, and to I/O only where I/O is in view', () => {
+    const m = mem64();
+    let io = 0;
+    m.ioWrite = () => { io++; };
+    m.writeByte(1, 7);
+    m.writeByte(0xA000, 0x5A);
+    m.writeByte(0xE000, 0x6B);
+    m.writeByte(0xD000, 0x7C);
+    expect([m.ram[0xA000], m.ram[0xE000], m.ram[0xD000]]).toEqual([0x5A, 0x6B, 0]);
+    expect(io).toBe(1);
+    m.writeByte(1, 3);                           // character ROM in view: the write is to RAM
+    m.writeByte(0xD000, 0x7D);
+    expect(m.ram[0xD000]).toBe(0x7D);
+    expect(io).toBe(1);
+  });
+
+  it('keeps the CPU in one RAM block: the one CR names', () => {
+    const m = mem64();
+    m.writeByte(1, 0);
+    m.writeByte(0x2000, 0x11);
+    m.mmu.write(0, 0x40);
+    expect(m.readByte(0x2000)).toBe(0);
+    m.writeByte(0x2000, 0x22);
+    expect([m.ram[0x2000], m.ram[0x12000]]).toEqual([0x11, 0x22]);
+  });
+
+  it('is not at $FF00: writes there are RAM and CR is untouched', () => {
+    const m = mem64();
+    m.writeByte(1, 0);
+    m.writeByte(0xFF00, 0x7E);
+    m.writeByte(0xFF01, 0x7E);
+    expect(m.ram[0xFF00]).toBe(0x7E);
+    expect(m.mmu.cr).toBe(0);
+    expect(m.readByte(0xFF01)).toBe(0x7E);
+  });
+
+  it('does not relocate pages 0 and 1', () => {
+    const m = mem64();
+    m.writeByte(1, 0);
+    m.mmu.write(7, 0x40);                        // page 0 pointed at $4000 in the 128's view
+    m.writeByte(0x0010, 0x9A);
+    expect(m.ram[0x0010]).toBe(0x9A);
+    expect(m.ram[0x4010]).toBe(0);
+  });
+
+  it('puts the 8502 port lines on the PLA, so bit 0 no longer picks a colour RAM bank', () => {
+    const m = mem64();
+    m.colorWrite(0xD800, 0x05);
+    m.writeByte(1, 0x06);                        // bit 0 low would pick bank 1 in C128 mode
+    expect(m.colorRead(0xD800)).toBe(0x05);
+    expect(m.colorRam).toBe(m.colorBanks[0]);
+    m.mmu.write(5, 0x00);                        // back to C128 mode: the port steers the banks again
+    expect(m.colorRead(0xD800)).not.toBe(0x05);
+  });
+
+  it('peeks the same map without touching I/O', () => {
+    const m = mem64();
+    let touched = 0;
+    m.ioRead = () => { touched++; return 0; };
+    m.ioPeek = () => 0x5A;
+    m.writeByte(1, 7);
+    expect(m.peekByte(0xD000)).toBe(0x5A);
+    expect(m.peekByte(0xE000)).toBe(KERNAL64);
+    expect(touched).toBe(0);
+  });
+
+  it('reports whether I/O is in view', () => {
+    const m = mem64();
+    m.writeByte(1, 7);
+    expect(m.ioIn).toBe(true);
+    m.writeByte(1, 3);
+    expect(m.ioIn).toBe(false);
+  });
+
+  it('shows the VIC-II the 64\'s 4K character set in banks 0 and 2 only', () => {
+    const m = mem64();
+    m.ram[0x1000] = 0x11;
+    m.ram[0x4000 + 0x1000] = 0x22;
+    m.ram[0x8000 + 0x1000] = 0x33;
+    m.ram[0xC000 + 0x1000] = 0x44;
+    const seen = (bank: number): number => { m.setVicBank(bank); return m.vicRead(0x1000); };
+    expect(seen(0)).toBe(CHAR64);
+    expect(seen(1)).toBe(0x22);
+    expect(seen(2)).toBe(CHAR64);
+    expect(seen(3)).toBe(0x44);
+    m.setVicBank(0);
+    expect(m.vicRead(0x0800), 'only the 4K at $1000').toBe(0);
+  });
+
+  it('shows the 128\'s own set to the VIC-IIe in C128 mode, and the 64\'s to the VIC-II in C64 mode', () => {
+    const m = mem64();
+    m.mmu.write(5, 0x00);
+    m.writeByte(1, 0);                           // port bit 2 low: character ROM visible
+    expect(m.vicRead(0x1000)).toBe(CHARGEN128);
+    m.mmu.write(5, 0x40);
+    expect(m.vicRead(0x1000)).toBe(CHAR64);
+  });
+
+  it('puts the 128 ROMs back when the mode register says C128', () => {
+    const m = mem64();
+    m.mmu.write(5, 0x00);
+    m.mmu.write(0, 0x00);
+    expect(m.readByte(0x4000)).toBe(BASIC_LO);
+    expect(m.readByte(0xE000)).toBe(KERNAL);
+  });
+});

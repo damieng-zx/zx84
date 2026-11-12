@@ -149,7 +149,7 @@ export class C128Machine extends BaseMachine {
     // CIA 1: port A drives the keyboard columns, port B reads the rows (and
     // the extra lines $D02F selects are part of the columns).
     cia1.portAIn = (driven) => driven & keyboard.columnsFor(cia1.drivenB);
-    cia1.portBIn = (driven) => driven & keyboard.rowsForLines(cia1.drivenA, this.kbdLines);
+    cia1.portBIn = (driven) => driven & keyboard.rowsForLines(cia1.drivenA, mmu.c64Mode ? 0x07 : this.kbdLines);
     // CIA 2 port A: VIC bank (bits 0-1); the serial bus lines (bits 6-7) read
     // high with nothing on the bus.
     cia2.portAIn = (driven) => (driven & 0x3F) | 0xC0;
@@ -170,8 +170,8 @@ export class C128Machine extends BaseMachine {
       switch ((addr >> 8) & 0x0F) {
         case 0x0: case 0x1: case 0x2: case 0x3: {
           const r = addr & 0x3F;
-          if (r === 0x2F) return 0xF8 | this.kbdLines;
-          if (r === 0x30) return 0xFC | this.vicClockReg;
+          if (r === 0x2F && !mmu.c64Mode) return 0xF8 | this.kbdLines;
+          if (r === 0x30 && !mmu.c64Mode) return 0xFC | this.vicClockReg;
           if (r === 0x1E || r === 0x1F) vic.drawTo(this.accessT(addr, false));
           return vic.read(addr);
         }
@@ -203,8 +203,8 @@ export class C128Machine extends BaseMachine {
       switch ((addr >> 8) & 0x0F) {
         case 0x0: case 0x1: case 0x2: case 0x3: {
           const r = addr & 0x3F;
-          if (r === 0x2F) return 0xF8 | this.kbdLines;
-          if (r === 0x30) return 0xFC | this.vicClockReg;
+          if (r === 0x2F && !mmu.c64Mode) return 0xF8 | this.kbdLines;
+          if (r === 0x30 && !mmu.c64Mode) return 0xFC | this.vicClockReg;
           return vic.peek(addr);
         }
         case 0x4: return sid.peek(addr);
@@ -220,8 +220,8 @@ export class C128Machine extends BaseMachine {
       switch ((addr >> 8) & 0x0F) {
         case 0x0: case 0x1: case 0x2: case 0x3: {
           const r = addr & 0x3F;
-          if (r === 0x2F) { this.kbdLines = value & 0x07; break; }
-          if (r === 0x30) { this.vicClockReg = value & 0x03; break; }
+          if (r === 0x2F && !mmu.c64Mode) { this.kbdLines = value & 0x07; break; }
+          if (r === 0x30 && !mmu.c64Mode) { this.vicClockReg = value & 0x03; break; }
           vic.write(addr, value, t);
           break;
         }
@@ -270,14 +270,19 @@ export class C128Machine extends BaseMachine {
 
   /**
    * Install the system ROMs, one image per socket (a null keeps what is
-   * there): BASIC 7.0 low and high, the system ROM and the character ROM.
+   * there): BASIC 7.0 low and high, the system ROM and the character ROM, and
+   * for C64 mode the 64's BASIC and KERNAL.
    */
   loadRoms(
     basicLo: Uint8Array | null, basicHi: Uint8Array | null,
     kernal: Uint8Array | null, chargen: Uint8Array | null,
+    basic64: Uint8Array | null = null, kernal64: Uint8Array | null = null,
   ): void {
-    this.memory.loadRoms(basicLo, basicHi, kernal, chargen);
+    this.memory.loadRoms(basicLo, basicHi, kernal, chargen, basic64, kernal64);
   }
+
+  /** The machine is in C64 mode (the MMU's mode register bit 6). */
+  get c64Mode(): boolean { return this.memory.mmu.c64Mode; }
 
   /** Power on: the Z80 is the CPU, with the MMU cleared, and starts at $0000. */
   private resetHardware(): void {
@@ -335,9 +340,10 @@ export class C128Machine extends BaseMachine {
 
   // ── Frame ────────────────────────────────────────────────────────────────
 
-  /** Whether the canvas is showing the VDC (80 columns) rather than the VIC-IIe. */
+  /** Whether the canvas is showing the VDC (80 columns) rather than the VIC-IIe.
+   *  In C64 mode Auto shows the VIC-II: the 64's software never uses the VDC. */
   get showing80(): boolean {
-    return this.displayMode === 'auto' ? this.keyboard.display80 : this.displayMode === '80';
+    return this.displayMode === 'auto' ? this.keyboard.display80 && !this.c64Mode : this.displayMode === '80';
   }
 
   get pixels(): Uint8Array { return this.showing80 ? this.vdcPixels : this._pixels; }

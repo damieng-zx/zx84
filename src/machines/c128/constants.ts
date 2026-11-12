@@ -24,6 +24,10 @@ export const C128_BASIC_LO_SIZE = 0x4000;
 export const C128_BASIC_HI_SIZE = 0x4000;
 export const C128_KERNAL_SIZE = 0x4000;
 export const C128_CHARGEN_SIZE = 0x2000;
+/** C64 mode's own ROM pair: the 64's BASIC ($A000) and KERNAL ($E000). Its
+ *  character set is the first 4K of the character ROM. */
+export const C128_BASIC64_SIZE = 0x2000;
+export const C128_KERNAL64_SIZE = 0x2000;
 
 /** Where the Z80 BIOS is in the system ROM: the 4K under the I/O page, which
  *  the Z80 sees at its $0000-$0FFF. */
