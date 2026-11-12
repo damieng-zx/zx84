@@ -28,17 +28,37 @@ import {
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
+import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
+import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
+import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { accessTime, isReadModifyWrite } from '@/debug/m6502/bus-cycles.ts';
+import { M6502Trace } from '@/debug/m6502/trace.ts';
+import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
+import type { C64Program } from '@/media/tape/t64.ts';
+import type { ChipSection } from '@/debug/chip-state.ts';
 import { VIC_PALETTE } from '@/machines/shared/cbm/vic-ii-board.ts';
 import { CbmSerialBus, IEC_ATN, IEC_CLK, IEC_DATA } from '@/machines/shared/cbm/serial-bus.ts';
-import type { CbmDriveModel, CbmDriveUnit } from '@/machines/shared/cbm/drive/drive-unit.ts';
+import {
+  normalizeDriveModels, type CbmDriveModel, type CbmDriveUnit,
+} from '@/machines/shared/cbm/drive/drive-unit.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
+import type {
+  AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, SettingsView,
+} from '@/machines/machine.ts';
+import type { C128Model } from './models.ts';
 import { C128Memory } from './memory.ts';
 import { C128Keyboard } from './keyboard.ts';
-import { Vdc } from './vdc.ts';
+import { Vdc, VDC_RAM_16K, VDC_RAM_64K } from './vdc.ts';
 import { c128ScreenText, vdcScreenText } from './screen-text.ts';
 import { renderVdc, VDC_FRAME_HEIGHT, VDC_FRAME_WIDTH, VDC_PIXEL_ASPECT_X } from './vdc-display.ts';
-import { C128_SCREEN_WIDTH, c128Timing, type C128Timing } from './constants.ts';
+import {
+  C128_BORDER_LEFT, C128_SCREEN_WIDTH, c128Timing, type C128Timing,
+} from './constants.ts';
+import { C128_ROM_CHIP_SIZES } from './models.ts';
+import { c128Descriptor } from './descriptor.ts';
+import { c128Chips } from './chip-dump.ts';
+import { createC128Services, type C128Services } from './services/index.ts';
 
 /** Indices into the line's events (see `lineEvents`), in the order they fall. */
 const EVT_VC = 0;
@@ -55,8 +75,51 @@ const CPU_RESET_CYCLES = 7;
  *  choice (`auto`), or one of them whatever the key says. */
 export type C128DisplayMode = 'auto' | '40' | '80';
 
-export class C128Machine extends BaseMachine {
+/** Joystick directions as CIA port bits (active low on the port). */
+const JOY_BITS: Readonly<Record<string, number>> = {
+  up: 0x01, down: 0x02, left: 0x04, right: 0x08, fire: 0x10,
+};
+
+/** Frames after a reset by which BASIC is ready, in either mode. */
+const BOOT_FRAMES = 260;
+/** Frames the C= key is held for a start in C64 mode (the BIOS reads it at once). */
+const C64_KEY_HOLD_FRAMES = 30;
+/** Serial bus writes in a frame that mean a file is moving (a byte is dozens). */
+const IEC_BUSY_WRITES = 8;
+/** Frames of quiet before tape turbo lets go. */
+const TAPE_TURBO_COOLDOWN = 25;
+/** Reads of the 8502 port in a frame that mean a program is polling the
+ *  cassette sense line (the KERNAL's IRQ reads it about once a frame). */
+const AUTO_PLAY_POLLS = 100;
+/** Reads of CIA 1's interrupt flags in a frame that mean the tape is being
+ *  read: every pulse is an interrupt (or a poll), where the KERNAL's jiffy
+ *  IRQ alone reads it about once a frame. */
+const TURBO_ICR_READS = 10;
+
+/** Where BASIC keeps its pointers and its keyboard queue, and where a program
+ *  starts, in C128 mode (BASIC 7.0, program text at $1C01 in RAM block 0) and
+ *  in C64 mode (BASIC V2 at $0801). */
+interface BasicLayout {
+  readonly txttab: number;
+  readonly vartab: number;
+  readonly arytab: number;
+  readonly strend: number;
+  readonly keyBuf: number;
+  readonly keyCount: number;
+  readonly start: number;
+}
+const BASIC7: BasicLayout = {
+  txttab: 0x2D, vartab: 0x2F, arytab: 0x31, strend: 0x33, keyBuf: 0x034A, keyCount: 0xD0, start: 0x1C01,
+};
+const BASIC2: BasicLayout = {
+  txttab: 0x2B, vartab: 0x2D, arytab: 0x2F, strend: 0x31, keyBuf: 0x0277, keyCount: 0xC6, start: 0x0801,
+};
+
+export class C128Machine extends BaseMachine implements Machine {
   readonly kind = 'c128' as const;
+  readonly model: C128Model = 'c128';
+  host: MachineHost | null = null;
+  readonly services: C128Services;
 
   readonly cpu = new M6502();
   readonly z80 = new Z80();
@@ -69,6 +132,10 @@ export class C128Machine extends BaseMachine {
   readonly cia2 = new Mos6526();
   readonly vdc = new Vdc();
   readonly keyboard = new C128Keyboard();
+  /** The Datasette's tape, played through the shared pulse deck. */
+  readonly tape: TapeDeck;
+  /** Edges of the cassette write line since the last reset (what SAVE wrote). */
+  readonly tapeRecorder = new PulseRecorder();
   /** The serial bus and the disk drives on it. CIA 2 port A drives the bus as
    *  on the 64 (ATN, CLK and DATA out on bits 3-5), and CIA 1's shift register
    *  is the fast serial port, which the MMU's mode register bit 3 points out
@@ -83,6 +150,8 @@ export class C128Machine extends BaseMachine {
   get drive(): CbmDriveUnit | null { return this.iec.drive; }
   /** The drives set up, one model each: what the next build fits. */
   get driveModels(): readonly CbmDriveModel[] { return this.iec.driveModels; }
+  /** The model of the first drive in that setup. */
+  get driveModel(): CbmDriveModel { return this.iec.driveModel; }
 
   readonly mixer: AudioMixer;
   readonly audio = new Audio();
@@ -93,11 +162,56 @@ export class C128Machine extends BaseMachine {
   private displayMode: C128DisplayMode = 'auto';
   /** Which chip's frame the canvas was last told about. */
   private announced80 = false;
+  private borderMode: BorderMode = 2;
+
+  readonly activity = { kbdReads: 0, sidWrites: 0, tapeEdges: 0, joyReads: 0 };
+
+  /** Joystick bits held (active high here), port 1 and port 2. */
+  private joy1 = 0;
+  private joy2 = 0;
+
+  /** The 1351 mouse: the control port it is plugged into (0 = none), its two
+   *  6-bit position counters (what the SID's POT lines read) and its buttons
+   *  (bit 0 left, bit 1 right). */
+  private mousePort: 0 | 1 | 2 = 0;
+  private mouseX = 0;
+  private mouseY = 0;
+  private mouseButtons = 0;
+
+  // Tape transport.
+  tapeTurbo = true;
+  private _tapeTurboActive = false;
+  private tapeTurboCooldown = 0;
+  private tapeLastT = 0;
+  private prevEar = 0;
+  private motorWasOn = false;
+  private autoPlayArmed = false;
+  /** CIA 1 interrupt-flag reads this frame, and the recorder's length at
+   *  the last frame's end (for the turbo). */
+  private icrReads = 0;
+  /** Writes to the serial bus this frame: a drive sending or taking a file. */
+  private iecWrites = 0;
+  private recordedAtFrame = 0;
+
+  /** A program waiting for BASIC to be ready before it is put in memory. */
+  private pendingProgram: { prog: C64Program; run: boolean } | null = null;
+  private framesSinceReset = 0;
+  /** Frames left of C= held for a start in C64 mode. */
+  private c64KeyFrames = 0;
+
+  /** A state without its disks (the browser-refresh copy) was restored: the
+   *  shell then puts the persisted disk back, which must not look like a disk
+   *  change to the drive. Cleared by any reset. */
+  refreshResumed = false;
+
+  get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
   /** VIC-IIe registers $D02F (the keyboard lines it selects, bits 0-2) and
    *  $D030 (bit 0 is the 2 MHz mode, which is not modelled yet). */
   private kbdLines = 0x07;
   private vicClockReg = 0;
+  get keyboardLinesSelected(): number { return this.kbdLines; }
+  get vicClockRegister(): number { return this.vicClockReg; }
 
   /** Which CPU is running now; the MMU's mode register says which should be. */
   private running8502 = false;
@@ -126,6 +240,8 @@ export class C128Machine extends BaseMachine {
     this.timing = c128Timing(ntsc);
     this.sid = new Mos6581(this.timing.clockHz);
     this.mixer = new AudioMixer(this.timing.clockHz);
+    this.tape = new TapeDeck(this.timing.clockHz);
+    this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
     this.lineEvents = [EV_VC, EV_SPRITE_MCB, EV_SPRITE_DMA, this.timing.lineEndCycle, this.timing.cyclesPerLine];
     this.vic = new VicII(this.memory, this.timing, VIC_PALETTE);
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
@@ -151,6 +267,12 @@ export class C128Machine extends BaseMachine {
     this.iec.driveModels = ['1571'];
     this.iec.attachFastSerial(this.cia1, this.timing.clockHz);
     this.memory.mmu.onFastSerialDir = (out) => { this.iec.fastHostTransmits = out; };
+    // CAPS LOCK and the 40/80 key latch: a host key or the on-screen keyboard flips them.
+    this.keyboard.onLatchChange = () => {
+      this.setCapsLock(this.keyboard.capsLock);
+      this.setDisplay80(this.keyboard.display80);
+    };
+    this.services = createC128Services(this);
   }
 
   // ── Disk drives ──────────────────────────────────────────────────────────
@@ -184,8 +306,24 @@ export class C128Machine extends BaseMachine {
 
     // CIA 1: port A drives the keyboard columns, port B reads the rows (and
     // the extra lines $D02F selects are part of the columns).
-    cia1.portAIn = (driven) => driven & keyboard.columnsFor(cia1.drivenB);
-    cia1.portBIn = (driven) => driven & keyboard.rowsForLines(cia1.drivenA, mmu.c64Mode ? 0x07 : this.kbdLines);
+    cia1.portAIn = (driven) => {
+      const joy = this.joyBits(2);
+      if (joy !== 0) this.activity.joyReads++;
+      return driven & ~joy & keyboard.columnsFor(cia1.drivenB & ~this.joyBits(1));
+    };
+    cia1.portBIn = (driven) => {
+      this.activity.kbdReads++;
+      return driven & ~this.joyBits(1)
+        & keyboard.rowsForLines(cia1.drivenA & ~this.joyBits(2), mmu.c64Mode ? 0x07 : this.kbdLines);
+    };
+    // The paddle lines of the control port CIA 1 port A bits 6-7 select
+    // (bit 6 port 1, bit 7 port 2) go to the SID; a 1351 answers on its own.
+    sid.potRead = (axis) => {
+      const sel = cia1.drivenA & 0xC0;
+      const selected = sel === 0x40 ? 1 : sel === 0x80 ? 2 : 0;
+      if (this.mousePort === 0 || selected !== this.mousePort) return 0xFF;
+      return ((axis === 0 ? this.mouseX : this.mouseY) & 0x3F) << 1;
+    };
     // CIA 2 port A: VIC bank (bits 0-1), the serial bus outputs through
     // inverters (ATN 3, CLK 4, DATA 5) and inputs (CLK 6, DATA 7). A line is
     // low while the machine or any drive pulls it.
@@ -229,6 +367,7 @@ export class C128Machine extends BaseMachine {
         case 0xC: {
           const t = this.accessT(addr, false);
           cia1.advanceTo(t);
+          if ((addr & 0x0F) === 0x0D) this.icrReads++;
           // The fast serial port's bits arrive from the drive as it runs.
           if (this.iec.fitted && ((addr & 0x0F) === 0x0C || (addr & 0x0F) === 0x0D)) this.syncDrive(t);
           return cia1.read(addr);
@@ -276,6 +415,7 @@ export class C128Machine extends BaseMachine {
         case 0x4:
           sid.advanceTo(t);
           sid.write(addr, value);
+          this.activity.sidWrites++;
           break;
         case 0x5:
           mmu.write(addr & 0xFF, value);
@@ -298,7 +438,7 @@ export class C128Machine extends BaseMachine {
         case 0xD: {
           cia2.advanceTo(t);
           const bus = this.iec.fitted && ((addr & 0x0F) === 0 || (addr & 0x0F) === 2);
-          if (bus) this.syncDrive(t);
+          if (bus) { this.syncDrive(t); this.iecWrites++; }
           cia2.write(addr, value);
           if (bus) this.iec.update();
           break;
@@ -314,6 +454,20 @@ export class C128Machine extends BaseMachine {
       if (this.running8502 && this.insnRmw && addr === this.rmwAddr) ioWrite(addr, this.rmwValue, t - 1);
       ioWrite(addr, value, t);
     };
+    memory.onPortChange = () => this.portChanged();
+  }
+
+  /** The 8502 port changed: follow the motor and the write line. */
+  private portChanged(): void {
+    const motor = this.memory.motorOn;
+    if (motor !== this.motorWasOn) {
+      this.motorWasOn = motor;
+      if (this.tape.loaded && this.tape.playing) {
+        if (motor) this.tapeLastT = this.cpu.tStates;
+        this.tape.paused = !motor;
+      }
+    }
+    if (motor) this.tapeRecorder.observe(this.memory.cassetteWrite ? 1 : 0, this.cpu.tStates);
   }
 
   // ── Reset ────────────────────────────────────────────────────────────────
@@ -323,6 +477,23 @@ export class C128Machine extends BaseMachine {
     this.resetHardware();
     this.resetFrameCount();
     this.setStatus('Reset');
+  }
+
+  /**
+   * Install the system ROM as the ROM host serves it: the six images end to
+   * end (BASIC low, BASIC high, the system ROM, the character ROM, 64 BASIC,
+   * 64 KERNAL; see `C128_ROM_CHIP_SIZES`). A shorter image fills the sockets it
+   * reaches and leaves the others as they are.
+   */
+  loadROM(data: Uint8Array): void {
+    let at = 0;
+    const chips = C128_ROM_CHIP_SIZES.map((size): Uint8Array | null => {
+      const chip = at + size <= data.length ? data.subarray(at, at + size) : null;
+      at += size;
+      return chip;
+    });
+    this.loadRoms(chips[0], chips[1], chips[2], chips[3], chips[4], chips[5]);
+    this.setStatus(`C128 ROMs loaded (${data.length} bytes)`);
   }
 
   /**
@@ -353,12 +524,24 @@ export class C128Machine extends BaseMachine {
     this.keyboard.reset();
     this.kbdLines = 0x07;
     this.vicClockReg = 0;
+    this.joy1 = this.joy2 = 0;
     this.memory.capsLockDown = this.keyboard.capsLock;
+    this.memory.cassetteSense = this.tapeSense;
     this.memory.pinsChanged();
     this.memory.mmu.displayKeyUp = !this.keyboard.display80;
     this.cpu.reset();
     this.z80.reset();
     this.iec.reset();
+    this.tapeRecorder.reset();
+    this.recordedAtFrame = 0;
+    this.motorWasOn = false;
+    if (this.tape.loaded) this.tape.paused = true;
+    this._tapeTurboActive = false;
+    this.tapeTurboCooldown = 0;
+    this.framesSinceReset = 0;
+    this.pendingProgram = null;
+    this.c64KeyFrames = 0;
+    this.refreshResumed = false;
     this.running8502 = false;
     this.irqLine = false;
     this.nmiLevel = false;
@@ -380,7 +563,78 @@ export class C128Machine extends BaseMachine {
     this.cia2.now = t;
     this.sid.now = t;
     this.sid.flush();
+    this.tapeLastT = t;
     this.audioLastT = t;
+  }
+
+  // ── Datasette ────────────────────────────────────────────────────────────
+
+  /** A button is down on the deck. A mounted tape has PLAY down until the
+   *  user stops it; an empty deck stands for a blank cassette with RECORD and
+   *  PLAY down, so SAVE goes straight to the recorder (and LOAD searches, as
+   *  it would on a blank tape). */
+  private get tapeSense(): boolean { return !this.tape.loaded || this.tape.playing; }
+
+  /** The tape was mounted, ejected, played or stopped: PLAY follows it, and
+   *  the deck runs only while the motor is on. */
+  tapeTransportChanged(): void {
+    this.memory.cassetteSense = this.tapeSense;
+    this.memory.pinsChanged();
+    this.motorWasOn = this.memory.motorOn;
+    this.tapeLastT = this.cpu.tStates;
+    this.prevEar = this.tape.earBit;
+    if (this.tape.loaded && this.tape.playing) this.tape.paused = !this.motorWasOn;
+  }
+
+  /** Mounting a tape leaves PLAY up (with it down the KERNAL would run the
+   *  motor at the READY prompt and wind the tape on); PLAY goes down by
+   *  itself the first time software sits waiting for it. */
+  armAutoPlay(): void { this.autoPlayArmed = true; }
+
+  /** PLAY, pressed for a program polling the sense line (the KERNAL's PRESS
+   *  PLAY ON TAPE loop, or a loader's own). */
+  private checkAutoPlay(): void {
+    const polls = this.memory.portReads;
+    this.memory.portReads = 0;
+    if (!this.autoPlayArmed || !this.tape.loaded || this.tape.playing) return;
+    if (polls < AUTO_PLAY_POLLS) return;
+    this.autoPlayArmed = false;
+    this.tape.startPlayback();
+    this.tapeTransportChanged();
+    this.setStatus('PLAY pressed on the Datasette');
+  }
+
+  /** Turbo while the KERNAL (or a loader) is reading the tape — the motor
+   *  is on and the deck is moving — or saving to the empty deck, or a disk is
+   *  busy. */
+  private updateTapeTurbo(): void {
+    const reading = this.tape.playing && !this.tape.paused && this.icrReads >= TURBO_ICR_READS;
+    const writing = this.tapeRecorder.count !== this.recordedAtFrame;
+    this.icrReads = 0;
+    this.recordedAtFrame = this.tapeRecorder.count;
+    // A disk is busy while a motor runs and either the controller moves bytes
+    // or the serial bus is carrying them (a 1581 reads a sector in a blink and
+    // then spends the best part of a second sending it).
+    let diskBusy = false;
+    const busy = this.iecWrites >= IEC_BUSY_WRITES;
+    this.iecWrites = 0;
+    for (const d of this.drives) if ((d.takeActivity() > 0 || busy) && d.motorOn) diskBusy = true;
+    const loading = (this.memory.motorOn && (reading || writing)) || diskBusy;
+    if (loading) {
+      this._tapeTurboActive = this.tapeTurbo;
+      this.tapeTurboCooldown = TAPE_TURBO_COOLDOWN;
+    } else if (this.tapeTurboCooldown > 0) {
+      if (--this.tapeTurboCooldown === 0) this.releaseTapeTurbo();
+    } else if (this._tapeTurboActive) {
+      this.releaseTapeTurbo();
+    }
+  }
+
+  private releaseTapeTurbo(): void {
+    if (!this._tapeTurboActive) return;
+    this._tapeTurboActive = false;
+    this.sid.flush();
+    this.mixer.reset();
   }
 
   /** The MMU's mode register handed the bus to the other CPU. The Z80 carries
@@ -413,7 +667,7 @@ export class C128Machine extends BaseMachine {
 
   protected get audioChip(): Mos6581 { return this.sid; }
   protected framePixels(): Uint8Array { return this.pixels; }
-  protected inTurbo(): boolean { return this.turbo; }
+  protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
   protected override interruptEntryPending(): boolean { return this.running8502 && this.cpu.interruptPending(); }
   protected override cpuCycles(): number { return this.cpu.tStates; }
   protected override stackPointer(): number { return this.running8502 ? this.cpu.sp : this.z80.sp; }
@@ -423,9 +677,13 @@ export class C128Machine extends BaseMachine {
   get cpuIs8502(): boolean { return this.running8502; }
 
   protected runFrame(): void {
-    const skipAudio = this.speedMultiplier !== 1;
+    const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
     this.sid.audible = !skipAudio;
     if (!this.openFrame(this.timing.cyclesPerFrame)) {
+      this.activity.kbdReads = 0;
+      this.activity.sidWrites = 0;
+      this.activity.tapeEdges = 0;
+      this.activity.joyReads = 0;
       this.fLine = 0;
       this.fEvent = 0;
       this.lineLive = false;
@@ -468,10 +726,15 @@ export class C128Machine extends BaseMachine {
 
     this.cia1.todTick();
     this.cia2.todTick();
+    this.framesSinceReset++;
+    if (this.c64KeyFrames > 0 && --this.c64KeyFrames === 0) this.keyboard.setKey('cbm', false);
+    if (this.pendingProgram && this.basicReady()) this.applyPendingProgram();
     if (skipAudio) { this.audioLastT = this.cpu.tStates; this.sid.advanceTo(this.cpu.tStates); }
     this.syncDrive(this.cpu.tStates);
     this.vdc.tickFrame();
     this.drawVdc();
+    this.checkAutoPlay();
+    this.updateTapeTurbo();
     this.needsDisplay = true;
   }
 
@@ -484,6 +747,7 @@ export class C128Machine extends BaseMachine {
     this.announced80 = is80;
     this.display?.resize(this.frameWidth, this.frameHeight);
     this.display?.setPixelAspectX(is80 ? VDC_PIXEL_ASPECT_X : 1);
+    this.applyViewport();
     this.onScreenChange?.();
   }
 
@@ -536,9 +800,20 @@ export class C128Machine extends BaseMachine {
     this.afterStep();
   }
 
-  /** After each instruction: the CIAs and the interrupt lines. */
+  /** After each instruction: the tape, the CIAs and the interrupt lines. */
   private afterStep(): void {
     const now = this.cpu.tStates;
+    const tape = this.tape;
+    if (tape.playing && !tape.paused) {
+      const gap = now - this.tapeLastT;
+      this.tapeLastT = now;
+      if (gap > 0) tape.advance(gap);
+      const ear = tape.earBit;
+      if (ear !== this.prevEar) {
+        this.prevEar = ear;
+        if (ear === 0) { this.cia1.flag(); this.activity.tapeEdges++; }
+      }
+    }
     this.cia1.advanceTo(now);
     this.cia2.advanceTo(now);
     this.updateInterrupts();
@@ -581,11 +856,316 @@ export class C128Machine extends BaseMachine {
     this.needsDisplay = true;
   }
 
-  // ── Debug ────────────────────────────────────────────────────────────────
+  /** A joystick direction or fire on control port 1 or 2. */
+  joystickPress(dir: string, pressed: boolean, port: 1 | 2): void {
+    const bit = JOY_BITS[dir];
+    if (!bit) return;
+    if (port === 1) this.joy1 = pressed ? this.joy1 | bit : this.joy1 & ~bit;
+    else this.joy2 = pressed ? this.joy2 | bit : this.joy2 & ~bit;
+  }
+
+  releaseJoysticks(): void { this.joy1 = this.joy2 = 0; }
+
+  /** The bits a port reads as held: its joystick, and a mouse's buttons (the
+   *  left is the fire button, the right reads as up). */
+  private joyBits(port: 1 | 2): number {
+    const joy = port === 1 ? this.joy1 : this.joy2;
+    if (this.mousePort !== port || this.mouseButtons === 0) return joy;
+    return joy | ((this.mouseButtons & 1) !== 0 ? 0x10 : 0) | ((this.mouseButtons & 2) !== 0 ? 0x01 : 0);
+  }
+
+  // ── 1351 mouse ───────────────────────────────────────────────────────────
+
+  /** Plug the mouse into a control port, or take it out (0). */
+  setMousePort(port: 0 | 1 | 2): void {
+    this.mousePort = port;
+    if (port === 0) this.mouseButtons = 0;
+  }
+
+  /** Move the mouse: the counters the POT lines read count the motion, 6 bits
+   *  wrapping, and the driver works out the difference between two reads.
+   *  `dy` is screen-down, as the host reports it; the 1351 counts up. */
+  moveMouse(dx: number, dy: number): void {
+    // A driver reads about once a frame and cannot tell more than half a turn
+    // of the counter from a move the other way: a flick is cut to that.
+    const cut = (v: number) => Math.max(-31, Math.min(31, Math.round(v)));
+    this.mouseX = (this.mouseX + cut(dx)) & 0x3F;
+    this.mouseY = (this.mouseY - cut(dy)) & 0x3F;
+  }
+
+  setMouseButton(index: number, pressed: boolean): void {
+    const bit = index === 0 ? 1 : index === 2 ? 2 : 0;
+    if (bit === 0) return;
+    this.mouseButtons = pressed ? this.mouseButtons | bit : this.mouseButtons & ~bit;
+  }
+
+  // ── Programs (.prg / .t64) ───────────────────────────────────────────────
+
+  /**
+   * Start a program the way LOAD and RUN would on a freshly switched-on 128:
+   * the machine is reset (so whatever was running cannot be overwritten
+   * under it) and the program goes into memory once BASIC is at READY. A
+   * program at the start of BASIC gets BASIC's pointers set and, with `run`,
+   * RUN typed for it. A BASIC program says which machine it is for by where it
+   * starts: $1C01 is BASIC 7.0's (C128 mode), $0801 the 64's, for which the
+   * machine starts in C64 mode, as it does with C= held. Machine code stays in
+   * the mode the machine is in. Safe while running: it only touches the
+   * hardware between frames.
+   */
+  injectProgram(prog: C64Program, run: boolean): void {
+    const want64 = prog.start === BASIC2.start ? true : prog.start === BASIC7.start ? false : this.c64Mode;
+    this.resetHardware();
+    if (want64) {
+      this.keyboard.setKey('cbm', true);
+      this.c64KeyFrames = C64_KEY_HOLD_FRAMES;
+    }
+    this.pendingProgram = { prog, run };
+  }
+
+  /** BASIC is ready once the 8502 has had the time to finish starting. */
+  private basicReady(): boolean {
+    return this.running8502 && this.framesSinceReset >= BOOT_FRAMES;
+  }
+
+  private applyPendingProgram(): void {
+    const pending = this.pendingProgram;
+    if (!pending) return;
+    this.pendingProgram = null;
+    const { prog, run } = pending;
+    const layout = this.c64Mode ? BASIC2 : BASIC7;
+    const mode = this.c64Mode ? 'C64 mode' : 'C128 mode';
+    const ram = this.memory.ram;
+    const end = Math.min(0x10000, prog.start + prog.data.length);
+    ram.set(prog.data.subarray(0, end - prog.start), prog.start);
+    const isBasic = prog.start === (ram[layout.txttab] | (ram[layout.txttab + 1] << 8)) || prog.start === layout.start;
+    if (isBasic) {
+      for (const ptr of [layout.vartab, layout.arytab, layout.strend]) {
+        ram[ptr] = end & 0xFF;
+        ram[ptr + 1] = end >> 8;
+      }
+      if (run) {
+        const keys = [0x52, 0x55, 0x4E, 0x0D];   // R U N <return>
+        ram.set(keys, layout.keyBuf);
+        ram[layout.keyCount] = keys.length;
+      }
+      this.setStatus(`Loaded "${prog.name}" (${mode})${run ? ' — RUN' : ''}`);
+    } else {
+      this.setStatus(`Loaded "${prog.name}" at $${prog.start.toString(16).toUpperCase()} (${mode}) — start it with SYS`);
+    }
+  }
+
+  // ── Settings and options ─────────────────────────────────────────────────
+
+  get descriptor(): MachineDescriptor {
+    return c128Descriptor(this.model, this.timing.ntsc ? 'us' : 'uk', this.showing80);
+  }
+
+  attachHost(host: MachineHost): void { this.host = host; }
+
+  applySettings(view: SettingsView): void {
+    this.audio.setVolume(view.get('volume', 70) / 100);
+    this.tapeTurbo = view.get('tape-turbo-load', true);
+    this.sid.setModel(view.get<string>('c64-sid', '6581') === '8580' ? '8580' : '6581');
+    this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
+    const mode = view.get<string>('c128-display', 'auto');
+    this.setDisplayMode(mode === '40' || mode === '80' ? mode : 'auto');
+  }
+
+  /** The VDC's RAM and the drives are fitted with the power off: size the one
+   *  and fit the others, and list the DOS ROMs they need (fetched before the
+   *  machine starts). */
+  prepare(view: SettingsView): AuxRomRequest[] {
+    this.vdc.setRamBytes(view.get<string>('c128-vdc-ram', '16k') === '64k' ? VDC_RAM_64K : VDC_RAM_16K);
+    const models = normalizeDriveModels(view.get<unknown>('drive-models:c128', null) ?? ['1571']);
+    this.iec.driveModels = models;
+    if (!view.get('c128-drive', true)) {
+      this.iec.unplug();
+      return [];
+    }
+    this.iec.fitDrives(models);
+    return this.iec.romRequests('c64-dos');
+  }
+
+  /** The border is fully rendered; the setting crops it: Normal shows it
+   *  all, Small half, None just the display window. The 80-column frame is
+   *  shown whole. */
+  setBorderSize(mode: BorderMode): void {
+    this.borderMode = mode;
+    this.applyViewport();
+  }
+
+  private applyViewport(): void {
+    if (!this.display) return;
+    if (this.showing80) {
+      this.display.setViewport(0, 0, VDC_FRAME_WIDTH, VDC_FRAME_HEIGHT);
+      return;
+    }
+    const frac = this.borderMode === 2 ? 1 : this.borderMode === 1 ? 0.5 : 0;
+    const cropX = Math.round(C128_BORDER_LEFT * (1 - frac));
+    const cropY = Math.round(this.timing.borderTop * (1 - frac));
+    this.display.setViewport(cropX, cropY, C128_SCREEN_WIDTH - cropX * 2, this.timing.screenHeight - cropY * 2);
+  }
+
+  // ── Beam / debug ─────────────────────────────────────────────────────────
+
+  beam(): BeamPos { return this.gridBeam(); }
+  beamInfo(): BeamInfo {
+    return {
+      cyclesPerLine: this.timing.cyclesPerLine,
+      linesPerFrame: this.timing.linesPerFrame,
+      displayStart: 0,
+      note: `line 0 is raster line 0 and cycle 0 of a line is the ${this.timing.ntsc ? '8564' : '8566'}'s cycle 1, where the raster counter moves on and the raster interrupt is raised; bad lines hold the CPU from cycle 11 to 54 and sprite DMA from cycle 54 on. The display window is lines 51-250. The picture is drawn as the beam goes, caught up before every VIC-IIe and CIA 2 write. The 8502 runs at 1 MHz (2 MHz is not modelled) and the Z80 is stepped at two T-states to a cycle`,
+    };
+  }
+  override supportsBeamStops(): boolean { return true; }
+  override supportsInterruptLog(): boolean { return true; }
+  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
+  /** No opcode is fetched from I/O, where a read has side effects. */
+  protected override peekOpcode(addr: number): number {
+    return (addr >> 12) === 0xD && this.memory.ioIn ? -1 : this.memory.peekByte(addr);
+  }
+
+  protected override tracer = new M6502Trace(this, { io: [[0xD000, 0xDFFF]], ioLabel: c128IoLabel });
+
+  ramExportBytes(): { data: Uint8Array; filename: string } {
+    return { data: this.memory.ram.slice(), filename: `${this.model}-ram-128k.bin` };
+  }
+
+  resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null {
+    switch (value) {
+      case 'rom-basic-lo': return { data: this.memory.basicLo, baseAddr: 0x4000 };
+      case 'rom-basic-hi': return { data: this.memory.basicHi, baseAddr: 0x8000 };
+      case 'rom-system': return { data: this.memory.kernal, baseAddr: 0xC000 };
+      case 'rom-chargen': return { data: this.memory.chargen, baseAddr: 0xD000 };
+      case 'rom-basic64': return { data: this.memory.basic64, baseAddr: 0xA000 };
+      case 'rom-kernal64': return { data: this.memory.kernal64, baseAddr: 0xE000 };
+      case 'color-ram': return { data: this.memory.colorBanks[0], baseAddr: 0xD800 };
+      case 'vdc-ram': return { data: this.vdc.ram, baseAddr: 0 };
+      default: return null;
+    }
+  }
+
+  /** The custom chips (and the drives), for the debugger's `chip_state`. */
+  chips(): readonly ChipSection[] { return c128Chips(this); }
 
   /** The text screen the canvas shows, as text: 80 columns from the VDC's
    *  RAM, or 40 from the VIC-IIe's matrix. */
   ocrScreenForMcp(_mode?: string): string {
     return this.showing80 ? vdcScreenText(this.vdc) : c128ScreenText(this.memory, this.vic.regs);
+  }
+
+  // ── Snapshots (.c128state) ───────────────────────────────────────────────
+
+  /** CRC-32s of the six ROMs: BASIC low and high, the system ROM, the character
+   *  ROM, 64 BASIC and 64 KERNAL. */
+  stateRomCrcs(): number[] {
+    const m = this.memory;
+    return [m.basicLo, m.basicHi, m.kernal, m.chargen, m.basic64, m.kernal64].map(rom => crc32(rom));
+  }
+
+  private completeFrame(): void {
+    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
+  }
+
+  /** The machine between frames. The tape is not part of it. */
+  saveState(w: StateWriter, withMedia: boolean): void {
+    this.completeFrame();
+    w.section('CPU ', () => this.cpu.saveState(w));
+    w.section('Z80 ', () => this.z80.saveState(w));
+    w.section('MACH', () => {
+      w.f64(this.frameStartT); w.f64(this.frameEndT); w.f64(this.frameNumber);
+      w.bool(this.nmiLevel); w.bool(this.running8502);
+      w.u8(this.kbdLines); w.u8(this.vicClockReg);
+      w.bool(this.keyboard.capsLock); w.bool(this.keyboard.display80);
+    });
+    w.section('TV  ', () => w.bool(this.timing.ntsc));
+    w.section('MEM ', () => this.memory.saveState(w));
+    w.section('VDC ', () => this.vdc.saveState(w));
+    w.section('VIC ', () => this.vic.saveState(w));
+    w.section('SID ', () => this.sid.saveState(w));
+    w.section('CIA1', () => this.cia1.saveState(w));
+    w.section('CIA2', () => this.cia2.saveState(w));
+    w.section('SERI', () => {
+      this.cia1.saveSerial(w);
+      for (const d of this.drives.filter(x => x.hasRom)) {
+        const cia = d.fastCia;
+        w.bool(cia !== undefined);
+        if (cia) cia.saveSerial(w);
+      }
+    });
+    this.iec.saveState(w, withMedia);
+  }
+
+  loadState(r: StateReader): void {
+    this.cpu.loadState(r.section('CPU '));
+    this.z80.loadState(r.section('Z80 '));
+    {
+      const s = r.section('MACH');
+      this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
+      this.nmiLevel = s.bool(); this.running8502 = s.bool();
+      this.kbdLines = s.u8(); this.vicClockReg = s.u8();
+      this.keyboard.capsLock = s.bool(); this.keyboard.display80 = s.bool();
+    }
+    const ntsc = r.section('TV  ').bool();
+    if (ntsc !== this.timing.ntsc) {
+      throw new Error(`This is a ${ntsc ? 'NTSC' : 'PAL'} snapshot: choose the ${ntsc ? 'NTSC' : 'PAL'} Commodore 128 first`);
+    }
+    this.memory.loadState(r.section('MEM '));
+    this.vdc.loadState(r.section('VDC '));
+    this.vic.loadState(r.section('VIC '));
+    this.sid.loadState(r.section('SID '));
+    this.cia1.loadState(r.section('CIA1'));
+    this.cia2.loadState(r.section('CIA2'));
+    const serial = r.section('SERI');
+    this.cia1.loadSerial(serial);
+    const withMedia = this.iec.loadState(r);
+    for (const d of this.drives.filter(x => x.hasRom)) {
+      if (serial.bool()) {
+        const cia = d.fastCia;
+        if (cia) cia.loadSerial(serial);
+      }
+    }
+    this.iec.fastHostTransmits = this.memory.mmu.fastSerialOut;
+    this.memory.capsLockDown = this.keyboard.capsLock;
+    this.memory.mmu.displayKeyUp = !this.keyboard.display80;
+    this.memory.cassetteSense = this.tapeSense;
+    this.memory.pinsChanged();
+    this.motorWasOn = this.memory.motorOn;
+    this.memory.setVicBank((~this.cia2.drivenA) & 3);
+    this.midFrame = false;
+    this.fLine = 0;
+    this.fEvent = 0;
+    this.lineLive = false;
+    this.irqLine = false;
+    this.clearInterrupts();
+    this.keyboard.reset();
+    this.keyboard.capsLock = this.memory.capsLockDown;
+    this.joy1 = this.joy2 = 0;
+    this._tapeTurboActive = false;
+    this.tapeTurboCooldown = 0;
+    this.framesSinceReset = BOOT_FRAMES;
+    this.pendingProgram = null;
+    this.c64KeyFrames = 0;
+    this.tapeLastT = this.cpu.tStates;
+    this.audioLastT = this.cpu.tStates;
+    this.audio.reset();
+    this.mixer.reset();
+    this.refreshResumed = !withMedia;
+    this.drawVdc();
+    this.needsDisplay = true;
+  }
+}
+
+/** Trace labels for the I/O page. */
+function c128IoLabel(addr: number): string {
+  switch ((addr >> 8) & 0x0F) {
+    case 0x0: case 0x1: case 0x2: case 0x3: return 'VIC';
+    case 0x4: return 'SID';
+    case 0x5: return 'MMU';
+    case 0x6: return 'VDC';
+    case 0x8: case 0x9: case 0xA: case 0xB: return 'COLOR';
+    case 0xC: return 'CIA1';
+    case 0xD: return 'CIA2';
+    default: return 'IO';
   }
 }

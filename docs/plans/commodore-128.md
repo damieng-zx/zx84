@@ -1,6 +1,6 @@
 # Plan: Commodore 128
 
-Status: **decisions settled; Phases 0-2 and 4-6 done (research, shared parts, C128 mode booting to READY, the VDC 80-column display, C64 mode, and the drives with burst mode); 2 MHz mode and the UI are not started.** Worktree `F:/src/zx/zx84-c128`, branch
+Status: **decisions settled; Phases 0-2 and 4-7 done (research, shared parts, C128 mode booting to READY, the VDC 80-column display, C64 mode, the drives with burst mode, and the machine as part of the app: descriptor, services, UI; cartridges, 2 MHz mode, the BASIC pane and the TEXT overlay are not done).** Worktree `F:/src/zx/zx84-c128`, branch
 `feature/c128`, cut from `dev` and fast-forwarded to 12cdae9d (the VIC-20 merge). When the machine lands, this file
 becomes `docs/machines/commodore-128.md`, written to
 [`TEMPLATE.md`](../machines/TEMPLATE.md). Follow
@@ -407,6 +407,42 @@ supports four), and the snapshot of a drive's state (Phase 7).
 - MCP: `chip_state` gains `mmu` and `vdc`; machine-specific tool only if needed.
 - Joystick, 1351 mouse, SID options carry over from the 64. On-screen keyboard with the
   extra keys.
+
+**Done (Phase 7, in the working tree):**
+- `models.ts` (`c128`, the six ROM sources and sockets), `descriptor.ts` (the 40-column frame, or
+  the VDC's when `showing80`; PAL or NTSC by locale; up to four drives with the 1571 as the
+  default), `services/` (`media`, `roms`, `tape`, `disks`, `snapshots`, `debug` = the m6502
+  service, `input`, `probe`), `chip-dump.ts` (`chip_state` gains `vdc` and `mmu`; the VIC, SID and CIA
+  dumps moved to `shared/cbm/chip-dump.ts` and the 64 uses them too), the registry, model menu
+  (Commodore group), Save menu entry, `machine-ui.ts` entry.
+- **ROM sockets of two sizes.** The six chips are 16K, 16K, 16K, 8K, 8K, 8K, so a socket is not a
+  multiple of one stride: `models.ts` gained `romSlotOffset(model, page)` and
+  `romSlotSize(model, page)` and `shell/rom.ts` uses them (every other machine keeps its
+  stride). Sources: `c128/basiclo-318018-04.rom`, `basichi-318019-04.rom`, `kernal-318020-05.rom`,
+  `chargen-325078-03.rom`, and the 64's `c64/basic-901226-01.rom` and `kernal-901227-03.rom`
+  already on the host. **The four `c128/` files are not on R2 yet** (Phase 9; needs the owner's OK).
+- **Programs**: a `.prg` or `.t64` goes in as on the 64, with BASIC 7.0's pointers ($2D-$34, program
+  at $1C01, keyboard queue $034A/$D0) or BASIC V2's. A BASIC program says its mode by its start: $1C01
+  stays in C128 mode, $0801 restarts the machine in C64 mode (C= held through the BIOS's read,
+  released after 30 frames), as a person would.
+- **Datasette** (the 8502 port's bits 3-5, PLAY auto-pressed, turbo, recorder) verified with the real
+  KERNAL: `LOAD "B"` from a mounted tape finds and loads it, `SAVE` on the empty deck records pulses.
+- **Snapshots** `.c128state` (magic ZX28): CPU, Z80, machine, TV, memory + MMU, VDC, VIC, SID, both
+  CIAs, the fast serial shift registers, the drives. A state saved with the other amount of VDC RAM is
+  refused with a message. A restored machine runs on bit for bit as the original.
+- **Hardware pane**: Display (Auto / 40 / 80), VDC RAM (16K / 64K), the drive. Joysticks, the 1351 mouse
+  and the SID model carry over from the 64 (the `c64-sid` setting is shared).
+- **Keyboard**: the breadbin keyboard with an extra strip (ESC, TAB, ALT, HELP, LINE FEED, NO SCROLL,
+  cursors, keypad, and the latching CAPS LOCK and 40/80 keys). Host keys: F9 = ESC, F10 = HELP,
+  right Alt = ALT, Scroll Lock = NO SCROLL, Caps Lock and Pause latch CAPS LOCK and 40/80.
+- **MCP**: `type` takes characters as on the 64, `c64drive` and `c64sid` work on a 128.
+- Tests: `tests/c128/c128-services.test.ts`; `tests/bare-boot.ts` hands the ROM-less 128 from its Z80
+  to the 8502 for the all-machines stop, beam and trace tests.
+
+**Not done:** cartridges (64 mode's expansion port, 128 mode's function ROM sockets), the BASIC 7.0
+pane (token table and variable layout), the TEXT overlay and its LED, the 2 MHz indicator (Phase 3),
+Z80 tracing and breakpoints (the debugger follows the 8502 only), and any check in a browser (the
+ROMs are not hosted yet and the dev server was not started).
 
 ### Phase 8: Z80 and CP/M *(only if wanted, decision 3)*
 - Z80 memory and I/O through the MMU, the Z80 clock/wait-state model, the

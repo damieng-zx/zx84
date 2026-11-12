@@ -29,6 +29,7 @@ export type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 export type { AtariModel } from '@/machines/atari/models.ts';
 export type { C64Model } from '@/machines/c64/models.ts';
 export type { Vic20Model } from '@/machines/vic20/models.ts';
+export type { C128Model } from '@/machines/c128/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
 export {
@@ -64,6 +65,7 @@ export { isEnterpriseModel } from '@/machines/enterprise/models.ts';
 export { isAtariModel } from '@/machines/atari/models.ts';
 export { isC64Model } from '@/machines/c64/models.ts';
 export { isVic20Model } from '@/machines/vic20/models.ts';
+export { isC128Model } from '@/machines/c128/models.ts';
 
 // ── System-ROM slot geometry (dispatches per family) ───────────────────────
 //
@@ -88,28 +90,41 @@ import {
 import {
   isVic20Model as isVic20, VIC20_ROM_SLOT_SIZE, VIC20_ROM_SLOT_LABELS,
 } from '@/machines/vic20/models.ts';
+import {
+  isC128Model as isC128, C128_ROM_SLOT_LABELS, C128_ROM_CHIP_SIZES, C128_ROM_SLOT_OFFSETS,
+} from '@/machines/c128/models.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 
 /** Number of independently-overridable system-ROM slots for a model
- *  (0 = one combined image). MTX → 5, Lynx → 2/4, C64 and VIC-20 → 3 (8K stride);
- *  Spectrum → 0/2/4 (16K each). */
+ *  (0 = one combined image). MTX → 5, Lynx → 2/4, C64 and VIC-20 → 3 (8K stride),
+ *  C128 → 6 (chips of 16K and 8K); Spectrum → 0/2/4 (16K each). */
 export function romPageSlotCount(model: MachineModel): number {
   if (isMtx(model)) return MTX_ROM_SLOT_LABELS.length;
   if (isLynx(model)) return lynxRomSlotLabels(model).length;
   if (isC64(model)) return C64_ROM_SLOT_LABELS.length;
   if (isVic20(model)) return VIC20_ROM_SLOT_LABELS.length;
+  if (isC128(model)) return C128_ROM_SLOT_LABELS.length;
   return spectrumRomPageSlotCount(model);
 }
 
 /** Byte size of one system-ROM slot for a model — 8K on the MTX, Lynx, C64
  *  and VIC-20, 16K elsewhere. Used to splice per-slot overrides back onto the
- *  concatenated ROM. */
-export function romSlotSize(model: MachineModel): number {
+ *  concatenated ROM. A model whose chips differ in size (the C128) is asked
+ *  for a slot's own with `page`. */
+export function romSlotSize(model: MachineModel, page = 0): number {
   if (isMtx(model)) return MTX_ROM_SLOT_SIZE;
   if (isLynx(model)) return LYNX_ROM_SLOT_SIZE;
   if (isC64(model)) return C64_ROM_SLOT_SIZE;
   if (isVic20(model)) return VIC20_ROM_SLOT_SIZE;
+  if (isC128(model)) return C128_ROM_CHIP_SIZES[page] ?? 0;
   return BANK_SIZE;
+}
+
+/** Where a system-ROM slot starts in the concatenated image: a multiple of the
+ *  stride, except where the chips differ in size. */
+export function romSlotOffset(model: MachineModel, page: number): number {
+  if (isC128(model)) return C128_ROM_SLOT_OFFSETS[page] ?? 0;
+  return page * romSlotSize(model, page);
 }
 
 /** Label for a default (non-overridden) system-ROM slot of a multi-slot model. */
@@ -118,6 +133,7 @@ export function defaultRomPageLabel(model: MachineModel, page: RomSlotIndex): st
   if (isLynx(model)) return lynxRomSlotLabels(model)[page] ?? '';
   if (isC64(model)) return (C64_ROM_SLOT_LABELS as readonly string[])[page] ?? '';
   if (isVic20(model)) return (VIC20_ROM_SLOT_LABELS as readonly string[])[page] ?? '';
+  if (isC128(model)) return (C128_ROM_SLOT_LABELS as readonly string[])[page] ?? '';
   return spectrumDefaultRomPageLabel(model, page);
 }
 
@@ -139,6 +155,7 @@ import type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 import type { AtariModel } from '@/machines/atari/models.ts';
 import type { C64Model } from '@/machines/c64/models.ts';
 import type { Vic20Model } from '@/machines/vic20/models.ts';
+import type { C128Model } from '@/machines/c128/models.ts';
 
 /** Any machine ZX84 can emulate. */
 export type MachineModel =
@@ -158,4 +175,5 @@ export type MachineModel =
   | EnterpriseModel
   | AtariModel
   | C64Model
-  | Vic20Model;
+  | Vic20Model
+  | C128Model;

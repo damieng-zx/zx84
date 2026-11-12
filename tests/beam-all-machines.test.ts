@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { registry } from '@/machines/registry.ts';
+import { bareBoot } from './bare-boot.ts';
 import { BeamLog, BEAM_IO } from '@/debug/beam-log.ts';
 import type { Machine } from '@/machines/machine.ts';
 
@@ -24,9 +25,7 @@ function fingerprint(m: Machine) {
 
 describe.each(FAMILIES)('beam on $kind ($model)', ({ model, entry }) => {
   function boot(): Machine {
-    const m = entry.create(model, null);
-    m.reset();
-    return m;
+    return bareBoot(entry, model);
   }
   /** Run until `frames` whole frames have completed since reset. */
   function runTo(m: Machine, frames: number): void {

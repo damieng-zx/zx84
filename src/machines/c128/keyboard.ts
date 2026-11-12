@@ -17,6 +17,7 @@
  * digits.
  */
 
+import type { HostKeyEvent } from '@/machines/machine.ts';
 import { CbmKeyboard } from '@/machines/shared/cbm/keyboard.ts';
 
 /** The matrix, indexed [column][row]: columns 0-7 are CIA 1 port A bits, 8-10 the extra lines. */
@@ -34,13 +35,49 @@ export const C128_MATRIX: readonly (readonly string[])[] = [
   ['alt', 'kp0', 'kp.', 'up', 'down', 'left', 'right', 'no-scroll'],
 ];
 
+/**
+ * The 128's keys that the 64's mapping (by typed character, and by position
+ * for the cursors and function keys) has no host key for: the host keys that
+ * stand for them. The keypad types its digits by character, like the main row.
+ */
+const EXTRA_KEYS: Readonly<Record<string, string>> = {
+  F9: 'esc', F10: 'help', AltRight: 'alt', ScrollLock: 'no-scroll',
+};
+
 export class C128Keyboard extends CbmKeyboard {
   /** CAPS LOCK is down (its port bit reads low). */
   capsLock = false;
   /** The 40/80 DISPLAY key is down (the 80-column display). */
   display80 = false;
+  /** A latching key changed: the machine puts its pin where the port reads it. */
+  onLatchChange: (() => void) | null = null;
+  private readonly extraHeld = new Set<string>();
 
   constructor() { super(C128_MATRIX); }
+
+  toggleCapsLock(): void { this.capsLock = !this.capsLock; this.onLatchChange?.(); }
+  toggleDisplay80(): void { this.display80 = !this.display80; this.onLatchChange?.(); }
+
+  override handleEvent(event: HostKeyEvent, down: boolean): boolean {
+    // CAPS LOCK and the 40/80 key latch: a press flips them, the release is ignored.
+    if (event.code === 'CapsLock') { if (down) this.toggleCapsLock(); return true; }
+    if (event.code === 'Pause') { if (down) this.toggleDisplay80(); return true; }
+    const extra = EXTRA_KEYS[event.code];
+    if (extra) {
+      if (down) {
+        if (!this.extraHeld.has(event.code)) { this.extraHeld.add(event.code); this.setKey(extra, true); }
+      } else if (this.extraHeld.delete(event.code)) {
+        this.setKey(extra, false);
+      }
+      return true;
+    }
+    return super.handleEvent(event, down);
+  }
+
+  override reset(): void {
+    super.reset();
+    this.extraHeld.clear();
+  }
 
   /** The row lines (CIA 1 port B) for the columns CIA 1 port A drives and the
    *  extra lines `$D02F` selects. */

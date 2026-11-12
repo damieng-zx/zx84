@@ -256,6 +256,7 @@ function recordingDisplay(): { display: IScreenRenderer; log: string[] } {
   const display = {
     resize: (w: number, h: number) => log.push(`resize ${w}x${h}`),
     setPixelAspectX: (a: number) => log.push(`aspect ${a.toFixed(3)}`),
+    setViewport: (x: number, y: number, w: number, h: number) => log.push(`viewport ${x},${y} ${w}x${h}`),
   } as unknown as IScreenRenderer;
   return { display, log };
 }
@@ -301,11 +302,16 @@ describe('C128 two displays on one canvas', () => {
     m.setDisplayMode('80');
     expect(log[0]).toBe(`resize ${VDC_FRAME_WIDTH}x${VDC_FRAME_HEIGHT}`);
     expect(log[1]).toBe(`aspect ${VDC_PIXEL_ASPECT_X.toFixed(3)}`);
+    // The 80-column frame is shown whole.
+    expect(log[2]).toBe(`viewport 0,0 ${VDC_FRAME_WIDTH}x${VDC_FRAME_HEIGHT}`);
     m.tick();
     m.setDisplayMode('80');
-    expect(log, 'no change, no message').toHaveLength(2);
+    expect(log, 'no change, no message').toHaveLength(3);
     m.setDisplayMode('40');
-    expect(log.slice(2)).toEqual([`resize ${C128_SCREEN_WIDTH}x${m.frameHeight}`, 'aspect 1.000']);
+    expect(log.slice(3)).toEqual([
+      `resize ${C128_SCREEN_WIDTH}x${m.frameHeight}`, 'aspect 1.000',
+      `viewport 0,0 ${C128_SCREEN_WIDTH}x${m.frameHeight}`,
+    ]);
   });
 
   it('puts the 80-column picture at 4:3 over the whole frame', () => {

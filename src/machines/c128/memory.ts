@@ -52,6 +52,7 @@
 
 import type { IMachineMemory } from '@/machines/machine.ts';
 import type { VicBus } from '@/cores/vic-ii.ts';
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import {
   C128_BASIC64_SIZE, C128_BASIC_HI_SIZE, C128_BASIC_LO_SIZE, C128_CHARGEN_128_OFFSET, C128_CHARGEN_SIZE,
   C128_KERNAL64_SIZE, C128_KERNAL_SIZE, C128_Z80_BIOS_OFFSET,
@@ -424,6 +425,26 @@ export class C128Memory implements IMachineMemory, VicBus {
   }
 
   // ── The VIC-IIe's bus ────────────────────────────────────────────────────
+
+  // ── Snapshot ─────────────────────────────────────────────────────────────
+
+  saveState(w: StateWriter): void {
+    w.raw(this.ram);
+    w.raw(this.colorBanks[0]); w.raw(this.colorBanks[1]);
+    w.u8(this.portDdr); w.u8(this.portData);
+    w.u8(this.vicBase >> 14);
+    this.mmu.saveState(w);
+  }
+
+  /** Read it back. The ROMs are the machine's, not the state's. */
+  loadState(r: StateReader): void {
+    r.rawInto(this.ram);
+    r.rawInto(this.colorBanks[0]); r.rawInto(this.colorBanks[1]);
+    this.portDdr = r.u8(); this.portData = r.u8();
+    this.setVicBank(r.u8());
+    this.mmu.loadState(r);
+    this.updatePort();
+  }
 
   /** The colour RAM the VIC-IIe reads. */
   get colorRam(): Uint8Array { return this.vicColor; }

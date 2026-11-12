@@ -17,6 +17,8 @@
  * the first byte through register 31, then the count less one to register 30".
  */
 
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
+
 const VDC_REGISTERS = 38;
 export const VDC_RAM_16K = 0x4000;
 export const VDC_RAM_64K = 0x10000;
@@ -36,7 +38,8 @@ const VDC_VERSION = 0;
 
 export class Vdc {
   readonly regs = new Uint8Array(VDC_REGISTERS);
-  readonly ram: Uint8Array;
+  /** The chip's RAM: 16K, or 64K on the boards that have it (`setRamBytes`). */
+  ram: Uint8Array;
   /** The beam is in the vertical blanking (status bit 5); the machine sets it. */
   vblank = false;
   /** Frames drawn so far: the flash and cursor blink counters run on it. */
@@ -44,11 +47,36 @@ export class Vdc {
   private selected = 0;
   /** The byte last passed through the data port (what a fill writes). */
   private dataByte = 0;
-  private readonly mask: number;
+  private mask: number;
 
   constructor(ramBytes: number = VDC_RAM_16K) {
     this.ram = new Uint8Array(ramBytes);
     this.mask = ramBytes - 1;
+  }
+
+  /** Fit 16K or 64K of RAM (the board's choice, made before power-on). */
+  setRamBytes(ramBytes: number): void {
+    if (ramBytes === this.ram.length) return;
+    this.ram = new Uint8Array(ramBytes);
+    this.mask = ramBytes - 1;
+  }
+
+  saveState(w: StateWriter): void {
+    w.u32(this.ram.length);
+    w.raw(this.regs); w.raw(this.ram);
+    w.u8(this.selected); w.u8(this.dataByte);
+    w.bool(this.vblank); w.u32(this.frame >>> 0);
+  }
+
+  /** Read it back; throws for a state saved with the other amount of VDC RAM. */
+  loadState(r: StateReader): void {
+    const size = r.u32();
+    if (size !== this.ram.length) {
+      throw new Error(`The snapshot was saved with ${size >> 10}K of VDC RAM: choose that in Hardware first`);
+    }
+    r.rawInto(this.regs); r.rawInto(this.ram);
+    this.selected = r.u8(); this.dataByte = r.u8();
+    this.vblank = r.bool(); this.frame = r.u32() | 0;
   }
 
   reset(): void {

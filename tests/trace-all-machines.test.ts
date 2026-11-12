@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { registry } from '@/machines/registry.ts';
+import { bareBoot } from './bare-boot.ts';
 import { createFrameIndicators as createIndicators, type Machine } from '@/machines/machine.ts';
 import { CpcMachine } from '@/machines/cpc/cpc-machine.ts';
 import { BbcMachine } from '@/machines/bbc/bbc-machine.ts';
@@ -69,9 +70,7 @@ function expectAccountedFor(ran: number[], parsed: Parsed): void {
 
 describe.each(FAMILIES)('execution trace on $kind ($model)', ({ kind, model, entry }) => {
   function boot(): Machine {
-    const m = entry.create(model, null);
-    m.reset();
-    return m;
+    return bareBoot(entry, model);
   }
 
   it('offers the trace control, with zxtl only on a Z80', () => {

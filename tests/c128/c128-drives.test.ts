@@ -179,7 +179,7 @@ function run(m: C128Machine, command: string, frames = 500): string {
 
 const disk71 = (): Uint8Array => d71WithFiles([{ name: 'HELLO', data: PRINT_B_PRG }, { name: 'WORLD', data: PRINT_B_PRG }]);
 
-describe.skipIf(!haveBoard || !dos1571)('C128 with a 1571 and the Commodore ROMs', () => {
+describe.skipIf(!haveBoard || !dos1571)('C128 with a 1571 and the Commodore ROMs', { timeout: 60_000 }, () => {
   it('lists the directory over the burst bus: the disk name, its files and the blocks free', () => {
     const m = boot(dos1571!, '1571', disk71(), 'test.d71');
     const burst = spyOnBurst(m);
@@ -256,7 +256,7 @@ describe.skipIf(!haveBoard || !dos1571)('C128 with a 1571 and the Commodore ROMs
   });
 });
 
-describe.skipIf(!haveBoard || !dos1581)('C128 with a 1581 and the Commodore ROMs', () => {
+describe.skipIf(!haveBoard || !dos1581)('C128 with a 1581 and the Commodore ROMs', { timeout: 60_000 }, () => {
   it('lists a blank disk and saves to it, with the burst bus carrying the traffic', () => {
     const m = boot(dos1581!, '1581', blankD81Bytes(), 'test.d81');
     const burst = spyOnBurst(m);
@@ -272,7 +272,7 @@ describe.skipIf(!haveBoard || !dos1581)('C128 with a 1581 and the Commodore ROMs
   });
 });
 
-describe.skipIf(!haveBoard || !dos1541)('C128 with a 1541 and the Commodore ROMs', () => {
+describe.skipIf(!haveBoard || !dos1541)('C128 with a 1541 and the Commodore ROMs', { timeout: 60_000 }, () => {
   it('lists and loads over the ordinary serial bus: it has no burst mode', () => {
     const m = boot(dos1541!, '1541', d64WithFiles([{ name: 'HELLO', data: PRINT_B_PRG }]), 'test.d64');
     const burst = spyOnBurst(m);

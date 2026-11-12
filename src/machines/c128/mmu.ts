@@ -31,6 +31,8 @@
  *   $D50B       the MMU's version, 0.
  */
 
+import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
+
 /** RAM blocks on a 128: two 64K blocks. */
 export const C128_RAM_BLOCKS = 2;
 
@@ -146,6 +148,24 @@ export class Mmu {
       default: return;            // the version is read-only; the rest is not there
     }
     this.onChange?.();
+  }
+
+  // ── Snapshot ────────────────────────────────────────────────────────────
+
+  saveState(w: StateWriter): void {
+    w.u8(this.cr); w.raw(this.pcr);
+    w.u8(this.mcr); w.u8(this.rcr);
+    w.u8(this.p0l); w.u8(this.p0h); w.u8(this.p1l); w.u8(this.p1h);
+    w.u8(this.p0hLatch); w.u8(this.p1hLatch);
+  }
+
+  /** Read the registers back. The owner follows up with whatever they steer
+   *  (the CPU in charge, the fast serial direction, the map). */
+  loadState(r: StateReader): void {
+    this.cr = r.u8(); r.rawInto(this.pcr);
+    this.mcr = r.u8() | 0x30; this.rcr = r.u8();
+    this.p0l = r.u8(); this.p0h = r.u8(); this.p1l = r.u8(); this.p1h = r.u8();
+    this.p0hLatch = r.u8(); this.p1hLatch = r.u8();
   }
 
   /** A read of $FF00-$FF04: CR, then the four preconfigurations. */
