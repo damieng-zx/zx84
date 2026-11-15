@@ -15,7 +15,7 @@ import {
 } from '@/machines/c128/models.ts';
 import { romPageSlotCount, romSlotOffset, romSlotSize, defaultRomPageLabel } from '@/models.ts';
 import { C128_SCREEN_WIDTH } from '@/machines/c128/constants.ts';
-import { VDC_FRAME_HEIGHT, VDC_FRAME_WIDTH } from '@/machines/c128/vdc-display.ts';
+import { VDC_FRAME_HEIGHT, VDC_FRAME_WIDTH, VDC_PALETTE } from '@/machines/c128/vdc-display.ts';
 import type { HostKeyEvent, SettingsView } from '@/machines/machine.ts';
 import { PRINT_B_PRG } from '../c64/d64-helper.ts';
 import { romImage, expectExactFromFile } from '../snapshot/native-state-helpers.ts';
@@ -407,5 +407,78 @@ describe.skipIf(!haveBoard)('C128 programs and snapshots with the real ROMs', { 
     expect(fresh.showing80).toBe(true);
     expect(fresh.vdc.regs[1], 'the VDC came with it').toBe(m.vdc.regs[1]);
     expect(fresh.cpuIs8502).toBe(true);
+  });
+
+  // ── The TEXT overlay, against the real firmware ──────────────────────────
+
+  it('transcribes the 40-column screen: the BASIC banner, in its own colours', () => {
+    const m = booted();
+    const r = m.ocrScreenStyled();
+    expect(r.grid).toBe('40x25');
+    expect(r.text.split('\n')[1].trim()).toBe('COMMODORE BASIC V7.0 122365 BYTES FREE');
+    // The 128's power-on screen is light green on dark grey: the 64's blue is
+    // not what this machine's KERNAL sets. The cell's paper must be the colour
+    // actually behind it, which for the banner's 'C' is the background register.
+    expect(r.html).toContain('<span style="color:#');
+    const c = r.text.split('\n')[1].indexOf('C');
+    expect(r.paper[40 + c]).toBe(m.vic.regs[0x21] & 0x0F);
+    expect(r.paper[40 + c]).toBe(11);        // dark grey, measured from the frame
+    expect(r.mask[40 + c]).toBe(true);
+    expect(r.mask[40 + 0], 'a blank cell').toBe(false);
+  });
+
+  it('transcribes the 80-column screen: the same banner, from the VDC', () => {
+    // The 80/40 key is read at reset, so the editor draws the VDC from the start.
+    const m = new C128Machine(null);
+    m.loadRoms(basicLo, basicHi, kernal, chargen, basic64, kernal64);
+    m.setDisplay80(true);
+    m.reset();
+    for (let f = 0; f < 150; f++) m.tick();
+    const r = m.ocrScreenStyled();
+    expect(r.grid).toBe('80x25');
+    expect(r.text.split('\n')[1].trim()).toBe('COMMODORE BASIC V7.0 122365 BYTES FREE');
+    // Both chips show the same text, so the lines agree once trimmed.
+    const lines = (t: string): string[] => t.split('\n').map(l => l.trim()).filter(Boolean);
+    expect(lines(r.text)).toEqual(lines(booted().ocrScreenStyled().text));
+  });
+
+  it('blanks the 80-column cells it matched and leaves the border alone', () => {
+    const m = new C128Machine(null);
+    m.loadRoms(basicLo, basicHi, kernal, chargen, basic64, kernal64);
+    m.setDisplay80(true);
+    m.reset();
+    for (let f = 0; f < 150; f++) m.tick();
+    const field = m.textField;
+    const px = new Uint32Array(m.pixels.buffer);
+    const bg = VDC_PALETTE[m.vdc.regs[26] & 0x0F];
+    // The banner's first 'C' is the 22nd cell of row 1 on an 80-column screen.
+    const col = m.ocrScreenStyled().text.split('\n')[1].indexOf('C');
+    expect(col, 'the banner starts at column 21').toBe(21);
+    const inkAt = (x: number, y: number): number => px[(field.y + y) * VDC_FRAME_WIDTH + field.x + x];
+    let ink = 0;
+    for (let y = 8; y < 16; y++) for (let x = col * 8; x < col * 8 + 8; x++) if (inkAt(x, y) !== bg) ink++;
+    expect(ink, 'the banner glyph has ink').toBeGreaterThan(8);
+    const t = m.services.probe.transcribe!;
+    t.activate();
+    const out = t.run();
+    expect(out.grid).toBe('80x25');
+    for (let y = 8; y < 16; y++) for (let x = col * 8; x < col * 8 + 8; x++) expect(inkAt(x, y), 'blanked').toBe(bg);
+    // Outside the field the border keeps its colour.
+    expect(px[0], 'the border').toBe(bg);
+    t.deactivate();
+  });
+
+  it('reads what was typed, on the chip the editor chose at reset', () => {
+    const m = booted();
+    type(m, 'PRINT 6*7\n');
+    expect(m.ocrScreenStyled().text).toContain('42');
+    // The 40/80 key is read once at reset, so asking the menu for the VDC after
+    // a 40-column boot shows a screen the program never wrote: the editor drew
+    // to the VIC-IIe. The plain text and the styled grid agree about that.
+    m.setDisplayMode('80');
+    for (let f = 0; f < 4; f++) m.tick();
+    expect(m.ocrScreenForMcp()).not.toContain('42');
+    expect(m.ocrScreenStyled().text).not.toContain('42');
+    expect(m.ocrScreenStyled().mask.some(Boolean)).toBe(false);
   });
 });

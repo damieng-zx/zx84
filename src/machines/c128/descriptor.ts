@@ -60,7 +60,7 @@ const C128_UI: MachineUiCapabilities = {
   soundChip: 'SID',
   // The Sound pane's SID menu: the original 6581 or the later 8580.
   psgControls: ['sid-model'],
-  statusLeds: ['kbd', 'load', 'dsk', 'chip'],
+  statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
   tape: 'deck',
   tapeSound: false,

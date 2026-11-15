@@ -272,13 +272,18 @@ Not done in this phase, and why:
   CP/M is wanted.
 - The two-block (128K) machine only: `CR` bit 7 and `RCR` bit 7 are ignored.
 
-### Phase 3: VIC-IIe extras and 2 MHz
+### Phase 3: VIC-IIe extras and 2 MHz *(not done)*
 - `$D02F` keyboard-line output and `$D030` bit 0. Model the CPU clock in 2 MHz mode
   and what the VIC-IIe does to the picture while it is on *(confirm: blanking, and
   what the CPU gets on bad lines and in the borders)*.
 - Frame timing for fast mode: twice the 8502 cycles per frame, the SID/CIA timers still
   on the 1 MHz base. Cycle-count tests with hand-computed loops at both speeds.
 - Check the speed cost; the machine must still hold real time in a desktop browser.
+
+**Not done.** `$D02F` is modelled (the three keyboard lines) and `$D030` is stored and
+read back, but bit 0 does nothing: the 8502 always runs at 1 MHz and the VIC-IIe never
+blanks for fast mode. Software that selects 2 MHz runs at half speed rather than
+failing, which is why this is the sheet's main "known issue".
 
 ### Phase 4: VDC and the 80-column display *(done, 69a01414)*
 - `c128/vdc.ts`: register file behind `$D600/$D601`, update/data pointers, text and
@@ -329,6 +334,42 @@ timing and the ready bit (it finishes at once and always reads ready), and the h
 vertical scroll directions are from the register descriptions and unchecked against a real chip.
 The milestone's `GRAPHIC`/`COLOR` (BASIC 7 draws those on the VIC-IIe) and the `[80 Columns Mode]`
 programs (they need drives, Phase 6) have not been tried yet.
+
+**TEXT overlay (done):**
+- `c128/vdc-ocr.ts`: the 80-column grid over VDC RAM. Its columns and rows are R1 and R6,
+  its stride `R1 + R27`, and each cell is `(R22 >> 4) + 1` pixels across by `(R9 & 31) + 1`
+  lines down (of which `R22 & 15` and `R23 & 31` are shown) — the overlay therefore owns
+  its cell size rather than assuming 8×8.
+- **The font is not a chip ROM.** The KERNAL copies one into VDC RAM at boot, at
+  `(R28 & $E0) << 8`: two 4K sets of 256 glyphs of 16 bytes, the upper-case set first and
+  the lower-case one 4K further on, selected by the attribute's bit 7. Codes 128-255 are
+  the inverses of 0-127, and the shared `cbmRomGlyphs`/`cbmMatchGlyph` matcher already
+  derives those, so it serves here unchanged once the 16-byte VDC glyphs are repacked to
+  the 8-byte layout it expects.
+- `vdc-display.ts` grew `vdcGeometry()`, which the renderer and the overlay both read, so
+  the rectangles the overlay blanks are the ones the renderer drew: origin, cell and row
+  pitch, the shown part of a cell, and both smooth scrolls.
+- `c128-machine.ts`: `ocrScreenStyled()` picks the chip on screen (the VIC-IIe's
+  `c64OcrGrid` at 40 columns, `vdcOcrGrid` at 80), `textField` and `blankCells` follow the
+  same choice, and `blankCells` marks the display dirty so the paint reaches the canvas.
+  The 40-column matcher is given the 128's own 4K set (the second half of the character
+  ROM), and the 64's first half in 64 mode.
+- `services/frame-probe.ts`: a `C128TranscribeDriver`, and `descriptor.ts` lists the
+  `text` status LED — the generic catalog and `Screen.tsx` do the rest.
+- Tests: `tests/c128/c128-ocr.test.ts` (geometry from hand arithmetic on the registers,
+  the attribute bits, alternate and inverse glyphs, the two fields, the blanking
+  rectangles, the driver), and real-firmware cases in `c128-services.test.ts` (both
+  screens' banners, a blanked 80-column cell, and that a 40-column boot leaves the VDC
+  empty so the menu's 80 setting shows nothing to read).
+
+Facts found doing it:
+- **The 128's power-on screen is not the 64's:** light green (`$0D`) on dark grey (`$0B`),
+  measured from the rendered frame, where the 64 is light blue on blue.
+- The 40-column field's `borderTop - 3` is the KERNAL's YSCROLL of 3 cancelled, so the
+  grid lands on the display window at (32, 35) rather than three lines into it.
+- A plain 40-column boot never writes the VDC: it is programmed and cleared (auto shows
+  whichever chip the 40/80 key chose at reset), so the overlay legitimately reads nothing
+  there.
 
 ### Phase 5: C64 mode (`GO64`) *(done, 34d276dc)*
 - `$D505` bit 6 and the 64 ROM pair; the MMU then presents the C64's PLA map (reuse the
@@ -420,7 +461,9 @@ supports four), and the snapshot of a drive's state (Phase 7).
   `romSlotSize(model, page)` and `shell/rom.ts` uses them (every other machine keeps its
   stride). Sources: `c128/basiclo-318018-04.rom`, `basichi-318019-04.rom`, `kernal-318020-05.rom`,
   `chargen-325078-03.rom`, and the 64's `c64/basic-901226-01.rom` and `kernal-901227-03.rom`
-  already on the host. **The four `c128/` files are not on R2 yet** (Phase 9; needs the owner's OK).
+  already on the host. **All six are live on R2** (verified 2026-11-14: the md5s match the Phase 0
+  table, and the six fetched in `C128_ROM_SOURCES` order concatenate to the 72K
+  `d5380c9f2a25f4501f5a1fc34cbaf883`, the image the tests load).
 - **Programs**: a `.prg` or `.t64` goes in as on the 64, with BASIC 7.0's pointers ($2D-$34, program
   at $1C01, keyboard queue $034A/$D0) or BASIC V2's. A BASIC program says its mode by its start: $1C01
   stays in C128 mode, $0801 restarts the machine in C64 mode (C= held through the BIOS's read,
@@ -440,9 +483,8 @@ supports four), and the snapshot of a drive's state (Phase 7).
   to the 8502 for the all-machines stop, beam and trace tests.
 
 **Not done:** cartridges (64 mode's expansion port, 128 mode's function ROM sockets), the BASIC 7.0
-pane (token table and variable layout), the TEXT overlay and its LED, the 2 MHz indicator (Phase 3),
-Z80 tracing and breakpoints (the debugger follows the 8502 only), and any check in a browser (the
-ROMs are not hosted yet and the dev server was not started).
+pane (token table and variable layout), the 2 MHz indicator (Phase 3), Z80 tracing and breakpoints
+(the debugger follows the 8502 only), and any check in a browser (the dev server was not started).
 
 ### Phase 8: Z80 and CP/M *(only if wanted, decision 3)*
 - Z80 memory and I/O through the MMU, the Z80 clock/wait-state model, the
@@ -455,6 +497,26 @@ ROMs are not hosted yet and the dev server was not started).
   `docs/developer-tools.md`, `ChangelogPane` entry. Run the capability test
   (`tests/machine-capabilities.test.ts`); every `descriptor.ui` flag must be kept.
 - Upload the ROMs to R2 with your OK, md5-verify, then flip the feature live.
+
+**Done:**
+- `docs/machines/commodore-128.md` written from the template: models, the six ROM sockets and
+  their two sizes, the built-in hardware (with 2 MHz, interlace and the VDC's block timing called
+  out as not modelled), peripherals, media formats, the two-chip display, the TEXT overlay on both
+  screens, tools, known issues, what is deliberately left out, and the quirks not to "fix".
+- README: the machine table gained the Commodore 128 row (8502 / Z80).
+- `docs/developer-tools.md`: the machine-availability table gained the C64, C128 and VIC-20 rows.
+- **ROMs:** all six verified live on R2 on 2026-11-14 — the md5s match the Phase 0 table, and the
+  six in `C128_ROM_SOURCES` order concatenate to the 72K image the tests load
+  (`d5380c9f…b883`). Nothing needed uploading: the files were already there and correct.
+- The capability test (`tests/machine-capabilities.test.ts`) passes. Its `SNAPSHOT_FORMAT` map had
+  no `snapshot-c128state` entry, so the check that the snapshot service can save that format was
+  skipping the 128; the entry is added and was confirmed to fail when the format's extension is
+  changed, so the 128's snapshot is now guarded.
+
+**Not done:**
+- The `ChangelogPane` entry and the version bump — those are the release step, not the machine.
+- **No browser check yet.** Both screens have been verified headlessly and as PNGs written from a
+  headless frame; nobody has watched the machine run in a browser.
 
 ---
 

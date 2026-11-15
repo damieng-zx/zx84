@@ -66,10 +66,10 @@ const CONTROL_NAMES: Record<number, string> = {
   155: 'lgry', 156: 'pur', 157: 'left', 158: 'yel', 159: 'cyn', 160: 'sh space',
 };
 
-const word = (mem: Uint8Array, addr: number): number => mem[addr] | (mem[addr + 1] << 8);
+export const word = (mem: Uint8Array, addr: number): number => mem[addr] | (mem[addr + 1] << 8);
 
 /** A character of a quoted string or REM, as text. */
-function petscii(b: number): string {
+export function petscii(b: number): string {
   if (b >= 0x20 && b <= 0x5B) return String.fromCharCode(b);
   if (b === 0x5C) return '£';
   if (b === 0x5D) return ']';
@@ -156,7 +156,7 @@ export function formatC64Float(mem: Uint8Array, addr: number): string {
   return sign + fixed.replace(/^0\./, '.');
 }
 
-function varName(ram: Uint8Array, addr: number): { name: string; kind: 'real' | 'string' | 'int' | 'fn' } {
+export function varName(ram: Uint8Array, addr: number): { name: string; kind: 'real' | 'string' | 'int' | 'fn' } {
   const a = ram[addr];
   const c = ram[addr + 1];
   const kind = (a & 0x80) !== 0 ? ((c & 0x80) !== 0 ? 'int' : 'fn') : ((c & 0x80) !== 0 ? 'string' : 'real');

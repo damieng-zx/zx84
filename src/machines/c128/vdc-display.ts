@@ -47,6 +47,50 @@ export const VDC_PALETTE: Uint32Array = (() => {
   return out;
 })();
 
+/**
+ * Where the VDC's character cells land in the frame: the grid's origin and the
+ * cell and row pitches, plus the smooth scrolls that move the picture. The
+ * renderer draws from it and the TEXT overlay blanks from it, so the two cannot
+ * drift apart.
+ */
+export interface VdcGeometry {
+  /** False when the registers describe no picture (no columns, no rows). */
+  readonly ok: boolean;
+  /** The grid's top-left corner in frame pixels, before the smooth scrolls. */
+  readonly x0: number;
+  readonly y0: number;
+  readonly cols: number;
+  readonly rows: number;
+  /** The cell's full pitch across and the part of it the chip shows. */
+  readonly cellTotalW: number;
+  readonly cellW: number;
+  /** The row's full pitch down and the scan lines of it the chip shows. */
+  readonly rowTotal: number;
+  readonly rowShown: number;
+  /** The horizontal smooth scroll: the picture moves left by this many pixels. */
+  readonly shiftLeft: number;
+  /** The vertical smooth scroll: the picture moves up by this many lines. */
+  readonly vScroll: number;
+}
+
+export function vdcGeometry(vdc: Vdc): VdcGeometry {
+  const r = vdc.regs;
+  const cols = r[VDC_R.HDISP];
+  const rows = r[VDC_R.VDISP];
+  const cellTotalW = (r[VDC_R.CHARH] >> 4) + 1;
+  const cellW = Math.min(r[VDC_R.CHARH] & 0x0F, cellTotalW);
+  const rowTotal = (r[VDC_R.CHARV] & 0x1F) + 1;
+  const rowShown = Math.min(r[VDC_R.CHAR_DISP_V] & 0x1F, rowTotal);
+  return {
+    ok: cols !== 0 && rows !== 0 && cellW !== 0 && rowShown !== 0,
+    x0: (VDC_FRAME_WIDTH - cols * cellTotalW) >> 1,
+    y0: (VDC_FRAME_HEIGHT - rows * rowTotal) >> 1,
+    cols, rows, cellTotalW, cellW, rowTotal, rowShown,
+    shiftLeft: r[VDC_R.MODE] & 0x0F,
+    vScroll: r[VDC_R.SCROLL_V] & 0x1F,
+  };
+}
+
 /** Whether a flashing cell is in its reversed half now. */
 function flashReversed(vdc: Vdc): boolean {
   const period = (vdc.regs[VDC_R.SCROLL_V] & 0x20) !== 0 ? 30 : 16;
@@ -78,18 +122,14 @@ export function renderVdc(vdc: Vdc, out: Uint32Array): void {
 
   const cols = r[VDC_R.HDISP];
   const rows = r[VDC_R.VDISP];
-  const cellTotalW = (r[VDC_R.CHARH] >> 4) + 1;
-  const cellW = Math.min(r[VDC_R.CHARH] & 0x0F, cellTotalW);
-  const rowTotal = (r[VDC_R.CHARV] & 0x1F) + 1;
-  const rowShown = Math.min(r[VDC_R.CHAR_DISP_V] & 0x1F, rowTotal);
-  if (cols === 0 || rows === 0 || cellW === 0 || rowShown === 0) return;
+  const geom = vdcGeometry(vdc);
+  const { cellTotalW, cellW, rowTotal, rowShown, x0, y0, shiftLeft, vScroll } = geom;
+  if (!geom.ok) return;
 
   const mode = r[VDC_R.MODE];
   const bitmap = (mode & 0x80) !== 0;
   const colour = (mode & 0x40) !== 0;
   const semigraphic = (mode & 0x20) !== 0;
-  const shiftLeft = mode & 0x0F;
-  const vScroll = r[VDC_R.SCROLL_V] & 0x1F;
 
   const screen = (r[VDC_R.SCREEN_HI] << 8) | r[VDC_R.SCREEN_LO];
   const attrs = (r[VDC_R.ATTR_HI] << 8) | r[VDC_R.ATTR_LO];
@@ -103,8 +143,6 @@ export function renderVdc(vdc: Vdc, out: Uint32Array): void {
   const flashRev = flashReversed(vdc);
   const defaultFg = (r[VDC_R.COLOUR] >> 4) & 0x0F;
 
-  const x0 = (VDC_FRAME_WIDTH - cols * cellTotalW) >> 1;
-  const y0 = (VDC_FRAME_HEIGHT - rows * rowTotal) >> 1;
   const height = rows * rowTotal;
 
   for (let line = 0; line < height; line++) {

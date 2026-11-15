@@ -3,8 +3,11 @@
  */
 
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot,
+  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot, TranscribeDriver,
 } from '@/machines/machine.ts';
+import type { OcrGridName } from '@/ocr/ocr.ts';
+import { parseC64Basic, parseC64BasicVariables } from '@/basic/c64-basic-parser.ts';
+import { parseC128Basic, parseC128BasicVariables } from '@/basic/c128-basic-parser.ts';
 import { hex8 } from '@/utils/hex.ts';
 import type { C128Machine } from '../c128-machine.ts';
 import { sampleCbmDrives } from '@/machines/shared/cbm/drive-services.ts';
@@ -52,12 +55,44 @@ function c128MemoryMap(m: C128Machine): MemoryMapSnapshot {
   return { slots, registers };
 }
 
+/** TEXT overlay: read the text screen — whichever of the two the canvas is
+ *  showing — then blank what it read. Both chips keep character codes in
+ *  their screen RAM, so a match is a cell whose glyph is a font character. */
+class C128TranscribeDriver implements TranscribeDriver {
+  private _active = false;
+  constructor(private readonly m: C128Machine) {}
+  get active(): boolean { return this._active; }
+  activate(): void { this._active = true; }
+  deactivate(): void { this._active = false; }
+  run(): {
+    text: string; html: string; grid: OcrGridName;
+    field: { x: number; y: number; width: number; height: number };
+  } {
+    const m = this.m;
+    const result = m.ocrScreenStyled();
+    if (result.mask.some(Boolean)) {
+      m.blankCells(result.mask, result.paper);
+      m.display?.updateTexture(m.pixels);
+    }
+    return { text: result.text, html: result.html, grid: result.grid, field: m.textField };
+  }
+}
+
 export class C128FrameProbe implements FrameProbe {
   readonly panes: FramePaneProvider;
+  readonly transcribe: C128TranscribeDriver;
 
   constructor(private readonly m: C128Machine) {
+    this.transcribe = new C128TranscribeDriver(m);
     this.panes = {
       memoryMap: () => c128MemoryMap(this.m),
+      // BASIC 7.0 in C128 mode (text in RAM block 0, variables in block 1); the 64's V2 in C64 mode.
+      basicListing: () => (this.m.c64Mode
+        ? parseC64Basic(this.m.memory.ram.subarray(0, 0x10000))
+        : parseC128Basic(this.m.memory.ram)),
+      basicVars: () => (this.m.c64Mode
+        ? parseC64BasicVariables(this.m.memory.ram.subarray(0, 0x10000))
+        : parseC128BasicVariables(this.m.memory.ram)),
     };
   }
 

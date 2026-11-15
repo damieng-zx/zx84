@@ -51,9 +51,14 @@ import { C128Memory } from './memory.ts';
 import { C128Keyboard } from './keyboard.ts';
 import { Vdc, VDC_RAM_16K, VDC_RAM_64K } from './vdc.ts';
 import { c128ScreenText, vdcScreenText } from './screen-text.ts';
-import { renderVdc, VDC_FRAME_HEIGHT, VDC_FRAME_WIDTH, VDC_PIXEL_ASPECT_X } from './vdc-display.ts';
 import {
-  C128_BORDER_LEFT, C128_SCREEN_WIDTH, c128Timing, type C128Timing,
+  renderVdc, vdcGeometry, VDC_FRAME_HEIGHT, VDC_FRAME_WIDTH, VDC_PIXEL_ASPECT_X, VDC_PALETTE,
+} from './vdc-display.ts';
+import { vdcOcrGrid } from './vdc-ocr.ts';
+import { c64OcrGrid, type C64OcrResult } from '@/ocr/c64.ts';
+import {
+  C128_ACTIVE_HEIGHT, C128_ACTIVE_WIDTH, C128_BORDER_LEFT, C128_CHARGEN_128_OFFSET,
+  C128_SCREEN_WIDTH, c128Timing, type C128Timing,
 } from './constants.ts';
 import { C128_ROM_CHIP_SIZES } from './models.ts';
 import { c128Descriptor } from './descriptor.ts';
@@ -1052,6 +1057,112 @@ export class C128Machine extends BaseMachine implements Machine {
    *  RAM, or 40 from the VIC-IIe's matrix. */
   ocrScreenForMcp(_mode?: string): string {
     return this.showing80 ? vdcScreenText(this.vdc) : c128ScreenText(this.memory, this.vic.regs);
+  }
+
+  // ── TEXT overlay ─────────────────────────────────────────────────────────
+
+  /** Styled OCR (text, coloured HTML, match mask) for the chip on screen. */
+  ocrScreenStyled(): C64OcrResult {
+    return this.showing80 ? vdcOcrGrid(this.vdc) : this.vicOcrGrid();
+  }
+
+  /** The VIC-IIe's 40×25 grid, read the way the 64's is. `c64OcrGrid` takes
+   *  the character ROM as the *reference* to match the glyphs the chip fetches,
+   *  so it gets the 4K set the VIC-IIe is copying from: the 128's own (the
+   *  second half of the character ROM) in C128 mode, the 64's in 64 mode. */
+  private vicOcrGrid(): C64OcrResult {
+    const mem = this.memory;
+    const from = this.c64Mode ? 0x0000 : C128_CHARGEN_128_OFFSET;
+    return c64OcrGrid({
+      regs: this.vic.regs,
+      chargen: mem.chargen.subarray(from, from + 0x1000),
+      palette: VIC_PALETTE,
+      vicRead: a => mem.vicRead(a),
+      colour: i => mem.colorRam[i],
+    });
+  }
+
+  /**
+   * Where the text sits in the frame buffer, in buffer pixels. The 40-column
+   * screen is the 320×200 window moved by the scroll registers, as on the 64;
+   * the 80-column one is the VDC's own grid, which the register-derived
+   * geometry places and sizes.
+   */
+  get textField(): { x: number; y: number; width: number; height: number } {
+    if (this.showing80) {
+      const g = vdcGeometry(this.vdc);
+      // The smooth scrolls move the picture up and left, so the grid sits that
+      // much nearer the frame's top-left corner.
+      return {
+        x: g.x0 - g.shiftLeft, y: g.y0 - g.vScroll,
+        width: g.cols * g.cellTotalW, height: g.rows * g.rowTotal,
+      };
+    }
+    const regs = this.vic.regs;
+    return {
+      x: C128_BORDER_LEFT + (regs[0x16] & 7),
+      y: this.timing.borderTop - 3 + (regs[0x11] & 7),
+      width: C128_ACTIVE_WIDTH,
+      height: C128_ACTIVE_HEIGHT,
+    };
+  }
+
+  /** Paint the overlay's matched cells out of the frame, each in its `paper`. */
+  blankCells(mask: readonly boolean[], paper: readonly number[]): void {
+    const field = this.textField;
+    if (this.showing80) this.blankVdcCells(mask, paper, field);
+    else this.blankVicCells(mask, paper, field);
+    this.needsDisplay = true;
+  }
+
+  private blankVdcCells(
+    mask: readonly boolean[], paper: readonly number[],
+    field: { x: number; y: number; width: number; height: number },
+  ): void {
+    const g = vdcGeometry(this.vdc);
+    if (!g.ok) return;
+    const px = this.vdcPixels32;
+    for (let row = 0; row < g.rows; row++) {
+      const top = field.y + row * g.rowTotal;
+      if (top < 0 || top >= VDC_FRAME_HEIGHT) continue;
+      for (let col = 0; col < g.cols; col++) {
+        const i = row * g.cols + col;
+        if (!mask[i]) continue;
+        const left = field.x + col * g.cellTotalW;
+        const colour = VDC_PALETTE[paper[i] & 0x0F];
+        for (let y = 0; y < g.rowShown; y++) {
+          const line = top + y;
+          if (line < 0 || line >= VDC_FRAME_HEIGHT) continue;
+          const base = line * VDC_FRAME_WIDTH;
+          for (let x = 0; x < g.cellW; x++) {
+            const at = left + x;
+            if (at >= 0 && at < VDC_FRAME_WIDTH) px[base + at] = colour;
+          }
+        }
+      }
+    }
+  }
+
+  private blankVicCells(
+    mask: readonly boolean[], paper: readonly number[],
+    field: { x: number; y: number; width: number; height: number },
+  ): void {
+    const px = this.vic.pixels;
+    const w = C128_SCREEN_WIDTH;
+    for (let row = 0; row < 25; row++) {
+      const top = field.y + row * 8;
+      if (top + 8 > this.timing.screenHeight) break;
+      for (let col = 0; col < 40; col++) {
+        if (!mask[row * 40 + col]) continue;
+        const left = field.x + col * 8;
+        if (left + 8 > w) continue;
+        const colour = VIC_PALETTE[paper[row * 40 + col] & 0x0F];
+        for (let y = 0; y < 8; y++) {
+          const base = (top + y) * w + left;
+          px.fill(colour, base, base + 8);
+        }
+      }
+    }
   }
 
   // ── Snapshots (.c128state) ───────────────────────────────────────────────

@@ -299,6 +299,9 @@ rest depend on the hardware:
 | BBC Micro, Electron | 6502 | ✓ | | ✓ | | | ✓ |
 | Apple I | 6502 | ✓ | | | | | ✓ |
 | Apple II | 6502 / 65C02 | ✓ | | | | | ✓ |
+| Commodore 64 | 6510 | ✓ | ✓ | ✓ | | | ✓ |
+| Commodore 128 | 8502 | ✓ | ✓ | | | | ✓ |
+| Commodore VIC-20 | 6502 | ✓ | ✓ | ✓ | | | ✓ |
 
 ## Working on ZX84
 
