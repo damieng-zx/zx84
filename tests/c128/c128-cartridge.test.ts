@@ -21,9 +21,9 @@ function cartOf(crt: Uint8Array): C64Cartridge {
   return parsed.cart;
 }
 
-/** A 128 `.crt` by hand: the 64's layout with the 128's signature. */
-function buildC128Crt(chips: readonly CrtChip[], name = 'F'): Uint8Array {
-  const crt = buildCrt(0, 1, 1, chips, name);
+/** A 128 `.crt` by hand: the 64's layout with the 128's signature and hardware type `hw`. */
+function buildC128Crt(chips: readonly CrtChip[], name = 'F', hw = 0): Uint8Array {
+  const crt = buildCrt(hw, 1, 1, chips, name);
   crt.set([...'C128 CARTRIDGE  '].map(c => c.charCodeAt(0)), 0);
   return crt;
 }
@@ -109,7 +109,7 @@ describe('a 64 cartridge on the 128, in C64 mode', () => {
     m.memory.pinsChanged();
     m.memory.mmu.cr = 0;                       // I/O on
     wr(m, 0xDE00, 6);
-    expect(m.cartridge && 'describe' in m.cartridge ? m.cartridge.describe()[0] : '').toContain('ROML bank 0');
+    expect(m.cartridge?.describe()[0] ?? '').toContain('ROML bank 0');
     m.destroy();
   });
 
@@ -150,7 +150,7 @@ describe('a 128 function ROM', () => {
   });
 
   it('refuses what it cannot map', () => {
-    expect(parseC128Crt(buildC128Crt([{ bank: 1, load: 0x8000, data: rom8k(1) }]))).toMatchObject({ error: expect.stringContaining('Banked') });
+    expect(parseC128Crt(buildC128Crt([{ bank: 1, load: 0x8000, data: rom8k(1) }]))).toMatchObject({ error: expect.stringContaining('no banks') });
     expect(parseC128Crt(buildC128Crt([{ bank: 0, load: 0x4000, data: rom8k(1) }]))).toMatchObject({ error: expect.stringContaining('not a function ROM address') });
     expect(parseC128Crt(buildC128Crt([]))).toMatchObject({ error: 'Cartridge file holds no ROM' });
     expect(parseC128Cartridge(new Uint8Array(100), 'x.crt')).toMatchObject({ error: expect.any(String) });
@@ -193,6 +193,114 @@ describe('a 128 function ROM', () => {
   });
 });
 
+/** A 16K chip whose every byte is `fill`, with `bytes` placed from `at`. */
+const rom16k = (fill: number, bytes: ReadonlyArray<readonly [number, readonly number[]]> = []): Uint8Array => {
+  const d = new Uint8Array(0x4000).fill(fill);
+  for (const [at, b] of bytes) d.set(b, at);
+  return d;
+};
+
+function board(hw: number, chips: CrtChip[]): { m: C128Machine; rom: C128FunctionRom } {
+  const parsed = parseC128Crt(buildC128Crt(chips, 'B', hw));
+  if ('error' in parsed) throw new Error(parsed.error);
+  const m = new C128Machine(null);
+  m.setCartridge(null, parsed.rom);
+  m.reset();
+  m.memory.mmu.cr = 0x08;                      // external function ROM at $8000-$BFFF, I/O on
+  return { m, rom: parsed.rom };
+}
+
+describe('banked 128 cartridges', () => {
+  it('switches Magic Desk 128 banks with the low six bits of a write to $DE00', () => {
+    const { m, rom } = board(4, [0, 1, 2, 33].map(bank => ({ bank, load: 0x8000, data: rom16k(0x10 + bank) })));
+    expect(rom.type).toBe('magicdesk');
+    expect(rd(m, 0x8000), 'bank 0 at power-up').toBe(0x10);
+    wr(m, 0xDE00, 2);
+    expect(rd(m, 0x8000)).toBe(0x12);
+    expect(rd(m, 0xBFFF)).toBe(0x12);
+    wr(m, 0xDE00, 0x80 | 33);                  // the top two bits are not used
+    expect(rd(m, 0x8000)).toBe(0x31);
+    wr(m, 0xDE00, 7);
+    expect(rd(m, 0x8000), 'a bank with nothing in it').toBe(0xFF);
+    wr(m, 0xDE01, 2);
+    expect(rom.bank, 'only $DE00 is the register').toBe(7);
+    m.reset();
+    expect(m.cartridge instanceof C128FunctionRom ? m.cartridge.bank : -1, 'back to bank 0 on reset').toBe(0);
+    m.destroy();
+  });
+
+  it('refuses a bank number out of range, and any bank on a board that has none', () => {
+    expect(parseC128Crt(buildC128Crt([{ bank: 64, load: 0x8000, data: rom16k(1) }], 'M', 4))).toMatchObject({ error: expect.stringContaining('out of range') });
+    expect(parseC128Crt(buildC128Crt([{ bank: 1, load: 0x8000, data: rom16k(1) }], 'W', 1))).toMatchObject({ error: expect.stringContaining('no banks') });
+    expect(parseC128Crt(buildC128Crt([{ bank: 0, load: 0xC000, data: rom16k(1) }], 'W', 1))).toMatchObject({ error: expect.stringContaining('nothing at $C000') });
+  });
+
+  it('refuses the boards whose registers the manual does not describe, by name', () => {
+    expect(parseC128Crt(buildC128Crt([{ bank: 0, load: 0xC000, data: rom16k(1) }], 'C', 3))).toMatchObject({ error: expect.stringContaining('Comal 80') });
+    expect(parseC128Crt(buildC128Crt([{ bank: 0, load: 0x8000, data: rom16k(1) }], 'G', 5))).toMatchObject({ error: expect.stringContaining('Gmod2-C128') });
+    expect(parseC128Crt(buildC128Crt([{ bank: 0, load: 0x8000, data: rom16k(1) }], 'X', 9))).toMatchObject({ error: expect.stringContaining('type 9') });
+  });
+
+  it('shows the Warpspeed128 ROM at $9E00-$9FFF again at $DE00-$DFFF', () => {
+    const { m } = board(1, [{ bank: 0, load: 0x8000, data: rom16k(0x11, [[0x1E00, [0xAA]], [0x1FFF, [0xBB]]]) }]);
+    expect(rd(m, 0x9E00)).toBe(0xAA);
+    expect(rd(m, 0xDE00)).toBe(0xAA);
+    expect(rd(m, 0xDFFF)).toBe(0xBB);
+    expect(rd(m, 0xDE01), 'the rest of it too').toBe(0x11);
+    m.destroy();
+  });
+
+  it('gives Partner 128 its RAM window at $DE00, 64 blocks picked by $DE80, and the ROM at $DE80-$DEFF', () => {
+    const { m, rom } = board(2, [{ bank: 0, load: 0x8000, data: rom16k(0x22, [[0x1E80, [0xCC]]]) }]);
+    expect(rd(m, 0xDE80), 'ROM from $9E80').toBe(0xCC);
+    wr(m, 0xDE00, 0x41);
+    wr(m, 0xDE7F, 0x42);
+    expect([rd(m, 0xDE00), rd(m, 0xDE7F)]).toEqual([0x41, 0x42]);
+    wr(m, 0xDE80, 5);                          // block 5 is a clean one
+    expect(rom.ramBlock).toBe(5);
+    expect(rd(m, 0xDE00)).toBe(0);
+    wr(m, 0xDE00, 0x55);
+    wr(m, 0xDE80, 0x40 | 0);                   // only six bits: back to block 0
+    expect(rd(m, 0xDE00)).toBe(0x41);
+    wr(m, 0xDE80, 5);
+    expect(rd(m, 0xDE00)).toBe(0x55);
+    expect(rd(m, 0xDE80), 'a write to $DE80 did not touch the ROM').toBe(0xCC);
+    expect(rd(m, 0x8000), 'the ROM is not banked').toBe(0x22);
+    m.destroy();
+  });
+
+  it('keeps the bank and the RAM in a snapshot', () => {
+    const { m: a } = board(4, [0, 1, 2].map(bank => ({ bank, load: 0x8000, data: rom16k(0x10 + bank) })));
+    wr(a, 0xDE00, 2);
+    const w = new StateWriter();
+    a.saveState(w, false);
+    const b = new C128Machine(null);
+    b.loadState(new StateReader(w.finish()));
+    b.memory.mmu.cr = 0x08;
+    expect(rd(b, 0x8000)).toBe(0x12);
+    expect(b.cartridge instanceof C128FunctionRom ? b.cartridge.type : '').toBe('magicdesk');
+
+    const { m: c, rom } = board(2, [{ bank: 0, load: 0x8000, data: rom16k(0x22) }]);
+    wr(c, 0xDE80, 9);
+    wr(c, 0xDE10, 0x77);
+    const w2 = new StateWriter();
+    c.saveState(w2, false);
+    const d = new C128Machine(null);
+    d.loadState(new StateReader(w2.finish()));
+    d.memory.mmu.cr = 0x08;
+    expect(rd(d, 0xDE10)).toBe(0x77);
+    expect(rom.ramBlock).toBe(9);
+    a.destroy(); b.destroy(); c.destroy(); d.destroy();
+  });
+
+  it('is mounted through the media service with the board named', async () => {
+    const m = new C128Machine(null);
+    const r = await m.services.media.mount(buildC128Crt([{ bank: 0, load: 0x8000, data: rom16k(1) }], 'MD', 4), 'desk.crt');
+    expect(r).toMatchObject({ ok: true, message: expect.stringContaining('Magic Desk 128') });
+    m.destroy();
+  });
+});
+
 describe('cartridges in snapshots and through the services', () => {
   it('keeps a 64 cartridge and its bank in a snapshot, and takes it off for one without', () => {
     const a = fit64(buildCrt(5, 0, 1, banks(0x8000, 16)));
@@ -201,7 +309,7 @@ describe('cartridges in snapshots and through the services', () => {
     a.saveState(w, false);
     const b = new C128Machine(null);
     b.loadState(new StateReader(w.finish()));
-    expect(b.cartridge && 'type' in b.cartridge ? b.cartridge.type : '').toBe('ocean');
+    expect(b.cartridge && !(b.cartridge instanceof C128FunctionRom) ? b.cartridge.type : '').toBe('ocean');
     b.memory.mmu.mcr = 0x70;
     b.memory.pinsChanged();
     b.memory.writeByte(0, 0x2F); b.memory.writeByte(1, 0x37);

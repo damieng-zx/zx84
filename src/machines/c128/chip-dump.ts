@@ -10,6 +10,7 @@
 
 import type { ChipSection } from '@/debug/chip-state.ts';
 import { C64_CART_TYPE_NAMES } from '@/machines/shared/cbm/cartridge.ts';
+import { C128FunctionRom, C128_CART_TYPE_NAMES } from './function-rom.ts';
 import { bits, dumpCia, dumpSid, dumpVic, hx } from '@/machines/shared/cbm/chip-dump.ts';
 import { cbmDriveChips } from '@/machines/shared/cbm/drive-services.ts';
 import type { C128Machine } from './c128-machine.ts';
@@ -104,7 +105,7 @@ function dumpCart(m: C128Machine): string {
   const cart = m.cartridge;
   if (!cart) return 'No cartridge on the expansion port.';
   const mem = m.memory;
-  if ('type' in cart) {
+  if (!(cart instanceof C128FunctionRom)) {
     const { exrom, game } = cart.lines;
     return [
       `Cartridge  ${cart.name || '(unnamed)'}  (${C64_CART_TYPE_NAMES[cart.type]}), a 64 cartridge`,
@@ -114,8 +115,8 @@ function dumpCart(m: C128Machine): string {
     ].join('\n');
   }
   return [
-    `Cartridge  ${cart.name || '(unnamed)'}  a 128 function ROM (external)`,
-    `Lines      /EXROM and /GAME high; the MMU maps it with CR bits 3-2 or 5-4 = 10`,
+    `Cartridge  ${cart.name || '(unnamed)'}  a 128 function ROM (external), ${C128_CART_TYPE_NAMES[cart.type]}`,
+    `Lines      /EXROM and /GAME high; the MMU maps it with CR bits 3-2 or 5-4 = 10 (its I/O 1 and 2 answer in 128 mode)`,
     ...cart.describe(),
   ].join('\n');
 }

@@ -161,6 +161,7 @@ export class C128Memory implements IMachineMemory, VicBus {
     this.portData = 0;
     this.mmu.reset();
     this.cart?.reset();
+    this.extRom?.reset();
     this.refreshCart();
     this.updatePort();
   }
@@ -168,6 +169,7 @@ export class C128Memory implements IMachineMemory, VicBus {
   /** Power-up of the cartridge, after the CPU's clock has restarted. */
   resetCartridge(): void {
     this.cart?.reset();
+    this.extRom?.reset();
     this.refreshCart();
   }
 

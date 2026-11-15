@@ -14,7 +14,8 @@
  *   TV    1 byte: NTSC
  *   CART  (optional, after TV) what is on the expansion port: u8 0 nothing, 1 a
  *         64 cartridge (its `.crt` file, then its board state), 2 a function
- *         ROM (name, 16K low, 16K high)
+ *         ROM (name, board, bank, Partner RAM block and RAM, 16K high, then the
+ *         16K banks present, each with its number)
  *   MEM   both 64K RAM blocks, both colour RAM banks, the 8502 port, the
  *         VIC-IIe bank and the MMU's registers
  *   VDC   the 8563's registers and RAM (16K or 64K), its latches

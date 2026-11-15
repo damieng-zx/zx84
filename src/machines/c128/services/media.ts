@@ -30,7 +30,7 @@ import type { C128Machine } from '../c128-machine.ts';
 import type { CbmDiskService } from '@/machines/shared/cbm/disk-service.ts';
 import type { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
 import { C128_STATE } from '../snapshots/c128-state.ts';
-import { parseC128Cartridge } from '../function-rom.ts';
+import { C128_CART_TYPE_NAMES, parseC128Cartridge } from '../function-rom.ts';
 import { C64_CART_TYPE_NAMES } from '@/machines/shared/cbm/cartridge.ts';
 import { CBM_DISK_PATTERN, CBM_DISK_TYPES, mountCbmDisk } from '@/machines/shared/cbm/drive-services.ts';
 
@@ -112,7 +112,7 @@ export class C128MediaService implements MediaService {
       if ('error' in parsed) return { ok: false, message: `${parsed.error}: ${name}` };
       if ('rom' in parsed) {
         this.m.mountCartridge(parsed.rom, name);
-        return { ok: true, target: 'cartridge', message: `Cartridge: ${name} (128 function ROM)` };
+        return { ok: true, target: 'cartridge', message: `Cartridge: ${name} (128 function ROM, ${C128_CART_TYPE_NAMES[parsed.rom.type]})` };
       }
       this.m.mountCartridge(parsed.cart, name);
       const kind = parsed.cart.type === 'normal' ? '' : ` (${C64_CART_TYPE_NAMES[parsed.cart.type]})`;

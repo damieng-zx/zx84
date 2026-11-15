@@ -507,7 +507,13 @@ ran, or one CPU's text bare when only it ran; `zxtl` is the Z80's only. Tests: `
 (with `hand-bios.ts`, and the real BIOS stepped to the handover). Z80 interrupts are not in the
 interrupt log and its accesses are stamped per instruction, not per cycle.
 
-**Not done:** banked 128 cartridges and the internal function ROM socket's UI.
+**Banked 128 cartridges done**, for the boards of the VICE manual's C128 list whose registers it describes:
+Generic (no banks), Warpspeed128 (the $9E00-$9FFF part mirrored at $DE00-$DFFF), Partner 128 (an 8K RAM
+window at $DE00 with 64 blocks picked by $DE80, the ROM's $9E80 part at $DE80) and Magic Desk 128 (16K banks,
+low six bits of a write to $DE00). Their I/O 1 and 2 answer in 128 mode. Comal 80 and Gmod2-C128 are
+refused by name, since the manual gives no layout for their registers.
+
+**Not done:** the Comal 80 and Gmod2-C128 boards, and the internal function ROM socket's UI.
 
 ### Phase 8: Z80 and CP/M *(only if wanted, decision 3)*
 - Z80 memory and I/O through the MMU, the Z80 clock/wait-state model, the

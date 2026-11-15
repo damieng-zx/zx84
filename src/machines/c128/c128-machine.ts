@@ -420,8 +420,8 @@ export class C128Machine extends BaseMachine implements Machine {
           return cia2.read(addr);
         }
         // The expansion port's two I/O areas, where a 64 cartridge keeps its registers.
-        case 0xE: return mmu.c64Mode && memory.cart ? memory.cart.io1Read(addr) : 0xFF;
-        case 0xF: return mmu.c64Mode && memory.cart ? memory.cart.io2Read(addr) : 0xFF;
+        case 0xE: return mmu.c64Mode ? (memory.cart ? memory.cart.io1Read(addr) : 0xFF) : (memory.extRom ? memory.extRom.ioRead(addr) : 0xFF);
+        case 0xF: return mmu.c64Mode ? (memory.cart ? memory.cart.io2Read(addr) : 0xFF) : (memory.extRom ? memory.extRom.ioRead(addr) : 0xFF);
         default: return 0xFF;
       }
     };
@@ -488,8 +488,8 @@ export class C128Machine extends BaseMachine implements Machine {
           if (bus) this.iec.update();
           break;
         }
-        case 0xE: if (mmu.c64Mode) memory.cart?.io1Write(addr, value); break;
-        case 0xF: if (mmu.c64Mode) memory.cart?.io2Write(addr, value); break;
+        case 0xE: if (mmu.c64Mode) memory.cart?.io1Write(addr, value); else memory.extRom?.ioWrite(addr, value); break;
+        case 0xF: if (mmu.c64Mode) memory.cart?.io2Write(addr, value); else memory.extRom?.ioWrite(addr, value); break;
         default: break;
       }
     };
