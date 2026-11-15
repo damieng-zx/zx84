@@ -38,10 +38,24 @@ export const C128_MATRIX: readonly (readonly string[])[] = [
 /**
  * The 128's keys that the 64's mapping (by typed character, and by position
  * for the cursors and function keys) has no host key for: the host keys that
- * stand for them. The keypad types its digits by character, like the main row.
+ * stand for them.
  */
 const EXTRA_KEYS: Readonly<Record<string, string>> = {
-  F9: 'esc', F10: 'help', AltRight: 'alt', ScrollLock: 'no-scroll',
+  F9: 'esc', F10: 'help', AltRight: 'alt', ScrollLock: 'no-scroll', PageDown: 'linefeed',
+};
+
+/**
+ * Host keys that press a cell of the three extra lines in 128 mode, where the
+ * 64's mapping would press something else: the four arrows are their own keys
+ * there (the 64's cursor keys plus SHIFT would be seen as SHIFT held), TAB is a
+ * key (the 64 mapping makes it CTRL, which the Control keys still are), and the
+ * numeric keypad is a keypad. Not in 64 mode: its KERNAL never scans these lines.
+ */
+const EXTRA_KEYS_128: Readonly<Record<string, string>> = {
+  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Tab: 'tab',
+  Numpad0: 'kp0', Numpad1: 'kp1', Numpad2: 'kp2', Numpad3: 'kp3', Numpad4: 'kp4',
+  Numpad5: 'kp5', Numpad6: 'kp6', Numpad7: 'kp7', Numpad8: 'kp8', Numpad9: 'kp9',
+  NumpadDecimal: 'kp.', NumpadAdd: 'kp+', NumpadSubtract: 'kp-', NumpadEnter: 'kp-enter',
 };
 
 export class C128Keyboard extends CbmKeyboard {
@@ -51,7 +65,10 @@ export class C128Keyboard extends CbmKeyboard {
   display80 = false;
   /** A latching key changed: the machine puts its pin where the port reads it. */
   onLatchChange: (() => void) | null = null;
-  private readonly extraHeld = new Set<string>();
+  /** The extra-line key each held host key pressed (so a release lets go of the same one even if the mode changed). */
+  private readonly extraHeld = new Map<string, string>();
+  /** Whether the machine is in 64 mode, where the 128's own keys are not there. */
+  isC64Mode: () => boolean = () => false;
 
   constructor() { super(C128_MATRIX); }
 
@@ -62,13 +79,14 @@ export class C128Keyboard extends CbmKeyboard {
     // CAPS LOCK and the 40/80 key latch: a press flips them, the release is ignored.
     if (event.code === 'CapsLock') { if (down) this.toggleCapsLock(); return true; }
     if (event.code === 'Pause') { if (down) this.toggleDisplay80(); return true; }
-    const extra = EXTRA_KEYS[event.code];
+    if (!down) {
+      const held = this.extraHeld.get(event.code);
+      if (held !== undefined) { this.extraHeld.delete(event.code); this.setKey(held, false); return true; }
+      return super.handleEvent(event, down);
+    }
+    const extra = EXTRA_KEYS[event.code] ?? (this.isC64Mode() ? undefined : EXTRA_KEYS_128[event.code]);
     if (extra) {
-      if (down) {
-        if (!this.extraHeld.has(event.code)) { this.extraHeld.add(event.code); this.setKey(extra, true); }
-      } else if (this.extraHeld.delete(event.code)) {
-        this.setKey(extra, false);
-      }
+      if (!this.extraHeld.has(event.code)) { this.extraHeld.set(event.code, extra); this.setKey(extra, true); }
       return true;
     }
     return super.handleEvent(event, down);

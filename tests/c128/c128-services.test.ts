@@ -186,8 +186,13 @@ describe('C128 host keys', () => {
     expect(m.memory.mmu.read(5) & 0x80, 'and low while down').toBe(0);
   });
 
-  it('still types by character: a keypad digit is the main row\'s digit', () => {
+  it('presses the keypad\'s own cell in 128 mode (it types the same digit), and the main row\'s in 64 mode', () => {
     const m = new C128Machine(null);
+    m.services.input.keyDown(key('Numpad5', '5'));
+    expect(m.keyboard.isPressed('kp5')).toBe(true);
+    expect(m.keyboard.isPressed('5')).toBe(false);
+    m.services.input.keyUp(key('Numpad5', '5'));
+    m.memory.mmu.write(5, 0x40);                 // C64 mode
     m.services.input.keyDown(key('Numpad5', '5'));
     expect(m.keyboard.isPressed('5')).toBe(true);
   });

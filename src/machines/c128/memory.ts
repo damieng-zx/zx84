@@ -315,6 +315,8 @@ export class C128Memory implements IMachineMemory, VicBus {
         const phys = mmu.relocate(addr);
         if (phys >= 0) return this.ram[phys];
       }
+    } else if (addr < 0x200) {
+      return this.ram[addr];          // pages 0 and 1 are always block 0 until they are moved
     }
     return this.mapped(addr, true);
   }
@@ -333,9 +335,12 @@ export class C128Memory implements IMachineMemory, VicBus {
     if (mmu.relocated) {
       const page = addr >> 8;
       if (page <= 1 || page === mmu.p0l || page === mmu.p1l) {
-        const phys = mmu.relocate(addr);
+        const phys = mmu.relocate(addr, true);
         if (phys >= 0) { this.ram[phys] = v; return; }
       }
+    } else if (addr < 0x200) {
+      this.ram[addr] = v;
+      return;
     }
     this.store(addr, v, true);
   }
@@ -360,6 +365,8 @@ export class C128Memory implements IMachineMemory, VicBus {
         const phys = mmu.relocate(addr);
         if (phys >= 0) return this.ram[phys];
       }
+    } else if (addr < 0x200) {
+      return this.ram[addr];
     }
     if (addr >= 0xD000 && addr < 0xE000 && (mmu.cr & 0x01) === 0) return this.ioPeek(addr) & 0xFF;
     return this.mapped(addr, false);
@@ -381,6 +388,14 @@ export class C128Memory implements IMachineMemory, VicBus {
   /** The byte the 64's PLA puts at `addr` for the CPU (`how` is a read, a peek
    *  or a read with no I/O). */
   private c64Byte(addr: number, how: number): number {
+    const mmu = this.mmu;
+    if (mmu.relocated) {
+      const page = addr >> 8;
+      if (page <= 1 || page === mmu.p0l || page === mmu.p1l) {
+        const phys = mmu.relocate(addr);
+        if (phys >= 0 && (page <= 1 || this.c64ShowsRam(addr))) return this.ram[phys];
+      }
+    }
     const p = this.portPins;
     const cart = this.cart;
     const ultimax = this.cartExrom === 1 && this.cartGame === 0;
@@ -424,8 +439,37 @@ export class C128Memory implements IMachineMemory, VicBus {
     return this.ram[this.mmu.ramAddress(addr, this.mmu.ramBlock)];
   }
 
+  /** Whether the 64's map shows RAM (not ROM, I/O or a cartridge) at `addr` to
+   *  the CPU. The swap back of a relocated page only happens in RAM. */
+  private c64ShowsRam(addr: number): boolean {
+    const p = this.portPins;
+    const ultimax = this.cartExrom === 1 && this.cartGame === 0;
+    switch (addr >> 12) {
+      case 0x8: case 0x9:
+        return this.cart === null || !((this.cartExrom === 0 && (p & 3) === 3) || ultimax);
+      case 0xA: case 0xB:
+        if (ultimax) return false;
+        if (this.cart !== null && this.cartExrom === 0 && this.cartGame === 0 && (p & 2) !== 0) return false;
+        return !((p & 3) === 3 && this.cartGame === 1);
+      case 0xD:
+        return !ultimax && (p & 3) === 0;
+      case 0xE: case 0xF:
+        return !ultimax && (p & 2) === 0;
+      default:
+        return !ultimax || addr < 0x1000;
+    }
+  }
+
   /** A write in C64 mode: to I/O when it is in view, otherwise to the RAM under whatever is. */
   private c64Store(addr: number, v: number): void {
+    const mmu = this.mmu;
+    if (mmu.relocated) {
+      const page = addr >> 8;
+      if (page <= 1 || page === mmu.p0l || page === mmu.p1l) {
+        const phys = mmu.relocate(addr, true);
+        if (phys >= 0 && (page <= 1 || this.c64ShowsRam(addr))) { this.ram[phys] = v; return; }
+      }
+    }
     if ((addr >> 12) === 0xD && this.c64Plane === C64_IO) { this.ioWrite(addr, v); return; }
     // Ultimax has no RAM above $1000 (ROM where the KERNAL goes).
     if (addr >= 0x1000 && this.ultimax) return;
@@ -461,9 +505,12 @@ export class C128Memory implements IMachineMemory, VicBus {
     if (mmu.relocated) {
       const page = addr >> 8;
       if (page <= 1 || page === mmu.p0l || page === mmu.p1l) {
-        const phys = mmu.relocate(addr);
+        // The Z80 has no CPU port: its pages 0 and 1 are all relocatable.
+        const phys = mmu.relocate(addr, false, true);
         if (phys >= 0) return this.ram[phys];
       }
+    } else if (addr < 0x200) {
+      return this.ram[addr];
     }
     return this.mapped(addr, false);
   }
@@ -490,9 +537,12 @@ export class C128Memory implements IMachineMemory, VicBus {
     if (mmu.relocated) {
       const page = addr >> 8;
       if (page <= 1 || page === mmu.p0l || page === mmu.p1l) {
-        const phys = mmu.relocate(addr);
+        const phys = mmu.relocate(addr, true, true);
         if (phys >= 0) { this.ram[phys] = v; return; }
       }
+    } else if (addr < 0x200) {
+      this.ram[addr] = v;
+      return;
     }
     this.store(addr, v, false);
   }
@@ -501,7 +551,7 @@ export class C128Memory implements IMachineMemory, VicBus {
   z80In(port: number): number {
     const hi = (port >> 8) & 0xFF;
     if (hi < 0x10) return this.ram[0xD000 | (port & 0x0FFF)];
-    if (hi >= 0xD0 && hi <= 0xDF && (this.mmu.cr & 0x01) === 0) return this.ioRead(port & 0xFFFF);
+    if (hi >= 0xD0 && hi <= 0xDF) return this.ioRead(port & 0xFFFF);
     return 0xFF;
   }
 
@@ -509,7 +559,7 @@ export class C128Memory implements IMachineMemory, VicBus {
   z80Out(port: number, value: number): void {
     const hi = (port >> 8) & 0xFF;
     if (hi < 0x10) this.ram[0xD000 | (port & 0x0FFF)] = value & 0xFF;
-    else if (hi >= 0xD0 && hi <= 0xDF && (this.mmu.cr & 0x01) === 0) this.ioWrite(port & 0xFFFF, value & 0xFF);
+    else if (hi >= 0xD0 && hi <= 0xDF) this.ioWrite(port & 0xFFFF, value & 0xFF);
   }
 
   // ── The VIC-IIe's bus ────────────────────────────────────────────────────

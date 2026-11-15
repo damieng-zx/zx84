@@ -290,7 +290,9 @@ describe('C128 memory: the Z80', () => {
     expect(m.z80Read(0x0000)).toBe(BIOS);
     expect(m.z80Read(0x0FFF)).toBe(BIOS);
     m.mmu.write(0, 0x40);
-    expect(m.z80Read(0x0100)).toBe(0x00);
+    expect(m.z80Read(0x0800)).toBe(0x00);
+    // Pages 0 and 1 are not the block CR names but where the pointers say (block 0 at power-on).
+    expect(m.z80Read(0x0100)).toBe(0x77);
   });
 
   it('writes under the BIOS to the RAM at $D000-$DFFF', () => {
@@ -328,17 +330,20 @@ describe('C128 memory: the Z80', () => {
     expect(m.z80Read(0xFF00)).toBe(0x3E);
   });
 
-  it('reaches I/O with IN and OUT through the $Dxxx port address, only while CR bit 0 is 0', () => {
+  it('reaches I/O with IN and OUT through the $Dxxx port address, whatever CR bit 0 says (an I/O cycle is not a memory one)', () => {
     const m = mem();
     const out: [number, number][] = [];
     m.ioWrite = (addr, v) => { out.push([addr, v]); };
     m.z80Out(0xD505, 0xB1);
     expect(out).toEqual([[0xD505, 0xB1]]);
     expect(m.z80In(0xDC01)).toBe(0x10 | 0x01);
+    // With the I/O page switched out of the memory map the instructions still get there: the
+    // VICE test program tstz80bk, which runs on real machines, restores the MMU's pointers
+    // that way (CR = $BF) and passes only so.
     m.mmu.write(0, 0x01);
     m.z80Out(0xD505, 0x00);
-    expect(out.length, 'no I/O with CR bit 0 set').toBe(1);
-    expect(m.z80In(0xDC01)).toBe(0xFF);
+    expect(out.length).toBe(2);
+    expect(m.z80In(0xDC01)).toBe(0x10 | 0x01);
   });
 
   it('turns an IN or OUT with a port address below $1000 into a RAM access at $Dxxx', () => {

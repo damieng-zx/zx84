@@ -30,11 +30,12 @@ import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
-import { accessTime, isReadModifyWrite } from '@/debug/m6502/bus-cycles.ts';
+import { m6502ReturnAddress, z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { accessTime, baseCycles, instructionLength, isReadModifyWrite } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import { C128Trace } from './trace.ts';
+import { busByte, layOut } from './fast-clock.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { C64Program } from '@/media/tape/t64.ts';
@@ -223,20 +224,25 @@ export class C128Machine extends BaseMachine implements Machine {
   get vicClockRegister(): number { return this.vicClockReg; }
 
   /**
-   * The 8502 runs at 2 MHz while $D030 bit 0 is set in C128 mode (the 64's map
-   * has no such register). The master clock stays the 1 MHz one the chips
-   * keep time by, so an instruction costs half the cycles it takes, except
-   * that every access to the I/O page is made at 1 MHz (the peripherals cannot
-   * go faster): each of those costs a whole master cycle. A half cycle left
-   * over is carried to the next instruction. The VIC-IIe is shut off in this
-   * mode (its `blank`): it shows the border colour and never holds the bus.
+   * The 8502 runs at 2 MHz while $D030 bit 0 is set, in C64 mode as in C128
+   * mode (the register is the VIC-IIe's). The master clock stays the 1 MHz one
+   * the chips keep time by, so an instruction costs half the cycles it takes,
+   * except for the five refresh cycles of a line and the accesses to the I/O
+   * page, which run at 1 MHz (fast-clock.ts). A half cycle left over is
+   * carried to the next instruction. The VIC-IIe runs on and never holds the
+   * CPU, but reads the CPU's data bus instead of memory (`VicII.fast`).
    */
-  get fast2MHz(): boolean { return (this.vicClockReg & 1) !== 0 && !this.memory.mmu.c64Mode; }
-  /** Whether the instruction in progress runs fast, the I/O accesses it has
-   *  made, and the half cycle carried from the last one. */
+  get fast2MHz(): boolean { return (this.vicClockReg & 1) !== 0; }
+  /** Whether the instruction in progress runs fast, and the half cycle carried
+   *  from the last one. */
   private fastNow = false;
-  private fastIo = 0;
+  /** The 1-based cycles of the instruction in progress that touch the I/O page. */
+  private readonly fastIoCycles: number[] = [];
+  /** The last byte the 8502 read or wrote: what its data bus carried. */
+  private lastBus = 0xFF;
   private fastCarry = 0;
+  /** The T-state left over from the Z80's last instruction (half a master cycle). */
+  private z80Half = 0;
 
   /** Which CPU is running now; the MMU's mode register says which should be. */
   private running8502 = false;
@@ -275,12 +281,16 @@ export class C128Machine extends BaseMachine implements Machine {
     this.deferAccessStamps = true;
 
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
+    // The Z80's interrupts (it has the IRQ only) go in the same log.
+    this.z80.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.cpu.read = (addr) => {
       const value = this.memory.readByte(addr);
+      this.lastBus = value;
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
       return value;
     };
     this.cpu.write = (addr, val) => {
+      this.lastBus = val & 0xFF;
       this.memory.writeByte(addr, val);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
     };
@@ -308,6 +318,7 @@ export class C128Machine extends BaseMachine implements Machine {
     this.iec.attachFastSerial(this.cia1, this.timing.clockHz);
     this.memory.mmu.onFastSerialDir = (out) => { this.iec.fastHostTransmits = out; };
     // CAPS LOCK and the 40/80 key latch: a host key or the on-screen keyboard flips them.
+    this.keyboard.isC64Mode = () => this.memory.mmu.c64Mode;
     this.keyboard.onLatchChange = () => {
       this.setCapsLock(this.keyboard.capsLock);
       this.setDisplay80(this.keyboard.display80);
@@ -341,6 +352,18 @@ export class C128Machine extends BaseMachine implements Machine {
     return this.fastNow ? this.insnStart + ((t - this.insnStart) >> 1) : t;
   }
 
+  /** The instruction in progress touches the I/O page on this access: note the
+   *  cycle (1-based), which the 2 MHz clock stretches. A read-modify-write also
+   *  writes the old value back on the cycle after its read. */
+  private noteFastIo(addr: number, write: boolean): void {
+    if (!this.fastNow || !this.running8502) return;
+    const cycle = this.insnOp < 0
+      ? 1
+      : accessTime(this.insnStart, this.insnOp, this.insnPc, addr, write, false) - this.insnStart + 1;
+    this.fastIoCycles.push(cycle);
+    if (!write && this.insnRmw) this.fastIoCycles.push(cycle + 1);
+  }
+
   private wireIo(): void {
     const { memory, vic, sid, cia1, cia2, keyboard, vdc } = this;
     const mmu = memory.mmu;
@@ -355,7 +378,7 @@ export class C128Machine extends BaseMachine implements Machine {
     cia1.portBIn = (driven) => {
       this.activity.kbdReads++;
       return driven & ~this.joyBits(1)
-        & keyboard.rowsForLines(cia1.drivenA & ~this.joyBits(2), mmu.c64Mode ? 0x07 : this.kbdLines);
+        & keyboard.rowsForLines(cia1.drivenA & ~this.joyBits(2), this.kbdLines);
     };
     // The paddle lines of the control port CIA 1 port A bits 6-7 select
     // (bit 6 port 1, bit 7 port 2) go to the SID; a 1351 answers on its own.
@@ -390,8 +413,8 @@ export class C128Machine extends BaseMachine implements Machine {
       switch ((addr >> 8) & 0x0F) {
         case 0x0: case 0x1: case 0x2: case 0x3: {
           const r = addr & 0x3F;
-          if (r === 0x2F && !mmu.c64Mode) return 0xF8 | this.kbdLines;
-          if (r === 0x30 && !mmu.c64Mode) return 0xFC | this.vicClockReg;
+          if (r === 0x2F) return 0xF8 | this.kbdLines;
+          if (r === 0x30) return 0xFC | this.vicClockReg;
           if (r === 0x1E || r === 0x1F) vic.drawTo(this.accessT(addr, false));
           return vic.read(addr);
         }
@@ -399,6 +422,8 @@ export class C128Machine extends BaseMachine implements Machine {
           sid.advanceTo(this.accessT(addr, false));
           return sid.read(addr);
         case 0x5:
+          // C64 mode hides the MMU: the way back to 128 mode is a reset.
+          if (mmu.c64Mode) return 0xFF;
           mmu.displayKeyUp = !keyboard.display80;
           return mmu.read(addr & 0xFF);
         case 0x6:
@@ -426,7 +451,7 @@ export class C128Machine extends BaseMachine implements Machine {
       }
     };
     memory.ioRead = (addr) => {
-      this.fastIo++;
+      this.noteFastIo(addr, false);
       const value = ioRead(addr);
       if (this.insnRmw) { this.rmwAddr = addr; this.rmwValue = value; }
       return value;
@@ -435,12 +460,12 @@ export class C128Machine extends BaseMachine implements Machine {
       switch ((addr >> 8) & 0x0F) {
         case 0x0: case 0x1: case 0x2: case 0x3: {
           const r = addr & 0x3F;
-          if (r === 0x2F && !mmu.c64Mode) return 0xF8 | this.kbdLines;
-          if (r === 0x30 && !mmu.c64Mode) return 0xFC | this.vicClockReg;
+          if (r === 0x2F) return 0xF8 | this.kbdLines;
+          if (r === 0x30) return 0xFC | this.vicClockReg;
           return vic.peek(addr);
         }
         case 0x4: return sid.peek(addr);
-        case 0x5: return mmu.read(addr & 0xFF);
+        case 0x5: return mmu.c64Mode ? 0xFF : mmu.read(addr & 0xFF);
         case 0x6: return vdc.peek(addr & 1);
         case 0x8: case 0x9: case 0xA: case 0xB: return memory.colorRead(addr) & 0x0F;
         case 0xC: return cia1.peek(addr);
@@ -452,8 +477,8 @@ export class C128Machine extends BaseMachine implements Machine {
       switch ((addr >> 8) & 0x0F) {
         case 0x0: case 0x1: case 0x2: case 0x3: {
           const r = addr & 0x3F;
-          if (r === 0x2F && !mmu.c64Mode) { this.kbdLines = value & 0x07; break; }
-          if (r === 0x30 && !mmu.c64Mode) { this.vicClockReg = value & 0x03; break; }
+          if (r === 0x2F) { this.kbdLines = value & 0x07; break; }
+          if (r === 0x30) { this.vicClockReg = value & 0x03; break; }
           vic.write(addr, value, t);
           break;
         }
@@ -463,7 +488,7 @@ export class C128Machine extends BaseMachine implements Machine {
           this.activity.sidWrites++;
           break;
         case 0x5:
-          mmu.write(addr & 0xFF, value);
+          if (!mmu.c64Mode) mmu.write(addr & 0xFF, value);
           break;
         case 0x6:
           vdc.write(addr & 1, value);
@@ -494,7 +519,7 @@ export class C128Machine extends BaseMachine implements Machine {
       }
     };
     memory.ioWrite = (addr, value) => {
-      this.fastIo++;
+      this.noteFastIo(addr, true);
       const t = this.accessT(addr, true);
       // An NMOS read-modify-write writes the byte it read straight back, a
       // cycle before the new one (INC $D019 acknowledges the VIC-II with the
@@ -617,8 +642,9 @@ export class C128Machine extends BaseMachine implements Machine {
     this.kbdLines = 0x07;
     this.vicClockReg = 0;
     this.fastNow = false;
-    this.fastIo = 0;
+    this.fastIoCycles.length = 0;
     this.fastCarry = 0;
+    this.z80Half = 0;
     this.joy1 = this.joy2 = 0;
     this.memory.capsLockDown = this.keyboard.capsLock;
     this.memory.cassetteSense = this.tapeSense;
@@ -765,7 +791,10 @@ export class C128Machine extends BaseMachine implements Machine {
   protected get audioChip(): Mos6581 { return this.sid; }
   protected framePixels(): Uint8Array { return this.pixels; }
   protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
-  protected override interruptEntryPending(): boolean { return this.running8502 && this.cpu.interruptPending(); }
+  protected override interruptEntryPending(): boolean {
+    if (this.running8502) return this.cpu.interruptPending();
+    return this.irqLine && this.z80.iff1 && !this.z80.eiDelay;
+  }
   protected override cpuCycles(): number { return this.cpu.tStates; }
   protected override stackPointer(): number { return this.running8502 ? this.cpu.sp : this.z80.sp; }
   protected override cpuPc(): number { return this.running8502 ? this.cpu.pc : this.z80.pc; }
@@ -892,9 +921,9 @@ export class C128Machine extends BaseMachine implements Machine {
     }
     if (stops && this.checkStops(cpu.pc)) return true;
     const fast = this.fast2MHz;
-    if (fast !== vic.blank) vic.setBlank(fast, cpu.tStates);
+    if (fast !== vic.fast) vic.setFast(fast, cpu.tStates);
     this.fastNow = fast;
-    this.fastIo = 0;
+    this.fastIoCycles.length = 0;
     const start = cpu.tStates;
     const pc = cpu.pc;
     this.beforeInsn(pc);
@@ -902,18 +931,39 @@ export class C128Machine extends BaseMachine implements Machine {
     this.insnOp = cpu.interruptPending() ? -1 : this.memory.peekByte(pc);
     this.insnRmw = this.insnOp >= 0 && isReadModifyWrite(this.insnOp);
     this.rmwAddr = -1;
+    // What is on the data bus while the instruction runs: the VIC-IIe reads it in
+    // place of memory. The bytes of the instruction are known before it runs, so
+    // a register write part-way through it already finds them; the layout is
+    // done again when the I/O accesses are known.
+    const op = this.insnOp;
+    const fetched = fast && op >= 0 ? [this.memory.peekByte(pc), this.memory.peekByte(pc + 1), this.memory.peekByte(pc + 2)] : null;
+    const length = op >= 0 ? instructionLength(op) : 1;
+    if (fetched) this.layOutFast(start, baseCycles(op, false), fetched, length);
     cpu.step();
     if (fast) {
-      // Cycles of the 2 MHz clock are halves of the master's; an I/O access is a whole one.
-      const halves = (cpu.tStates - start) + this.fastIo + this.fastCarry;
-      cpu.tStates = start + (halves >> 1);
-      this.fastCarry = halves & 1;
+      // The cycles of the 2 MHz clock are halves of the master's, stretched by refresh and I/O.
+      const end = this.layOutFast(start, cpu.tStates - start, fetched ?? [0xFF, 0xFF, 0xFF], length);
+      cpu.tStates = end >> 1;
+      this.fastCarry = end & 1;
     }
     cpu.tStates += vic.stretch(start, cpu.tStates);
     this.lastInsnStart = start;
     const stopped = this.afterInsn();
     this.afterStep();
     return stopped;
+  }
+
+  /** Put the instruction that began at master cycle `start` on the half-cycle
+   *  clock (see fast-clock.ts), feed the VIC-IIe the bytes its bus carried, and
+   *  give the half cycle it ends on. */
+  private layOutFast(start: number, cycles: number, fetched: ArrayLike<number>, length: number): number {
+    const vic = this.vic;
+    return layOut(
+      2 * start + this.fastCarry, cycles, this.fastIoCycles,
+      vic.lineStart, this.timing.cyclesPerLine,
+      (i) => busByte(i, length, fetched, this.lastBus),
+      (half, byte) => vic.putBus(half, byte),
+    );
   }
 
   /** Execute exactly one instruction of the CPU in charge, the debugger's step:
@@ -933,7 +983,10 @@ export class C128Machine extends BaseMachine implements Machine {
     const before = z80.tStates;
     if (this.irqLine && z80.iff1 && !z80.eiDelay) z80.interrupt();
     else z80.step();
-    this.cpu.tStates += Math.max(1, Math.ceil((z80.tStates - before) / Z80_TSTATES_PER_CYCLE));
+    // Two T-states to the 1 MHz cycle (the VIC makes the Z80's clock from AEC low); the odd one carries on.
+    const dT = z80.tStates - before + this.z80Half;
+    this.z80Half = dT % Z80_TSTATES_PER_CYCLE;
+    this.cpu.tStates += Math.floor(dT / Z80_TSTATES_PER_CYCLE);
     this.afterStep();
   }
 
@@ -962,9 +1015,8 @@ export class C128Machine extends BaseMachine implements Machine {
     if (this.running8502) {
       this.cpu.setIRQ(this.irqLine);
       if (nmi && !this.nmiLevel) this.cpu.nmi();
-    } else if (nmi && !this.nmiLevel) {
-      this.z80.nmi();
     }
+    // The Z80 has no NMI: the line is not connected to it.
     this.nmiLevel = nmi;
   }
 
@@ -1113,6 +1165,8 @@ export class C128Machine extends BaseMachine implements Machine {
    *  machine starts). */
   prepare(view: SettingsView): AuxRomRequest[] {
     this.vdc.setRamBytes(view.get<string>('c128-vdc-ram', '16k') === '64k' ? VDC_RAM_64K : VDC_RAM_16K);
+    const chip = view.get<string>('c128-vdc-chip', 'r8');
+    this.vdc.version = chip === 'r7a' ? 0 : chip === '8568' ? 2 : 1;
     const models = normalizeDriveModels(view.get<unknown>('drive-models:c128', null) ?? ['1571']);
     this.iec.driveModels = models;
     if (!view.get('c128-drive', true)) {
@@ -1154,7 +1208,11 @@ export class C128Machine extends BaseMachine implements Machine {
   }
   override supportsBeamStops(): boolean { return true; }
   override supportsInterruptLog(): boolean { return true; }
-  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
+  protected override interruptedPc(): number {
+    return this.running8502
+      ? m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a))
+      : z80ReturnAddress(this.z80.sp, a => this.memory.z80Read(a));
+  }
   /** No opcode is fetched from I/O, where a read has side effects. */
   protected override peekOpcode(addr: number): number {
     return (addr >> 12) === 0xD && this.memory.ioIn ? -1 : this.memory.peekByte(addr);
@@ -1229,10 +1287,10 @@ export class C128Machine extends BaseMachine implements Machine {
   get textField(): { x: number; y: number; width: number; height: number } {
     if (this.showing80) {
       const g = vdcGeometry(this.vdc);
-      // The smooth scrolls move the picture up and left, so the grid sits that
-      // much nearer the frame's top-left corner.
+      // The smooth scrolls move the picture (right with the horizontal, up with
+      // the vertical), and the grid goes with it.
       return {
-        x: g.x0 - g.shiftLeft, y: g.y0 - g.vScroll,
+        x: g.x0 + g.shiftX, y: g.y0 - g.vScroll,
         width: g.cols * g.cellTotalW, height: g.rows * g.rowTotal,
       };
     }
@@ -1401,7 +1459,7 @@ export class C128Machine extends BaseMachine implements Machine {
     this.memory.capsLockDown = this.keyboard.capsLock;
     this.memory.mmu.displayKeyUp = !this.keyboard.display80;
     this.fastNow = false;
-    this.fastIo = 0;
+    this.fastIoCycles.length = 0;
     this.fastCarry = 0;
     this.memory.cassetteSense = this.tapeSense;
     this.memory.pinsChanged();

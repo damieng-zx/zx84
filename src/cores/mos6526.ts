@@ -239,7 +239,8 @@ export class Mos6526 {
     const aUnder = (this.ta.control & 0x20) === 0 ? this.ta.count(n) : 0;
     if (aUnder > 0) this.timerAUnderflowed(aUnder, t0 + this.ta.firstAt, this.ta.period);
     const mode = (this.tb.control >> 5) & 3;
-    const bTicks = mode === 0 ? n : mode === 2 ? aUnder : 0;
+    // Mode 3 gates timer A's underflows with CNT; CNT idles high, so it counts like mode 2.
+    const bTicks = mode === 0 ? n : mode >= 2 ? aUnder : 0;
     if (bTicks > 0) this.countB(bTicks);
   }
 

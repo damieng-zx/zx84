@@ -78,6 +78,16 @@ export const EV_SPRITE_DMA = 54;  // cycles 55-56: sprite DMA switched on
 const BADLINE_BA = 11;
 const BADLINE_END = 54;
 
+/**
+ * With the CPU on the bus (`fast`) the half cycle of the line, counted from
+ * its first cycle's first half, in which the chip reads the first character's
+ * c-access; the g-access is the half after it, and each next character is a
+ * cycle (two halves) on. Calibrated against the 2mhzVIC pictures of the VICE
+ * test programs, drawn on real machines (hires, multicolour and extended
+ * colour, which come out pixel for pixel).
+ */
+const BUS_C_HALF = 26;
+
 /** Frame-buffer pixel reached by the end of line cycle t. */
 function fbXAt(t: number): number {
   const p = 8 * t - 92;
@@ -101,10 +111,20 @@ export class VicII {
   private vcLine = 0;
   display = false;
   badline = false;
-  /** The chip is shut off: it shows the border colour everywhere and fetches
-   *  nothing (no bad lines, no sprite DMA), so it never holds the CPU. The
-   *  128's 2 MHz mode does this: the 8502 then has the bus to itself. */
-  blank = false;
+  /**
+   * The CPU has the bus to itself, on both halves of the clock (the 128's
+   * 2 MHz mode). The chip runs on as ever (raster, bad lines, counters,
+   * borders, interrupts) but never holds the CPU, and what it reads in its c-
+   * and g-accesses is not memory but what is on the CPU's data bus at that
+   * moment: the byte of the first half of the cycle (the opcode of a two-cycle
+   * instruction) is a c-access, the second half's (its operand) a g-access.
+   * The machine feeds the bytes in with `putBus`.
+   */
+  fast = false;
+  /** The data bus, a byte per half cycle, with the half cycle (absolute, 2 per
+   *  master cycle) it belongs to so a stale one is told from a live one. */
+  private readonly bus = new Uint8Array(512);
+  private readonly busHalf = new Float64Array(512).fill(-1);
   /** DEN was set during line $30, enabling bad lines for the frame. */
   private denSeen = false;
   readonly matrix = new Uint8Array(40);
@@ -164,7 +184,8 @@ export class VicII {
     this.vcBase = this.vc = this.rc = this.vcLine = 0;
     this.display = false;
     this.badline = false;
-    this.blank = false;
+    this.fast = false;
+    this.busHalf.fill(-1);
     this.denSeen = false;
     this.matrix.fill(0);
     this.colors.fill(0);
@@ -195,7 +216,7 @@ export class VicII {
 
   private badlineCondition(): boolean {
     const line = this.raster;
-    return !this.blank && line >= 0x30 && line <= 0xF7 && (line & 7) === this.yscroll && this.denSeen;
+    return line >= 0x30 && line <= 0xF7 && (line & 7) === this.yscroll && this.denSeen;
   }
 
   // ── Per-line events (the machine calls these at their line cycles) ───────
@@ -232,18 +253,26 @@ export class VicII {
     this.gChar = -1;
   }
 
-  /** Shut the chip off, or switch it back on, at absolute cycle `t`. */
-  setBlank(on: boolean, t: number): void {
-    if (on === this.blank) return;
+  /** The CPU takes the bus (2 MHz), or gives it back, at absolute cycle `t`. */
+  setFast(on: boolean, t: number): void {
+    if (on === this.fast) return;
     this.drawTo(t);
-    this.blank = on;
-    if (on) {
-      this.badline = false;
-      this.badStart = this.badEnd = -1;
-      this.sprStealCount = 0;
-    } else {
-      this.reevaluateBadline(t);
-    }
+    this.fast = on;
+  }
+
+  /** The CPU's data bus in half cycle `half` (twice the master cycle, plus 0
+   *  for the first half and 1 for the second) carried `byte`. */
+  putBus(half: number, byte: number): void {
+    const i = half & 511;
+    this.bus[i] = byte;
+    this.busHalf[i] = half;
+  }
+
+  /** What the chip reads from the bus in half cycle `half`: the line floats
+   *  high where the CPU was not driving it. */
+  private busAt(half: number): number {
+    const i = half & 511;
+    return this.busHalf[i] === half ? this.bus[i] : 0xFF;
   }
 
   /** Cycle 14: the video counter is reloaded and a bad line reads the matrix. */
@@ -259,6 +288,8 @@ export class VicII {
 
   /** The c-accesses from character `from` on (all 40 on a normal bad line). */
   private cAccess(from: number): void {
+    // On the bus (2 MHz) they have not happened yet: each is taken as its character is drawn.
+    if (this.fast) return;
     const base = this.screenBase;
     for (let k = from; k < 40; k++) {
       const vc = (this.vcLine + k) & 0x3FF;
@@ -287,7 +318,7 @@ export class VicII {
     for (let n = 0; n < 8; n++) {
       const bit = 1 << n;
       if ((yexp & bit) !== 0) this.expFF[n] ^= 1;
-      if ((enable & bit) !== 0 && !this.blank && this.regs[1 + n * 2] === low && !this.spriteDma[n]) {
+      if ((enable & bit) !== 0 && this.regs[1 + n * 2] === low && !this.spriteDma[n]) {
         this.spriteDma[n] = 1;
         this.mcBase[n] = 0;
         if ((yexp & bit) !== 0) this.expFF[n] = 0;
@@ -297,7 +328,6 @@ export class VicII {
     // Sprites 0-2 fetch at Bauer cycles 58-63 of this line, 3-7 at 1-10 of
     // the next.
     this.sprStealCount = 0;
-    if (this.blank) return;
     let runStart = -1;
     let runEnd = -1;
     for (let n = 0; n < 8; n++) {
@@ -358,6 +388,7 @@ export class VicII {
   /** If cycle `t` is held by the VIC, the cycle the CPU gets the bus back;
    *  otherwise `t`. */
   stealEnd(t: number): number {
+    if (this.fast) return t;
     let at = t;
     for (let pass = 0; pass < 4; pass++) {
       let moved = false;
@@ -376,6 +407,7 @@ export class VicII {
    *  hold was already charged (the CPU waited it out, or the instruction was
    *  stretched when it ran), so only the sprite windows count. */
   stretch(start: number, end: number, badline = true): number {
+    if (this.fast) return 0;
     let e = end;
     if (badline && this.badStart > start && this.badStart < e) e += this.badEnd - this.badStart;
     for (let i = 0; i < this.sprStealCount; i++) {
@@ -469,6 +501,8 @@ export class VicII {
 
   /** The g-access byte for character `k` (display or idle state). */
   private gAccess(k: number): number {
+    // The half cycle after the character's c-access.
+    if (this.fast) return this.busAt(2 * (this.lineStart + k) + BUS_C_HALF + 1);
     const ecm = (this.regs[0x11] & 0x40) !== 0;
     if (!this.display) return this.mem.vicRead(ecm ? 0x39FF : 0x3FFF);
     const rc = this.rc;
@@ -522,7 +556,17 @@ export class VicII {
       const col = x - 24 - xscroll;
       if (col >= 0 && col < 320) {
         const k = col >> 3;
-        if (k !== this.gChar) { this.gChar = k; this.gByte = this.gAccess(k); }
+        if (k !== this.gChar) {
+          this.gChar = k;
+          if (this.fast && this.badline && display) {
+            // The c-access: the byte on the bus in the half before the g-access is
+            // the matrix byte, and its low nibble the colour.
+            const c = this.busAt(2 * (this.lineStart + k) + BUS_C_HALF);
+            this.matrix[k] = c;
+            this.colors[k] = c & 0x0F;
+          }
+          this.gByte = this.gAccess(k);
+        }
         const g = this.gByte;
         const bit = col & 7;
         const code = display ? this.matrix[k] : 0;
@@ -564,8 +608,8 @@ export class VicII {
       }
 
       let out = gColor;
-      if (sprites !== 0 && !this.blank) out = this.mixSprites(x, out, fg, sprites);
-      if (row >= 0) px[row + p] = this.mainBorder || this.blank ? border : this.palette[out];
+      if (sprites !== 0) out = this.mixSprites(x, out, fg, sprites);
+      if (row >= 0) px[row + p] = this.mainBorder ? border : this.palette[out];
     }
   }
 

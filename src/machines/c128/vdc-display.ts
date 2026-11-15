@@ -3,8 +3,11 @@
  *
  * The VDC builds the picture from character cells. Register 1 cells across,
  * register 6 rows down, each cell `(R22 >> 4) + 1` pixels wide and
- * `(R9 & 31) + 1` scan lines tall, of which `R22 & 15` pixels and `R23 & 31`
- * lines are shown. The screen RAM is at R12/R13 and, with the colour attributes
+ * `(R9 & 31) + 1` scan lines tall, of which the pixels the R22 low nibble says
+ * (fewer than the high one: that many and one, the same: none, more: the whole
+ * cell) and `(R23 & 31) + 1` lines are shown. In double-pixel mode (R25 bit 4:
+ * the VDC's "40 columns") every font pixel is two wide and the cell is
+ * `2 * (R22 >> 4)` pixels across. The screen RAM is at R12/R13 and, with the colour attributes
  * on (R25 bit 6), an attribute RAM at R20/R21 follows the same layout; each row
  * starts `R1 + R27` bytes after the last. A character's pixels are 16 bytes in
  * the character set at `(R28 & $E0) << 8`, or 4K further on for a cell whose
@@ -20,10 +23,11 @@
  * (R25 bit 7) the screen RAM is the picture itself, a byte to eight pixels.
  *
  * Not drawn: interlace, the display-enable window (R34/R35), the light pen.
- * The horizontal smooth scroll (R25 bits 3-0, which the editor leaves at 0)
- * moves the picture left by that many pixels, and the vertical (R24 bits 4-0)
- * up by that many lines; the directions are from the register descriptions,
- * not yet checked against a real chip.
+ * The horizontal smooth scroll (R25 bits 3-0): raising it moves the picture
+ * right. The unscrolled value is `R22 >> 4` (the editor writes $47 with an
+ * 8-pixel cell) on the 8563 R8/R9 and the 8568, and 0 on the early R7A, which
+ * is why the editor writes a different value when the status register says R7A.
+ * The vertical (R24 bits 4-0) moves it up by that many lines.
  */
 
 import { VDC_R, type Vdc } from './vdc.ts';
@@ -67,8 +71,10 @@ export interface VdcGeometry {
   /** The row's full pitch down and the scan lines of it the chip shows. */
   readonly rowTotal: number;
   readonly rowShown: number;
-  /** The horizontal smooth scroll: the picture moves left by this many pixels. */
-  readonly shiftLeft: number;
+  /** The horizontal smooth scroll: the picture moves right by this many pixels (left when negative). */
+  readonly shiftX: number;
+  /** Double-pixel mode: every font pixel is two wide. */
+  readonly doublePixel: boolean;
   /** The vertical smooth scroll: the picture moves up by this many lines. */
   readonly vScroll: number;
 }
@@ -77,16 +83,24 @@ export function vdcGeometry(vdc: Vdc): VdcGeometry {
   const r = vdc.regs;
   const cols = r[VDC_R.HDISP];
   const rows = r[VDC_R.VDISP];
-  const cellTotalW = (r[VDC_R.CHARH] >> 4) + 1;
-  const cellW = Math.min(r[VDC_R.CHARH] & 0x0F, cellTotalW);
+  const hi = r[VDC_R.CHARH] >> 4;
+  const lo = r[VDC_R.CHARH] & 0x0F;
+  const doublePixel = (r[VDC_R.MODE] & 0x10) !== 0;
+  const cellTotalW = doublePixel ? Math.max(1, 2 * hi) : hi + 1;
+  // Font pixels the display stop leaves: fewer than the cell, that many and one;
+  // as many, none; more, the whole cell.
+  const fontShown = lo < hi ? lo + 1 : lo === hi ? 0 : hi + 1;
+  const cellW = Math.min(doublePixel ? 2 * fontShown : fontShown, cellTotalW);
   const rowTotal = (r[VDC_R.CHARV] & 0x1F) + 1;
-  const rowShown = Math.min(r[VDC_R.CHAR_DISP_V] & 0x1F, rowTotal);
+  const rowShown = Math.min((r[VDC_R.CHAR_DISP_V] & 0x1F) + 1, rowTotal);
+  const hss = r[VDC_R.MODE] & 0x0F;
+  const shiftX = (vdc.version === 0 ? hss : hss - hi) * (doublePixel ? 2 : 1);
   return {
     ok: cols !== 0 && rows !== 0 && cellW !== 0 && rowShown !== 0,
     x0: (VDC_FRAME_WIDTH - cols * cellTotalW) >> 1,
     y0: (VDC_FRAME_HEIGHT - rows * rowTotal) >> 1,
     cols, rows, cellTotalW, cellW, rowTotal, rowShown,
-    shiftLeft: r[VDC_R.MODE] & 0x0F,
+    shiftX, doublePixel,
     vScroll: r[VDC_R.SCROLL_V] & 0x1F,
   };
 }
@@ -114,8 +128,6 @@ function cursorShown(vdc: Vdc): boolean {
  */
 export function renderVdc(vdc: Vdc, out: Uint32Array): void {
   const r = vdc.regs;
-  const ram = vdc.ram;
-  const mask = ram.length - 1;
   const reverseScreen = (r[VDC_R.SCROLL_V] & 0x40) !== 0;
   const bgIndex = r[VDC_R.COLOUR] & 0x0F;
   out.fill(VDC_PALETTE[bgIndex]);
@@ -123,7 +135,7 @@ export function renderVdc(vdc: Vdc, out: Uint32Array): void {
   const cols = r[VDC_R.HDISP];
   const rows = r[VDC_R.VDISP];
   const geom = vdcGeometry(vdc);
-  const { cellTotalW, cellW, rowTotal, rowShown, x0, y0, shiftLeft, vScroll } = geom;
+  const { cellTotalW, cellW, rowTotal, rowShown, x0, y0, shiftX, vScroll, doublePixel } = geom;
   if (!geom.ok) return;
 
   const mode = r[VDC_R.MODE];
@@ -157,23 +169,24 @@ export function renderVdc(vdc: Vdc, out: Uint32Array): void {
     const outRow = y * VDC_FRAME_WIDTH;
     for (let col = 0; col < cols; col++) {
       const cell = rowBase + col;
-      const code = ram[(screen + cell) & mask];
-      const attr = colour ? ram[(attrs + cell) & mask] : 0;
+      const code = vdc.at(screen + cell);
+      const attr = colour ? vdc.at(attrs + cell) : 0;
       let fg = colour ? attr & 0x0F : defaultFg;
       let bg = bgIndex;
       let glyph: number;
       if (bitmap) glyph = code;
-      else glyph = ram[(charBase + ((attr & 0x80) !== 0 ? 0x1000 : 0) + code * 16 + ln) & mask];
+      else glyph = vdc.at(charBase + ((attr & 0x80) !== 0 ? 0x1000 : 0) + code * 16 + ln);
       if ((attr & 0x20) !== 0 && ln === underline) glyph = 0xFF;
       if (showCursor && screen + cell === cursorAt && ln >= cursorFrom && ln <= cursorTo) glyph ^= 0xFF;
       let swap = reverseScreen !== ((attr & 0x40) !== 0);
       if ((attr & 0x10) !== 0 && flashRev) swap = !swap;
       if (swap) { const t = fg; fg = bg; bg = t; }
-      const px0 = x0 + col * cellTotalW - shiftLeft;
+      const px0 = x0 + col * cellTotalW + shiftX;
       for (let p = 0; p < cellW; p++) {
         const x = px0 + p;
         if (x < 0 || x >= VDC_FRAME_WIDTH) continue;
-        const on = p < 8 ? (glyph >> (7 - p)) & 1 : semigraphic ? glyph & 1 : 0;
+        const fontPx = doublePixel ? p >> 1 : p;
+        const on = fontPx < 8 ? (glyph >> (7 - fontPx)) & 1 : semigraphic ? glyph & 1 : 0;
         out[outRow + x] = VDC_PALETTE[on !== 0 ? fg : bg];
       }
     }

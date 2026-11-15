@@ -327,6 +327,7 @@ describe('C128 two displays on one canvas', () => {
     expect(log.at(-1)).toBe('viewport 32,24 640x200');
     // The character grid starts where the descriptor says the picture does.
     m.vdc.regs[1] = 80; m.vdc.regs[6] = 25; m.vdc.regs[22] = 0x78; m.vdc.regs[9] = 7;
+    m.vdc.regs[25] = 0x47;      // as the editor sets it: unscrolled
     expect([m.textField.x, m.textField.y]).toEqual([borderLeft, borderTop]);
   });
 
@@ -363,13 +364,25 @@ describe('C128 machine in C64 mode', () => {
     return m;
   }
 
-  it('reads the 128-only VIC-IIe registers as $FF and ignores writes to them', () => {
+  it('keeps the 128-only VIC-IIe registers: $D030 bit 0 sets 2 MHz here too (as cc65 relies on)', () => {
     const m = m64();
-    m.memory.writeByte(0xD02F, 0x00);
+    m.memory.writeByte(0xD02F, 0x05);
     m.memory.writeByte(0xD030, 0x01);
-    expect(m.memory.readByte(0xD02F)).toBe(0xFF);
-    expect(m.memory.readByte(0xD030)).toBe(0xFF);
-    expect(m.memory.peekByte(0xD02F)).toBe(0xFF);
+    expect(m.memory.readByte(0xD02F)).toBe(0xFD);
+    expect(m.memory.readByte(0xD030)).toBe(0xFD);
+    expect(m.memory.peekByte(0xD02F)).toBe(0xFD);
+    expect(m.fast2MHz).toBe(true);
+  });
+
+  it('hides the MMU registers at $D5xx: open bus, and writes are ignored', () => {
+    const m = m64();
+    const cr = m.memory.mmu.cr;
+    expect(m.memory.readByte(0xD500)).toBe(0xFF);
+    expect(m.memory.readByte(0xD505)).toBe(0xFF);
+    m.memory.writeByte(0xD500, 0xFF);
+    m.memory.writeByte(0xD505, 0x00);
+    expect(m.memory.mmu.cr).toBe(cr);
+    expect(m.c64Mode, 'there is no way back but a reset').toBe(true);
   });
 
   it('has them in C128 mode', () => {
@@ -380,18 +393,19 @@ describe('C128 machine in C64 mode', () => {
     expect(m.memory.readByte(0xD02F)).toBe(0xFD);
   });
 
-  it('does not scan the 128 extra keyboard lines, whatever $D02F held before', () => {
+  it('scans the 128 extra keyboard lines when $D02F selects them, as the VIC-IIe is still there', () => {
     const m = new C128Machine(null);
     m.reset();
     m.memory.writeByte(0xFF00, 0x00);
-    m.memory.writeByte(0xD02F, 0x07 & ~1);        // select K0: HELP, 8, 5, TAB, 2, 4, 7, 1
+    m.memory.writeByte(0xD02F, 0x07);             // none selected
     m.keyboard.setKey('help', true);
     m.memory.writeByte(0xDC00, 0xFF);
-    expect(m.memory.readByte(0xDC01), 'K0 selected: HELP reads').not.toBe(0xFF);
+    expect(m.memory.readByte(0xDC01), 'no extra line selected').toBe(0xFF);
     m.memory.mmu.write(5, 0x40);
     m.memory.writeByte(1, 0x07);
     m.memory.writeByte(0, 0x07);
-    expect(m.memory.readByte(0xDC01), 'in C64 mode the extra lines are not there').toBe(0xFF);
+    m.memory.writeByte(0xD02F, 0x07 & ~1);        // select K0: HELP, 8, 5, TAB, 2, 4, 7, 1
+    expect(m.memory.readByte(0xDC01), 'K0 selected in 64 mode').not.toBe(0xFF);
   });
 
   it('shows the VIC-II in Auto whatever the 40/80 key says, since the 64 never uses the VDC', () => {

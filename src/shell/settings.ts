@@ -86,6 +86,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'vic20-drive': () => settings.vic20Drive(),
   'c128-drive': () => settings.c128Drive(),
   'c128-vdc-ram': () => settings.c128VdcRam(),
+  'c128-vdc-chip': () => settings.c128VdcChip(),
   'c128-display': () => settings.c128Display(),
   'apple2-langcard': () => settings.apple2LangCard(),
   'apple2-joystick': () => settings.apple2Joystick(),

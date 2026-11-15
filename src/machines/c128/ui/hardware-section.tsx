@@ -66,6 +66,30 @@ export function C128HardwareSection() {
           <option value="64k">64K (128D)</option>
         </select>
       </div>
+      <div class="slider-row">
+        <span
+          class="slider-label"
+          title={'Which VDC chip is fitted: the early 8563 R7A, the 8563 R8/R9 of the flat 128 and the 128D, or the 8568 of the 128DCR. '
+            + 'Software reads the version from the status register (the editor writes a different scroll value for the R7A). '
+            + 'The machine rebuilds when this changes.'}
+        >
+          VDC chip
+        </span>
+        <select
+          id="c128-vdc-chip-select"
+          value={settings.c128VdcChip()}
+          onChange={(event) => {
+            const value = (event.target as HTMLSelectElement).value as 'r7a' | 'r8' | '8568';
+            settings.setC128VdcChip(value);
+            settings.persistSetting('c128-vdc-chip', value);
+            rebuild();
+          }}
+        >
+          <option value="r8">8563 R8/R9 (128, 128D)</option>
+          <option value="8568">8568 (128DCR)</option>
+          <option value="r7a">8563 R7A (early)</option>
+        </select>
+      </div>
       <div class="multiface-row">
         <label
           class="mf-check"

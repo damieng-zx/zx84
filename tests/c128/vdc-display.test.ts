@@ -19,9 +19,12 @@ const Y0 = 24;                  // (248 - 25 × 8) / 2
 /** An ABGR frame word from its colour. */
 const rgb = (r: number, g: number, b: number): number => (0xFF000000 | (b << 16) | (g << 8) | r) >>> 0;
 
-/** The editor's 80-column set-up, in mono (no attributes) unless a test turns them on. */
+/** The editor's 80-column set-up, in mono (no attributes) unless a test turns them on. It is
+ *  an early R7A chip (version 0), whose unscrolled R25 is 0: the scroll tests below that count in
+ *  pixels from zero say so; the later chips have their own describe. */
 function vdc(): Vdc {
   const v = new Vdc();
+  v.version = 0;
   const regs: [number, number][] = [
     [1, 80], [6, 25], [9, 7], [22, 0x78], [23, 8], [24, 0x00], [25, 0x00],
     [26, 0xF1],                 // foreground 15 (white), background 1 (dark grey)
@@ -137,10 +140,10 @@ describe('VDC text', () => {
     expect(at(frame(v), X0, Y0 + 8), 'the padding bytes are not shown').toBe(BG);
   });
 
-  it('shows only R23 lines of a taller cell, and takes the cell height from R9', () => {
+  it('shows only R23 + 1 lines of a taller cell, and takes the cell height from R9', () => {
     const v = vdc();
     v.regs[9] = 15;             // 16 lines to a row
-    v.regs[23] = 4;             // of which 4 are shown
+    v.regs[23] = 3;             // of which 4 are shown (R23 + 1)
     v.regs[6] = 12;             // 192 lines
     glyph(v, 5, [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0, 0]);
     v.ram[0] = 5;
@@ -327,10 +330,10 @@ describe('VDC cell width', () => {
     expect(at(f, x0 + 8, Y0), 'the ninth pixel repeats the eighth').toBe(FG);
   });
 
-  it('puts the cells R22 >> 4 + 1 pixels apart and shows R22 & 15 of them', () => {
+  it('puts the cells R22 >> 4 + 1 pixels apart and shows the pixels the low nibble says: one more than it where it is the smaller', () => {
     const v = vdc();
     v.regs[1] = 40;
-    v.regs[22] = 0x66;          // 7 pixels apart, 6 shown
+    v.regs[22] = 0x65;          // 7 pixels apart, 6 shown
     glyph(v, 1, [0xFF, 0, 0, 0, 0, 0, 0, 0]);
     v.ram[0] = 1; v.ram[1] = 1;
     const x0 = (VDC_FRAME_WIDTH - 40 * 7) >> 1;
@@ -352,13 +355,13 @@ describe('VDC scrolling', () => {
     expect(at(f, X0, Y0 + 1)).toBe(BG);
   });
 
-  it('moves the picture left by the horizontal scroll (R25 bits 3-0) pixels', () => {
+  it('moves the picture right by the horizontal scroll (R25 bits 3-0) pixels on an R7A', () => {
     const v = vdc();
     glyph(v, 1, [0x80, 0, 0, 0, 0, 0, 0, 0]);
     v.ram[0] = 1;
     v.regs[25] = 0x02;
     const f = frame(v);
-    expect(at(f, X0 - 2, Y0)).toBe(FG);
+    expect(at(f, X0 + 2, Y0)).toBe(FG);
     expect(at(f, X0, Y0)).toBe(BG);
   });
 });

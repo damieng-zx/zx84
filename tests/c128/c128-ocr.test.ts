@@ -93,9 +93,9 @@ describe('the VDC grid\'s geometry comes from its registers', () => {
     const v = new Vdc();
     v.regs[VDC_R.HDISP] = 40;
     v.regs[VDC_R.VDISP] = 20;
-    v.regs[VDC_R.CHARH] = 0x63;   // pitch 6+1 = 7, 3 shown
+    v.regs[VDC_R.CHARH] = 0x62;   // pitch 6+1 = 7, 3 shown (2 + 1)
     v.regs[VDC_R.CHARV] = 0x0B;   // pitch 11+1 = 12
-    v.regs[VDC_R.CHAR_DISP_V] = 6;
+    v.regs[VDC_R.CHAR_DISP_V] = 5;   // 5 + 1 lines
     const g = vdcGeometry(v);
     expect(g).toMatchObject({ cellTotalW: 7, cellW: 3, rowTotal: 12, rowShown: 6 });
     // (704 - 40*7) / 2 = 212 and (248 - 20*12) / 2 = 4.
@@ -109,20 +109,23 @@ describe('the VDC grid\'s geometry comes from its registers', () => {
     v.regs[VDC_R.CHARH] = 0x78;                     // 8 across, 8 shown
     expect(vdcGeometry(v).ok).toBe(false);          // no rows yet
     v.regs[VDC_R.VDISP] = 25;
-    expect(vdcGeometry(v).ok).toBe(false);          // no scan lines shown yet
+    expect(vdcGeometry(v).ok, 'R23 0 shows one scan line').toBe(true);
     v.regs[VDC_R.CHAR_DISP_V] = 8;
     expect(vdcGeometry(v).ok, 'a blank screen is still a picture').toBe(true);
-    // R22's low nibble is the pixels shown, so 0 means an empty cell.
-    v.regs[VDC_R.CHARH] = 0x70;
+    // R22's low nibble equal to the high one shows no pixels at all.
+    v.regs[VDC_R.CHARH] = 0x77;
     expect(vdcGeometry(v).ok, 'a cell with no pixels shown is no picture').toBe(false);
   });
 
-  it('carries the smooth scrolls, which move the picture up and left', () => {
+  it('carries the smooth scrolls: up by R24, and right by R25 from its unscrolled value (R22 >> 4 on an 8563 R8/R9)', () => {
     const v = new Vdc();
-    v.regs[VDC_R.MODE] = 0x40 | 5;   // 5 pixels left
+    v.regs[VDC_R.CHARH] = 0x78;
+    v.regs[VDC_R.MODE] = 0x40 | 5;   // 2 below the unscrolled 7: 2 pixels left
     v.regs[VDC_R.SCROLL_V] = 3;      // 3 lines up
     const g = vdcGeometry(v);
-    expect([g.shiftLeft, g.vScroll]).toEqual([5, 3]);
+    expect([g.shiftX, g.vScroll]).toEqual([-2, 3]);
+    v.version = 0;                   // an R7A is unscrolled at 0
+    expect(vdcGeometry(v).shiftX).toBe(5);
   });
 });
 
@@ -202,12 +205,13 @@ describe('the machine paints the overlay over whichever screen is showing', () =
   it('blanks exactly one VDC cell, leaving its neighbours alone', () => {
     const m = new C128Machine(null);
     const v = m.vdc;
+    v.version = 0;              // an R7A: unscrolled at R25 = 0
     const r = v.regs;
     r[VDC_R.HDISP] = 40;
     r[VDC_R.VDISP] = 20;
-    r[VDC_R.CHARH] = 0x63;      // 7 across, 3 shown
+    r[VDC_R.CHARH] = 0x62;      // 7 across, 3 shown
     r[VDC_R.CHARV] = 0x0B;      // 12 down
-    r[VDC_R.CHAR_DISP_V] = 6;   // 6 shown
+    r[VDC_R.CHAR_DISP_V] = 5;   // 6 shown (R23 + 1)
     m.setDisplayMode('80');
     expect(m.showing80).toBe(true);
     m.pixels.fill(0);
@@ -244,6 +248,7 @@ describe('the machine paints the overlay over whichever screen is showing', () =
     // The 80-column screen: 80 cells of 8 centred in 704, 25 rows of 8 centred
     // in 248.
     const m80 = new C128Machine(null);
+    m80.vdc.version = 0;                       // an R7A: unscrolled at R25 = 0
     const r = m80.vdc.regs;
     r[VDC_R.HDISP] = 80;
     r[VDC_R.VDISP] = 25;
@@ -254,7 +259,7 @@ describe('the machine paints the overlay over whichever screen is showing', () =
     expect(m80.textField).toEqual({ x: 32, y: 24, width: 640, height: 200 });
   });
 
-  it('moves the 80-column field up and left by the smooth scrolls', () => {
+  it('moves the 80-column field up by the vertical scroll and sideways by the horizontal one', () => {
     const m = new C128Machine(null);
     m.setDisplayMode('80');
     m.vdc.regs[VDC_R.HDISP] = 80;
@@ -264,7 +269,7 @@ describe('the machine paints the overlay over whichever screen is showing', () =
     m.vdc.regs[VDC_R.CHAR_DISP_V] = 8;
     m.vdc.regs[VDC_R.MODE] = 0x40 | 2;
     m.vdc.regs[VDC_R.SCROLL_V] = 1;
-    expect(m.textField).toMatchObject({ x: 30, y: 23 });
+    expect(m.textField, 'R25 2 against the unscrolled 7: 5 left').toMatchObject({ x: 27, y: 23 });
   });
 
   it('reads the 40-column screen from the 128\'s own character set', () => {
@@ -325,6 +330,7 @@ describe('the transcribe driver backs the TEXT LED', () => {
   it('returns the grid and field of the screen it read, and blanks it', () => {
     const m = new C128Machine(null);
     const v = m.vdc;
+    v.version = 0;                             // an R7A: unscrolled at R25 = 0 (the $40 is attributes)
     v.regs[VDC_R.HDISP] = 80;
     v.regs[VDC_R.VDISP] = 25;
     v.regs[VDC_R.CHARH] = 0x78;

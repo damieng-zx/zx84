@@ -22,7 +22,7 @@ function dumpVicIIe(m: C128Machine): string {
     '',
     `VIC-IIe  D02F = ${hx(0xF8 | m.keyboardLinesSelected)} (keyboard lines K0-K2 selected, low = on)  ` +
       `D030 = ${hx(0xFC | m.vicClockRegister)} (bit 0: 2 MHz)`,
-    `Clock    ${m.fast2MHz ? '2 MHz: the 8502 runs at twice the clock except for I/O accesses, and the VIC-IIe is blank' : '1 MHz'}`,
+    `Clock    ${m.fast2MHz ? '2 MHz: the 8502 runs at twice the clock except for refresh and I/O accesses, and the VIC-IIe reads the CPU bus' : '1 MHz'}`,
   ].join('\n');
 }
 

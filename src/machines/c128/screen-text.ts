@@ -16,7 +16,6 @@ import { VDC_R, type Vdc } from './vdc.ts';
 export function vdcScreenText(vdc: Vdc): string {
   const r = vdc.regs;
   if ((r[VDC_R.MODE] & 0x80) !== 0) return '[c128] the 80-column screen is in a bitmap mode: no text to read';
-  const mask = vdc.ram.length - 1;
   const cols = r[VDC_R.HDISP];
   const rowsN = r[VDC_R.VDISP];
   const screen = (r[VDC_R.SCREEN_HI] << 8) | r[VDC_R.SCREEN_LO];
@@ -28,8 +27,8 @@ export function vdcScreenText(vdc: Vdc): string {
     let line = '';
     for (let col = 0; col < cols; col++) {
       const cell = row * stride + col;
-      const lower = colour && (vdc.ram[(attrs + cell) & mask] & 0x80) !== 0;
-      line += c64TextChar(vdc.ram[(screen + cell) & mask], lower) ?? '#';
+      const lower = colour && (vdc.at(attrs + cell) & 0x80) !== 0;
+      line += c64TextChar(vdc.at(screen + cell), lower) ?? '#';
     }
     rows.push(line.replace(/\s+$/, ''));
   }

@@ -197,35 +197,73 @@ export class Mmu {
     if (page <= 0x3F) return true;
     if (page <= 0x7F) return (this.cr & 0x02) !== 0;
     if (page <= 0xBF) return ((this.cr >> 2) & 3) === 3;
-    if (page <= 0xCF || page >= 0xE0) return ((this.cr >> 4) & 3) === 3;
-    return (this.cr & 0x01) !== 0 && ((this.cr >> 4) & 3) === 3;     // $D000-$DFFF
+    const ramAtTop = ((this.cr >> 4) & 3) === 3;
+    if (page <= 0xCF) return ramAtTop;
+    if (page <= 0xDF) return (this.cr & 0x01) !== 0 && ramAtTop;       // $D000-$DFFF
+    return page <= 0xFE && ramAtTop;                                   // $FF00 holds the MMU
   }
 
   /**
-   * Where an access of the CPU to a RAM address really goes, when page 0 or
-   * page 1 has been relocated: the RAM address ($00000-$1FFFF), or -1 when the
-   * address is not affected. A relocated page is swapped with the page it was
-   * sent to, so the old page 0 shows up where page 0 went. The CPU's own port
-   * ($00 and $01) is never moved, and the common RAM at the bottom of the
-   * address space keeps pages 0 and 1 in block 0.
+   * Where an access of the CPU to a RAM address really goes, once page 0 or
+   * page 1 has been relocated (or in C64 mode, whatever the pointers say): the
+   * RAM address ($00000-$1FFFF), or -1 when the address is not affected. A
+   * relocated page is swapped with the page it was sent to, so the old page 0
+   * shows up where page 0 went. The 8502's own port ($00 and $01) is never
+   * moved; the Z80 (`z80`) has no port, so nothing is exempt.
+   *
+   * The order of the arms is the hardware's (the VICE test programs, which run
+   * on real machines, pin it down): the stack (P1) wins over page 0 when both
+   * name the same page, the common RAM arms come before the unshared ones, and
+   * the swap back only happens in the RAM block the CPU is looking at. In C64
+   * mode the pointers do not move page 0/1 forward (the registers are out of
+   * reach), but what was set before the switch still swaps the target pages
+   * back; the caller applies that only where the 64's map shows RAM.
+   *
+   * A read of page 0 uses its own, shorter chain than every other access
+   * (a quirk the swap tests show: page 0 reads see P0 even where a write to the
+   * same address goes elsewhere).
    */
-  relocate(addr: number): number {
-    if (addr < 2 || !this.relocated) return -1;
-    const page = addr >> 8, pos = addr & 0xFF;
+  relocate(addr: number, write = false, z80 = false): number {
+    if (addr < 2 && !z80) return -1;
+    const apage = addr >> 8, pos = addr & 0xFF;
+    const c64 = this.c64Mode;
+    const cur = this.ramBlock;
     const p0 = this.p0l, p1 = this.p1l;
     const b0 = this.p0h & 1, b1 = this.p1h & 1;
-    const zpShared = (this.rcr & 4) !== 0;
-    const at = (p: number, b: number): number => (b << 16) | (p << 8) | pos;
-    if (zpShared) {
-      // The bottom common RAM holds pages 0 and 1 whatever block is chosen.
-      if (page === 1) return at(p1, 0);
-      if (page === 0) return at(p0, 0);
+    const shared = (this.rcr & 4) !== 0;
+    let page = apage, bank = 0;
+    if (!write && apage === 0) {
+      if (c64 && shared) { page = 0; bank = 0; }
+      else if (c64 && p1 === 0) { page = 1; bank = cur; }
+      else if (c64) { page = 0; bank = cur; }
+      else if (p0 === 0 && b0 === 0) return pos;
+      else if (shared) { page = p0; bank = 0; }
+      else { page = p0; bank = b0; }
+    } else if (c64 && apage <= 1 && shared) {
+      bank = 0;
+    } else if (c64 && apage === 0 && p1 === 0) {
+      page = 1; bank = cur;
+    } else if (c64 && apage === 1 && p1 === 0 && p0 === 1) {
+      page = 0; bank = cur;
+    } else if (c64 && apage <= 1) {
+      bank = cur;
+    } else if (p0 === 0 && p1 === 1 && b0 === 0 && b1 === 0) {
+      return apage <= 1 ? (apage << 8) | pos : -1;
+    } else if (shared && apage === 1) {
+      page = p1; bank = 0;
+    } else if (shared && apage === 0) {
+      page = p0; bank = 0;
+    } else if (apage === 1) {
+      page = p1; bank = b1;
+    } else if (apage === p1 && (c64 ? (write || b1 === cur) : this.pageIsRam(p1, b1))) {
+      page = 1; bank = b1;
+    } else if (apage === 0) {
+      page = p0; bank = b0;
+    } else if (apage === p0 && (c64 ? (write || b0 === cur) : this.pageIsRam(p0, b0))) {
+      page = 0; bank = b0;
+    } else {
       return -1;
     }
-    if (page === 1) return at(p1, b1);
-    if (page === p1 && this.pageIsRam(p1, b1)) return at(1, b1);
-    if (page === 0) return at(p0, b0);
-    if (page === p0 && this.pageIsRam(p0, b0)) return at(0, b0);
-    return -1;
+    return (bank << 16) | (page << 8) | pos;
   }
 }

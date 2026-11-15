@@ -38,12 +38,12 @@ import { VDC_R, type Vdc } from './vdc.ts';
  * glyphs of those, which the matcher derives itself). Each VDC glyph is 16
  * bytes with the 8 drawn lines first.
  */
-function vdcFont(ram: Uint8Array, base: number): Uint8Array {
+function vdcFont(vdc: Vdc, base: number): Uint8Array {
   const out = new Uint8Array(0x1000);
   for (let set = 0; set < 2; set++) {
     for (let code = 0; code < 128; code++) {
-      const at = (base + set * 0x1000 + code * 16) & (ram.length - 1);
-      out.set(ram.subarray(at, at + 8), set * 0x800 + code * 8);
+      const at = base + set * 0x1000 + code * 16;
+      for (let line = 0; line < 8; line++) out[set * 0x800 + code * 8 + line] = vdc.at(at + line);
     }
   }
   return out;
@@ -51,8 +51,6 @@ function vdcFont(ram: Uint8Array, base: number): Uint8Array {
 
 export function vdcOcrGrid(vdc: Vdc): C64OcrResult {
   const r = vdc.regs;
-  const ram = vdc.ram;
-  const wrap = ram.length - 1;
   const cols = Math.max(r[VDC_R.HDISP], 1);
   const rows = Math.max(r[VDC_R.VDISP], 1);
   const n = cols * rows;
@@ -72,18 +70,18 @@ export function vdcOcrGrid(vdc: Vdc): C64OcrResult {
     const reverseScreen = (r[VDC_R.SCROLL_V] & 0x40) !== 0;
     const defaultFg = (r[VDC_R.COLOUR] >> 4) & 0x0F;
 
-    const rom = cbmRomGlyphs(vdcFont(ram, charBase));
+    const rom = cbmRomGlyphs(vdcFont(vdc, charBase));
     const seen = new Map<number, { ch: string; reversed: boolean }>();
-    const read = (addr: number) => cbmMatchGlyph(rom, a => ram[a & wrap], addr, seen);
+    const read = (addr: number) => cbmMatchGlyph(rom, a => vdc.at(a), addr, seen);
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const i = row * cols + col;
         const cell = row * stride + col;
-        const code = ram[(screen + cell) & wrap];
-        const attr = colourOn ? ram[(attrs + cell) & wrap] : 0;
+        const code = vdc.at(screen + cell);
+        const attr = colourOn ? vdc.at(attrs + cell) : 0;
         const alt = (attr & 0x80) !== 0;
-        const { ch, reversed } = read((charBase + (alt ? 0x1000 : 0) + code * 16) & wrap);
+        const { ch, reversed } = read((charBase + (alt ? 0x1000 : 0) + code * 16) & 0xFFFF);
         if (ch === ' ') continue;
         const fg = colourOn ? attr & 0x0F : defaultFg;
         // Drawn with the colours swapped by the chip's reverse bit or by the

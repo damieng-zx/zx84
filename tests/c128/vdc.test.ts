@@ -100,6 +100,7 @@ describe('VDC update address and data port', () => {
 
   it('keeps all 64K of a 64K VDC apart', () => {
     const v = new Vdc(VDC_RAM_64K);
+    setReg(v, 28, 0x10);                       // addressed as 64K (the chip is)
     setUpdate(v, 0x4000);
     put(v, 0x77);
     expect(v.ram[0x4000]).toBe(0x77);
@@ -184,10 +185,14 @@ describe('VDC block copy', () => {
 });
 
 describe('VDC status register', () => {
-  it('reads ready (bit 7) with no light pen and version 0', () => {
+  it('reads ready (bit 7) with no light pen, and the chip version in the low bits: 1 (8563 R8/R9) unless told', () => {
     const v = new Vdc();
+    expect(v.read(0)).toBe(0x81);
+    expect(v.peek(0)).toBe(0x81);
+    v.version = 0;
     expect(v.read(0)).toBe(0x80);
-    expect(v.peek(0)).toBe(0x80);
+    v.version = 2;
+    expect(v.read(0)).toBe(0x82);
   });
 
   it('sets bit 5 while the beam is below the displayed rows: 200 of 312 lines of a frame', () => {

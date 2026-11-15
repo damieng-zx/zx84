@@ -52,7 +52,7 @@ function c128MemoryMap(m: C128Machine): MemoryMapSnapshot {
     ];
   const registers = [
     { name: 'Mode', value: `${m.c64Mode ? 'C64' : 'C128'}, ${m.cpuIs8502 ? '8502' : 'Z80'}` },
-    { name: 'Clock', value: m.fast2MHz ? '2 MHz (VIC-IIe blank)' : '1 MHz' },
+    { name: 'Clock', value: m.fast2MHz ? '2 MHz (VIC-IIe reads the CPU bus)' : '1 MHz' },
     { name: 'MMU CR', value: `$${hex8(cr)} (RAM block ${mmu.ramBlock})` },
     { name: 'MMU RCR', value: `$${hex8(mmu.rcr)} (common ${mmu.commonSize >> 10}K, VIC-IIe block ${mmu.vicBlock})` },
     { name: '8502 port', value: `$${hex8(mem.portData)} (DDR $${hex8(mem.portDdr)})` },
