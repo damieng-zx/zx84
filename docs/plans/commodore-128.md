@@ -1,6 +1,6 @@
 # Plan: Commodore 128
 
-Status: **decisions settled; Phases 0-2 and 4-7 done (research, shared parts, C128 mode booting to READY, the VDC 80-column display, C64 mode, the drives with burst mode, and the machine as part of the app: descriptor, services, UI; cartridges are done: 64 boards in 64 mode and function ROMs in 128 mode; 2 MHz mode is not).** Worktree `F:/src/zx/zx84-c128`, branch
+Status: **decisions settled; Phases 0-2 and 4-7 done (research, shared parts, C128 mode booting to READY, the VDC 80-column display, C64 mode, the drives with burst mode, and the machine as part of the app: descriptor, services, UI; cartridges are done: 64 boards in 64 mode and function ROMs in 128 mode; 2 MHz mode too).** Worktree `F:/src/zx/zx84-c128`, branch
 `feature/c128`, cut from `dev` and fast-forwarded to 12cdae9d (the VIC-20 merge). When the machine lands, this file
 becomes `docs/machines/commodore-128.md`, written to
 [`TEMPLATE.md`](../machines/TEMPLATE.md). Follow
@@ -272,7 +272,7 @@ Not done in this phase, and why:
   CP/M is wanted.
 - The two-block (128K) machine only: `CR` bit 7 and `RCR` bit 7 are ignored.
 
-### Phase 3: VIC-IIe extras and 2 MHz *(not done)*
+### Phase 3: VIC-IIe extras and 2 MHz *(done)*
 - `$D02F` keyboard-line output and `$D030` bit 0. Model the CPU clock in 2 MHz mode
   and what the VIC-IIe does to the picture while it is on *(confirm: blanking, and
   what the CPU gets on bad lines and in the borders)*.
@@ -280,10 +280,16 @@ Not done in this phase, and why:
   on the 1 MHz base. Cycle-count tests with hand-computed loops at both speeds.
 - Check the speed cost; the machine must still hold real time in a desktop browser.
 
-**Not done.** `$D02F` is modelled (the three keyboard lines) and `$D030` is stored and
-read back, but bit 0 does nothing: the 8502 always runs at 1 MHz and the VIC-IIe never
-blanks for fast mode. Software that selects 2 MHz runs at half speed rather than
-failing, which is why this is the sheet's main "known issue".
+**Done.** `$D030` bit 0 (C128 mode only; the 64's map has no such register) runs the 8502 at 2 MHz
+against the unchanged 1 MHz master clock the chips keep time by (`C128Machine.fast2MHz`): an
+instruction costs half its cycles, a half cycle left over is carried, and every access to the I/O
+page is made at 1 MHz and costs a whole master cycle. The VIC-IIe is shut off while it is on
+(`VicII.blank`): the border colour everywhere, no bad lines, no sprite DMA, so it never holds the
+bus. Tests: `tests/c128/c128-fast.test.ts` (hand-computed loops at both speeds, the I/O cost, C64
+mode, the blanking, snapshots, and BASIC's FAST and SLOW on the real ROMs). The Clock row of the
+memory-map pane and the VIC chip dump say which clock is running; there is no status LED for it.
+The exact I/O stretching and the PAL line-skipping subtleties of the real chip are modelled by
+this rule only (not confirmed against hardware).
 
 ### Phase 4: VDC and the 80-column display *(done, 69a01414)*
 - `c128/vdc.ts`: register file behind `$D600/$D601`, update/data pointers, text and
@@ -488,8 +494,8 @@ a `C128 CARTRIDGE` `.crt` or a bare 8K/16K/32K image, mapped by the MMU's extern
 the KERNAL autostarts it by its CBM header). One thing on the port at a time. The BASIC 7.0 panes and the
 TEXT overlay are done too.
 
-**Not done:** the 2 MHz mode (Phase 3), Z80 tracing and breakpoints (the debugger follows the 8502
-only), banked 128 cartridges, and the internal function ROM socket's UI.
+**Not done:** Z80 tracing and breakpoints (the debugger follows the 8502 only), banked 128
+cartridges, and the internal function ROM socket's UI.
 
 ### Phase 8: Z80 and CP/M *(only if wanted, decision 3)*
 - Z80 memory and I/O through the MMU, the Z80 clock/wait-state model, the

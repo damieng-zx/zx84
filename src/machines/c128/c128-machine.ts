@@ -214,11 +214,27 @@ export class C128Machine extends BaseMachine implements Machine {
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
   /** VIC-IIe registers $D02F (the keyboard lines it selects, bits 0-2) and
-   *  $D030 (bit 0 is the 2 MHz mode, which is not modelled yet). */
+   *  $D030 (bit 0 is the 2 MHz mode). */
   private kbdLines = 0x07;
   private vicClockReg = 0;
   get keyboardLinesSelected(): number { return this.kbdLines; }
   get vicClockRegister(): number { return this.vicClockReg; }
+
+  /**
+   * The 8502 runs at 2 MHz while $D030 bit 0 is set in C128 mode (the 64's map
+   * has no such register). The master clock stays the 1 MHz one the chips
+   * keep time by, so an instruction costs half the cycles it takes, except
+   * that every access to the I/O page is made at 1 MHz (the peripherals cannot
+   * go faster): each of those costs a whole master cycle. A half cycle left
+   * over is carried to the next instruction. The VIC-IIe is shut off in this
+   * mode (its `blank`): it shows the border colour and never holds the bus.
+   */
+  get fast2MHz(): boolean { return (this.vicClockReg & 1) !== 0 && !this.memory.mmu.c64Mode; }
+  /** Whether the instruction in progress runs fast, the I/O accesses it has
+   *  made, and the half cycle carried from the last one. */
+  private fastNow = false;
+  private fastIo = 0;
+  private fastCarry = 0;
 
   /** Which CPU is running now; the MMU's mode register says which should be. */
   private running8502 = false;
@@ -304,7 +320,8 @@ export class C128Machine extends BaseMachine implements Machine {
   /** The cycle a register access of the instruction in progress lands on. */
   private accessT(addr: number, write: boolean): number {
     if (!this.running8502) return this.cpu.tStates;
-    return accessTime(this.insnStart, this.insnOp, this.insnPc, addr, write, false);
+    const t = accessTime(this.insnStart, this.insnOp, this.insnPc, addr, write, false);
+    return this.fastNow ? this.insnStart + ((t - this.insnStart) >> 1) : t;
   }
 
   private wireIo(): void {
@@ -392,6 +409,7 @@ export class C128Machine extends BaseMachine implements Machine {
       }
     };
     memory.ioRead = (addr) => {
+      this.fastIo++;
       const value = ioRead(addr);
       if (this.insnRmw) { this.rmwAddr = addr; this.rmwValue = value; }
       return value;
@@ -459,6 +477,7 @@ export class C128Machine extends BaseMachine implements Machine {
       }
     };
     memory.ioWrite = (addr, value) => {
+      this.fastIo++;
       const t = this.accessT(addr, true);
       // An NMOS read-modify-write writes the byte it read straight back, a
       // cycle before the new one (INC $D019 acknowledges the VIC-II with the
@@ -580,6 +599,9 @@ export class C128Machine extends BaseMachine implements Machine {
     this.keyboard.reset();
     this.kbdLines = 0x07;
     this.vicClockReg = 0;
+    this.fastNow = false;
+    this.fastIo = 0;
+    this.fastCarry = 0;
     this.joy1 = this.joy2 = 0;
     this.memory.capsLockDown = this.keyboard.capsLock;
     this.memory.cassetteSense = this.tapeSense;
@@ -831,6 +853,10 @@ export class C128Machine extends BaseMachine implements Machine {
       if (this.running8502 !== this.memory.mmu.cpu8502) this.switchCpu();
       if (!this.running8502) { this.stepZ80(); continue; }
       if (this.checkStops(cpu.pc)) return false;
+      const fast = this.fast2MHz;
+      if (fast !== vic.blank) vic.setBlank(fast, cpu.tStates);
+      this.fastNow = fast;
+      this.fastIo = 0;
       const start = cpu.tStates;
       const pc = cpu.pc;
       this.beforeInsn(pc);
@@ -839,6 +865,12 @@ export class C128Machine extends BaseMachine implements Machine {
       this.insnRmw = this.insnOp >= 0 && isReadModifyWrite(this.insnOp);
       this.rmwAddr = -1;
       cpu.step();
+      if (fast) {
+        // Cycles of the 2 MHz clock are halves of the master's; an I/O access is a whole one.
+        const halves = (cpu.tStates - start) + this.fastIo + this.fastCarry;
+        cpu.tStates = start + (halves >> 1);
+        this.fastCarry = halves & 1;
+      }
       cpu.tStates += vic.stretch(start, cpu.tStates);
       this.lastInsnStart = start;
       const stopped = this.afterInsn();
@@ -1313,6 +1345,9 @@ export class C128Machine extends BaseMachine implements Machine {
     this.iec.fastHostTransmits = this.memory.mmu.fastSerialOut;
     this.memory.capsLockDown = this.keyboard.capsLock;
     this.memory.mmu.displayKeyUp = !this.keyboard.display80;
+    this.fastNow = false;
+    this.fastIo = 0;
+    this.fastCarry = 0;
     this.memory.cassetteSense = this.tapeSense;
     this.memory.pinsChanged();
     this.motorWasOn = this.memory.motorOn;

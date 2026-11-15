@@ -101,6 +101,10 @@ export class VicII {
   private vcLine = 0;
   display = false;
   badline = false;
+  /** The chip is shut off: it shows the border colour everywhere and fetches
+   *  nothing (no bad lines, no sprite DMA), so it never holds the CPU. The
+   *  128's 2 MHz mode does this: the 8502 then has the bus to itself. */
+  blank = false;
   /** DEN was set during line $30, enabling bad lines for the frame. */
   private denSeen = false;
   readonly matrix = new Uint8Array(40);
@@ -160,6 +164,7 @@ export class VicII {
     this.vcBase = this.vc = this.rc = this.vcLine = 0;
     this.display = false;
     this.badline = false;
+    this.blank = false;
     this.denSeen = false;
     this.matrix.fill(0);
     this.colors.fill(0);
@@ -190,7 +195,7 @@ export class VicII {
 
   private badlineCondition(): boolean {
     const line = this.raster;
-    return line >= 0x30 && line <= 0xF7 && (line & 7) === this.yscroll && this.denSeen;
+    return !this.blank && line >= 0x30 && line <= 0xF7 && (line & 7) === this.yscroll && this.denSeen;
   }
 
   // ── Per-line events (the machine calls these at their line cycles) ───────
@@ -225,6 +230,20 @@ export class VicII {
     this.row = y >= 0 && y < this.timing.screenHeight ? y * VIC_SCREEN_WIDTH : -1;
     this.drawnX = 0;
     this.gChar = -1;
+  }
+
+  /** Shut the chip off, or switch it back on, at absolute cycle `t`. */
+  setBlank(on: boolean, t: number): void {
+    if (on === this.blank) return;
+    this.drawTo(t);
+    this.blank = on;
+    if (on) {
+      this.badline = false;
+      this.badStart = this.badEnd = -1;
+      this.sprStealCount = 0;
+    } else {
+      this.reevaluateBadline(t);
+    }
   }
 
   /** Cycle 14: the video counter is reloaded and a bad line reads the matrix. */
@@ -268,7 +287,7 @@ export class VicII {
     for (let n = 0; n < 8; n++) {
       const bit = 1 << n;
       if ((yexp & bit) !== 0) this.expFF[n] ^= 1;
-      if ((enable & bit) !== 0 && this.regs[1 + n * 2] === low && !this.spriteDma[n]) {
+      if ((enable & bit) !== 0 && !this.blank && this.regs[1 + n * 2] === low && !this.spriteDma[n]) {
         this.spriteDma[n] = 1;
         this.mcBase[n] = 0;
         if ((yexp & bit) !== 0) this.expFF[n] = 0;
@@ -278,6 +297,7 @@ export class VicII {
     // Sprites 0-2 fetch at Bauer cycles 58-63 of this line, 3-7 at 1-10 of
     // the next.
     this.sprStealCount = 0;
+    if (this.blank) return;
     let runStart = -1;
     let runEnd = -1;
     for (let n = 0; n < 8; n++) {
@@ -544,8 +564,8 @@ export class VicII {
       }
 
       let out = gColor;
-      if (sprites !== 0) out = this.mixSprites(x, out, fg, sprites);
-      if (row >= 0) px[row + p] = this.mainBorder ? border : this.palette[out];
+      if (sprites !== 0 && !this.blank) out = this.mixSprites(x, out, fg, sprites);
+      if (row >= 0) px[row + p] = this.mainBorder || this.blank ? border : this.palette[out];
     }
   }
 
