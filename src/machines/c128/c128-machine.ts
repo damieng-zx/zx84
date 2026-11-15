@@ -992,8 +992,9 @@ export class C128Machine extends BaseMachine implements Machine {
   }
 
   /** The border is fully rendered; the setting crops it: Normal shows it
-   *  all, Small half, None just the display window. The 80-column frame is
-   *  shown whole. */
+   *  all, Small half, None just the display window. Both frames are cropped
+   *  to the borders their descriptor reports, which is what the TEXT overlay
+   *  measures from, so the overlay stays on the characters whatever the setting. */
   setBorderSize(mode: BorderMode): void {
     this.borderMode = mode;
     this.applyViewport();
@@ -1001,14 +1002,11 @@ export class C128Machine extends BaseMachine implements Machine {
 
   private applyViewport(): void {
     if (!this.display) return;
-    if (this.showing80) {
-      this.display.setViewport(0, 0, VDC_FRAME_WIDTH, VDC_FRAME_HEIGHT);
-      return;
-    }
     const frac = this.borderMode === 2 ? 1 : this.borderMode === 1 ? 0.5 : 0;
-    const cropX = Math.round(C128_BORDER_LEFT * (1 - frac));
-    const cropY = Math.round(this.timing.borderTop * (1 - frac));
-    this.display.setViewport(cropX, cropY, C128_SCREEN_WIDTH - cropX * 2, this.timing.screenHeight - cropY * 2);
+    const { width, height, borderLeft, borderTop } = this.descriptor.screen;
+    const cropX = Math.round(borderLeft * (1 - frac));
+    const cropY = Math.round(borderTop * (1 - frac));
+    this.display.setViewport(cropX, cropY, width - cropX * 2, height - cropY * 2);
   }
 
   // ── Beam / debug ─────────────────────────────────────────────────────────

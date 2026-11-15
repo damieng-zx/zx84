@@ -314,6 +314,22 @@ describe('C128 two displays on one canvas', () => {
     ]);
   });
 
+  it('crops the 80-column frame to the borders its descriptor reports, so the TEXT overlay stays on the characters', () => {
+    const { display, log } = recordingDisplay();
+    const m = new C128Machine(display);
+    m.reset();
+    m.setDisplayMode('80');
+    const { borderLeft, borderTop } = m.descriptor.screen;
+    expect([borderLeft, borderTop]).toEqual([32, 24]);
+    m.setBorderSize(1);
+    expect(log.at(-1)).toBe(`viewport ${borderLeft / 2},${borderTop / 2} ${VDC_FRAME_WIDTH - borderLeft}x${VDC_FRAME_HEIGHT - borderTop}`);
+    m.setBorderSize(0);
+    expect(log.at(-1)).toBe('viewport 32,24 640x200');
+    // The character grid starts where the descriptor says the picture does.
+    m.vdc.regs[1] = 80; m.vdc.regs[6] = 25; m.vdc.regs[22] = 0x78; m.vdc.regs[9] = 7;
+    expect([m.textField.x, m.textField.y]).toEqual([borderLeft, borderTop]);
+  });
+
   it('puts the 80-column picture at 4:3 over the whole frame', () => {
     expect(VDC_PIXEL_ASPECT_X * VDC_FRAME_WIDTH / VDC_FRAME_HEIGHT).toBeCloseTo(4 / 3, 6);
   });
