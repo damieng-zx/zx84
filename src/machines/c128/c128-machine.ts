@@ -142,6 +142,8 @@ export class C128Machine extends BaseMachine implements Machine {
   readonly cia2 = new Mos6526();
   readonly vdc = new Vdc();
   readonly keyboard = new C128Keyboard();
+  /** The character ROM's 128-mode glyph set (the VDC's font comes from it), for reading text off the VDC by shape. */
+  private readonly vdcGlyphs = this.memory.chargen.subarray(C128_CHARGEN_128_OFFSET, C128_CHARGEN_128_OFFSET + 0x1000);
   /** The Datasette's tape, played through the shared pulse deck. */
   readonly tape: TapeDeck;
   /** Edges of the cassette write line since the last reset (what SAVE wrote). */
@@ -1259,14 +1261,14 @@ export class C128Machine extends BaseMachine implements Machine {
   /** The text screen the canvas shows, as text: 80 columns from the VDC's
    *  RAM, or 40 from the VIC-IIe's matrix. */
   ocrScreenForMcp(_mode?: string): string {
-    return this.showing80 ? vdcScreenText(this.vdc) : c128ScreenText(this.memory, this.vic.regs);
+    return this.showing80 ? vdcScreenText(this.vdc, this.vdcGlyphs) : c128ScreenText(this.memory, this.vic.regs);
   }
 
   // ── TEXT overlay ─────────────────────────────────────────────────────────
 
   /** Styled OCR (text, coloured HTML, match mask) for the chip on screen. */
   ocrScreenStyled(): C64OcrResult {
-    return this.showing80 ? vdcOcrGrid(this.vdc) : this.vicOcrGrid();
+    return this.showing80 ? vdcOcrGrid(this.vdc, this.vdcGlyphs) : this.vicOcrGrid();
   }
 
   /** The VIC-IIe's 40×25 grid, read the way the 64's is. `c64OcrGrid` takes

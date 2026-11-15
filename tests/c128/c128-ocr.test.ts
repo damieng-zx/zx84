@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { Vdc, VDC_R } from '@/machines/c128/vdc.ts';
 import { vdcGeometry, VDC_FRAME_HEIGHT, VDC_FRAME_WIDTH, VDC_PALETTE } from '@/machines/c128/vdc-display.ts';
 import { vdcOcrGrid } from '@/machines/c128/vdc-ocr.ts';
+import { vdcScreenText } from '@/machines/c128/screen-text.ts';
 import { C128Machine } from '@/machines/c128/c128-machine.ts';
 import { c128Entry } from '@/machines/c128/descriptor.ts';
 
@@ -385,5 +386,39 @@ describe('the frame the overlay is measured in', () => {
     expect([m.frameWidth, m.frameHeight]).toEqual([VDC_FRAME_WIDTH, VDC_FRAME_HEIGHT]);
     m.setDisplayMode('40');
     expect([m.frameWidth, m.frameHeight]).toEqual([384, 272]);
+  });
+});
+
+describe('a VDC font in another order than the KERNAL\'s (CP/M\'s lower case sits at the ASCII codes)', () => {
+  /** The character ROM's set in its own order: DIAGONAL is 'A' (set 0 code 1), VERTICAL 'a' (set 1 code 1). */
+  function reference(): Uint8Array {
+    const ref = new Uint8Array(0x1000);
+    ref.set(DIAGONAL, 0 * 0x800 + 1 * 8);
+    ref.set(VERTICAL, 1 * 0x800 + 1 * 8);
+    return ref;
+  }
+  function asciiOrder(): Vdc {
+    const v = vdc80();
+    setGlyph(v, 1, 1, new Array(8).fill(0));         // nothing at the KERNAL's code for 'a' ...
+    setGlyph(v, 1, 0x61, VERTICAL);                  // ... the glyph is at ASCII 'a' instead
+    place(v, 0, 0, 0x61, 0x87);                      // in the alternate set
+    return v;
+  }
+
+  it('reads the glyph by its shape when the ROM\'s set is given, so the styled grid says "a"', () => {
+    expect(row0(vdcOcrGrid(asciiOrder(), reference()).text)[0]).toBe('a');
+  });
+
+  it('reads the same in the plain text reader, and without the reference still reads by code (not "a")', () => {
+    expect(vdcScreenText(asciiOrder(), reference())[0]).toBe('a');
+    expect(vdcScreenText(asciiOrder())[0]).not.toBe('a');
+  });
+
+  it('still reads the KERNAL\'s order with the reference given', () => {
+    const v = vdc80();
+    place(v, 0, 0, 1, 0x87);                         // lower case 'a' at code 1, alternate set
+    place(v, 0, 1, 1, 0x07);                         // 'A'
+    expect(row0(vdcOcrGrid(v, reference()).text).slice(0, 2)).toBe('aA');
+    expect(vdcScreenText(v, reference()).slice(0, 2)).toBe('aA');
   });
 });

@@ -46,6 +46,10 @@ describe.skipIf(!basicLo || !basicHi || !kernal || !chargen || !dos || !disk)('C
     expect(listing).toContain('CPM+');
     expect(listing).toContain('SYS');
     expect(listing).toContain('CCP');
+    // CP/M also draws on the VDC, in a font ordered by ASCII: its lower case reads as text, not graphics.
+    m.setDisplayMode('80');
+    expect(m.ocrScreenForMcp()).toContain('On the Commodore 128');
+    expect(m.ocrScreenStyled().text).toContain('column display');
     m.destroy();
   }, 60_000);
 });

@@ -24,7 +24,14 @@
  * the chip reverses — by `R24` bit 6 or its own bit 6 — is read with its
  * colours swapped, exactly as it looks.
  *
- * Self-contained by design: it takes the VDC, never the machine.
+ * The font in VDC RAM is not always in the KERNAL's order: CP/M loads its own,
+ * whose lower-case set is laid out by ASCII code, so reading a glyph as the
+ * character its code means in the KERNAL's order turns CP/M's lower case into
+ * graphics. A glyph is therefore matched by its shape against the character
+ * ROM's own 128-mode set when the caller has one (`reference`), whatever code
+ * it sits at, and only after that against the RAM font read in the KERNAL's order.
+ *
+ * Self-contained by design: it takes the VDC (and the ROM's glyphs), never the machine.
  */
 
 import type { OcrGridName } from '@/ocr/ocr.ts';
@@ -49,7 +56,7 @@ function vdcFont(vdc: Vdc, base: number): Uint8Array {
   return out;
 }
 
-export function vdcOcrGrid(vdc: Vdc): C64OcrResult {
+export function vdcOcrGrid(vdc: Vdc, reference: Uint8Array | null = null): C64OcrResult {
   const r = vdc.regs;
   const cols = Math.max(r[VDC_R.HDISP], 1);
   const rows = Math.max(r[VDC_R.VDISP], 1);
@@ -70,7 +77,8 @@ export function vdcOcrGrid(vdc: Vdc): C64OcrResult {
     const reverseScreen = (r[VDC_R.SCROLL_V] & 0x40) !== 0;
     const defaultFg = (r[VDC_R.COLOUR] >> 4) & 0x0F;
 
-    const rom = cbmRomGlyphs(vdcFont(vdc, charBase));
+    const rom = new Map(reference ? cbmRomGlyphs(reference) : []);
+    for (const [shape, ch] of cbmRomGlyphs(vdcFont(vdc, charBase))) if (!rom.has(shape)) rom.set(shape, ch);
     const seen = new Map<number, { ch: string; reversed: boolean }>();
     const read = (addr: number) => cbmMatchGlyph(rom, a => vdc.at(a), addr, seen);
 
