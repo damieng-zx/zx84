@@ -33,7 +33,15 @@ Section 4's items are done as follows. Nothing here was checked in a browser.
   LINE FEED.
 - **13 Z80 interrupt log:** wired. **Not done:** the internal function ROM media slot, `burstcheck` and two-drive tests.
 - **Not started:** 10's Magic Desk read latch, 14 (Gmod2-C128, Partner freeze logic, REU, interlace, VDC busy timing),
-  15 (CP/M: `cpm3.d81` still stalls in the boot, cause unknown).
+  15 (CP/M: **fixed afterwards**, see below).
+
+### CP/M (found and fixed after the list above)
+
+The `cpm3.d81` boot stall was the 8502 being **reset** every time the Z80 handed the bus back. On the real machine each CPU
+resumes where it stopped: CP/M's boot sector copies a handler to `$3000` and the Z80 calls the stub at `$FFE0`, which
+starts the 8502 at the instruction after the `STA $D505` that gave the bus away (`NOP : JMP $3000`). Only the first
+start out of power-on is a reset. With that fixed CP/M 3.0 boots from the 1581 image to `A>`, lists the disk, types a
+file, switches to the 80-column driver and writes a file with `PIP`. `zexdoc`/`zexall` and 1571 MFM disks are untried.
 
 ## 1. Method and how far to trust it
 

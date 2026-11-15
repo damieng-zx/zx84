@@ -246,6 +246,8 @@ export class C128Machine extends BaseMachine implements Machine {
 
   /** Which CPU is running now; the MMU's mode register says which should be. */
   private running8502 = false;
+  /** The 8502 has run since power-on: a later hand-over resumes it rather than resetting it. */
+  private cpu8502Started = false;
   private irqLine = false;
   // NMI is edge-triggered from the wired-OR of CIA 2 and RESTORE.
   private nmiLevel = false;
@@ -666,6 +668,7 @@ export class C128Machine extends BaseMachine implements Machine {
     this.c64KeyFrames = 0;
     this.refreshResumed = false;
     this.running8502 = false;
+    this.cpu8502Started = false;
     this.irqLine = false;
     this.nmiLevel = false;
     this.midFrame = false;
@@ -760,13 +763,17 @@ export class C128Machine extends BaseMachine implements Machine {
     this.mixer.reset();
   }
 
-  /** The MMU's mode register handed the bus to the other CPU. The Z80 carries
-   *  on where it stopped; the 8502 starts as if it had been reset, reading its
-   *  vector from whatever the map shows at the top of memory. */
+  /** The MMU's mode register handed the bus to the other CPU. Each carries on
+   *  where it stopped: CP/M's Z80 code calls the stub at $FFE0, which gives the
+   *  bus to the 8502 at the instruction after the one that started the Z80, and
+   *  takes it back when the 8502's handler writes the mode register. Only the
+   *  first time, out of power-on, the 8502 starts as if it had been reset,
+   *  reading its vector from whatever the map shows at the top of memory. */
   private switchCpu(): void {
     const to8502 = this.memory.mmu.cpu8502;
     this.running8502 = to8502;
-    if (!to8502) return;
+    if (!to8502 || this.cpu8502Started) return;
+    this.cpu8502Started = true;
     const t = this.cpu.tStates;
     this.cpu.reset();
     this.cpu.tStates = t + CPU_RESET_CYCLES;
@@ -1416,7 +1423,7 @@ export class C128Machine extends BaseMachine implements Machine {
     {
       const s = r.section('MACH');
       this.frameStartT = s.f64(); this.frameEndT = s.f64(); this.frameNumber = s.f64();
-      this.nmiLevel = s.bool(); this.running8502 = s.bool();
+      this.nmiLevel = s.bool(); this.running8502 = s.bool(); this.cpu8502Started = true;
       this.kbdLines = s.u8(); this.vicClockReg = s.u8();
       this.keyboard.capsLock = s.bool(); this.keyboard.display80 = s.bool();
     }
