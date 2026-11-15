@@ -9,7 +9,10 @@
  */
 
 import type { Component } from 'solid-js';
+import { createMemo } from 'solid-js';
 import { Dynamic } from 'solid-js/web';
+import { machine } from '@/shell/context.ts';
+import { regsRev } from '@/state/debug-state.ts';
 import type { CpuFamily } from '@/machines/machine.ts';
 import { machineCpuFamily } from '@/state/machine-caps.ts';
 import { Z80Registers } from './registers/Z80Registers.tsx';
@@ -23,5 +26,11 @@ const PANELS: Record<CpuFamily, Component> = {
 };
 
 export function Registers() {
-  return <Dynamic component={PANELS[machineCpuFamily()] ?? GenericRegisters} />;
+  // A machine with two CPUs (the Commodore 128's Z80 and 8502) debugs whichever
+  // runs now; the others' family never changes, so their panel is never rebuilt.
+  const family = createMemo(() => {
+    regsRev();
+    return machine?.services.debug.cpuFamily ?? machineCpuFamily();
+  });
+  return <Dynamic component={PANELS[family()] ?? GenericRegisters} />;
 }

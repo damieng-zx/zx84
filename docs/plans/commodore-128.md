@@ -103,7 +103,9 @@ Drives and Keyboard rows above describe `c64/` as it was; those files now live i
    MCP and UI debug tools are family-blind through `DebugService`. (a) Report
    `m6502` and make the Z80 invisible to the debugger (the BIOS only runs briefly
    at boot). (b) A `DebugService` that routes to whichever CPU is active.
-   **Decided: (a) first**, (b) with the CP/M phase.
+   **Decided: (a) first**, (b) with the CP/M phase. **Done as (b) ahead of CP/M:** `services/debug.ts`
+   routes to the 8502's service or the Z80's by which CPU is in charge (`cpuIs8502`), the register panel
+   follows `services.debug.cpuFamily` live, and `descriptor.cpuFamily` stays `m6502`.
 
 ---
 
@@ -268,8 +270,8 @@ Not done in this phase, and why:
 - The page 0/1 relocation rules are C128 mode's; C64 mode's (and the VICE source's *(FIXME,
   to be settled on real hardware)* cases) belong to Phase 5.
 - The Z80 timing is a flat two T-states to a cycle, with no wait states or DMA; the VIC-II's bus
-  holds are applied to it as to the 8502. Debug stops ignore the Z80. Phase 8 refines both if
-  CP/M is wanted.
+  holds are applied to it as to the 8502. Phase 8 refines both if CP/M is wanted. (Debug stops
+  no longer ignore the Z80: see the Z80 debug and trace paragraph at the end of Phase 7.)
 - The two-block (128K) machine only: `CR` bit 7 and `RCR` bit 7 are ignored.
 
 ### Phase 3: VIC-IIe extras and 2 MHz *(done)*
@@ -494,8 +496,18 @@ a `C128 CARTRIDGE` `.crt` or a bare 8K/16K/32K image, mapped by the MMU's extern
 the KERNAL autostarts it by its CBM header). One thing on the port at a time. The BASIC 7.0 panes and the
 TEXT overlay are done too.
 
-**Not done:** Z80 tracing and breakpoints (the debugger follows the 8502 only), banked 128
-cartridges, and the internal function ROM socket's UI.
+**Z80 debug and trace done:** the debugger follows whichever CPU runs (the Z80 until the BIOS hands over,
+then the 8502). Registers, disassembly, poking, step into/over/out and breakpoints are the Z80's while it
+is in charge (`Z80DebugService` over a host of the 128's own: the Z80's address space, with the BIOS at
+$0000 and I/O only through IN and OUT); `stepInstruction` runs one instruction of either CPU with the
+chips clocked and switches the debugger to the 8502 at the step that hands over. Memory and port
+watchpoints see the Z80's accesses (its port is the $Dxxx address). One trace (`c128/trace.ts`) spans
+both: the Z80 text and the 8502 text under `--- Z80 ---` and `--- 8502 ---` headings in the order they
+ran, or one CPU's text bare when only it ran; `zxtl` is the Z80's only. Tests: `tests/c128/c128-debug.test.ts`
+(with `hand-bios.ts`, and the real BIOS stepped to the handover). Z80 interrupts are not in the
+interrupt log and its accesses are stamped per instruction, not per cycle.
+
+**Not done:** banked 128 cartridges and the internal function ROM socket's UI.
 
 ### Phase 8: Z80 and CP/M *(only if wanted, decision 3)*
 - Z80 memory and I/O through the MMU, the Z80 clock/wait-state model, the

@@ -466,6 +466,13 @@ export class C128Memory implements IMachineMemory, VicBus {
     return this.mapped(addr, false);
   }
 
+  /** The Z80's whole 64K as it sees it now, with no side effects (the debugger's). */
+  z80Snapshot(): Uint8Array {
+    const out = new Uint8Array(0x10000);
+    for (let i = 0; i < 0x10000; i++) out[i] = this.z80Read(i);
+    return out;
+  }
+
   /** The Z80's memory write. */
   z80Write(addr: number, value: number): void {
     addr &= 0xFFFF;

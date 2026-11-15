@@ -4,7 +4,7 @@
  * the I/O page runs at 1 MHz, and shuts the VIC-IIe off (the border colour
  * everywhere, no bad lines, no sprite DMA). The 64's map has no such
  * register. Programs are assembled by hand into a ROM-less machine whose Z80
- * BIOS copies them to $1100 and starts the 8502 there; with the real ROMs,
+ * BIOS copies them to $1100 and starts the 8502 there (`hand-bios.ts`); with the real ROMs,
  * BASIC's FAST and SLOW commands turn it on and off.
  */
 
@@ -13,44 +13,7 @@ import { C128Machine } from '@/machines/c128/c128-machine.ts';
 import { VIC_PALETTE } from '@/machines/shared/cbm/vic-ii-board.ts';
 import { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import { romImage } from '../snapshot/native-state-helpers.ts';
-
-/** The Z80 side of a start-up like the real BIOS's: copy `program` to $1100
- *  with I/O off, point the 8502's reset vector at it, and hand over. */
-function machineRunning(program: number[]): C128Machine {
-  const bios = [
-    0x3E, 0x3F, 0x32, 0x00, 0xFF,                         // LD A,$3F : LD ($FF00),A    CR: RAM above $4000, I/O off
-    0x21, 0x30, 0x00,                                     // LD HL,table
-    0x11, 0x00, 0x11,                                     // LD DE,$1100
-    0x01, program.length & 0xFF, program.length >> 8,     // LD BC,length
-    0xED, 0xB0,                                           // LDIR
-    0x21, 0x00, 0x11,                                     // LD HL,$1100
-    0x22, 0xFC, 0xFF,                                     // LD ($FFFC),HL              the 8502's reset vector, in RAM
-    0x3E, 0x3E, 0x32, 0x00, 0xFF,                         // LD A,$3E : LD ($FF00),A    CR: I/O on again
-    0x01, 0x05, 0xD5,                                     // LD BC,$D505
-    0x3E, 0xB1,                                           // LD A,$B1
-    0xED, 0x79,                                           // OUT (C),A                  MCR bit 0: the 8502
-    0x76,                                                 // HALT
-  ];
-  const kernal = new Uint8Array(0x4000);
-  kernal.set(bios, 0x1000);
-  kernal.set(program, 0x1030);
-  const m = new C128Machine(null);
-  m.loadRoms(null, null, kernal, null);
-  m.reset();
-  return m;
-}
-
-/** A counter loop from $1105 on: INC $FB, carrying into $FC, then `extra`, then JMP back.
- *  The first five bytes ($1100) set $D030 to `d030`. */
-function counter(d030: number, extra: number[] = []): number[] {
-  const body = [
-    0xE6, 0xFB,                                           // INC $FB
-    0xD0, 0x02,                                           // BNE +2
-    0xE6, 0xFC,                                           // INC $FC
-    ...extra,
-  ];
-  return [0xA9, d030, 0x8D, 0x30, 0xD0, ...body, 0x4C, 0x05, 0x11];
-}
+import { counter, machineRunning } from './hand-bios.ts';
 
 const count = (m: C128Machine): number => m.memory.ram[0xFC] * 256 + m.memory.ram[0xFB];
 const run = (m: C128Machine, frames: number): void => { for (let f = 0; f < frames; f++) m.tick(); };

@@ -1,17 +1,17 @@
 /**
  * The C128's service surface: the Datasette, the disk drives on the serial
- * bus, programs and snapshots through media, the ROMs, and the 6502 debug
- * family.
+ * bus, programs and snapshots through media, the ROMs, and the debugger over
+ * both CPUs (the 8502 and the Z80).
  */
 
 import type { MachineServices } from '@/machines/machine.ts';
-import { M6502DebugService } from '@/debug/m6502/service.ts';
 import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import type { C128Machine } from '../c128-machine.ts';
 import { C128_STATE } from '../snapshots/c128-state.ts';
 import { CbmDiskService } from '@/machines/shared/cbm/disk-service.ts';
 import { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
 import { tapFormat } from '@/media/tape/c64-tap.ts';
+import { C128DebugService } from './debug.ts';
 import { C128FrameProbe } from './frame-probe.ts';
 import { C128InputService } from './input.ts';
 import { C128MediaService } from './media.ts';
@@ -45,6 +45,6 @@ export function createC128Services(m: C128Machine): C128Services {
     snapshots,
     input: new C128InputService(m),
     probe: new C128FrameProbe(m),
-    debug: new M6502DebugService(m),
+    debug: new C128DebugService(m),
   };
 }

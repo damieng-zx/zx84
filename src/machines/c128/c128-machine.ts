@@ -33,6 +33,8 @@ import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { accessTime, isReadModifyWrite } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
+import { Z80Trace } from '@/debug/z80/trace.ts';
+import { C128Trace } from './trace.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { C64Program } from '@/media/tape/t64.ts';
@@ -282,10 +284,25 @@ export class C128Machine extends BaseMachine implements Machine {
       this.memory.writeByte(addr, val);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
     };
-    this.z80.read8 = (addr) => this.memory.z80Read(addr);
-    this.z80.write8 = (addr, val) => this.memory.z80Write(addr, val);
-    this.z80.portInHandler = (port) => this.memory.z80In(port);
-    this.z80.portOutHandler = (port, val) => this.memory.z80Out(port, val);
+    this.z80.read8 = (addr) => {
+      const value = this.memory.z80Read(addr);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
+      return value;
+    };
+    this.z80.write8 = (addr, val) => {
+      this.memory.z80Write(addr, val);
+      if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, val & 0xFF, 'write');
+    };
+    // The Z80's port is the $Dxxx I/O address the MMU maps (its 16-bit port address).
+    this.z80.portInHandler = (port) => {
+      const value = this.memory.z80In(port);
+      if (this.portWatchpoints.size > 0) this.recordPortWatch(port & 0xFFFF, value, 'in');
+      return value;
+    };
+    this.z80.portOutHandler = (port, val) => {
+      this.memory.z80Out(port, val);
+      if (this.portWatchpoints.size > 0) this.recordPortWatch(port & 0xFFFF, val & 0xFF, 'out');
+    };
     this.wireIo();
     this.iec.driveModels = ['1571'];
     this.iec.attachFastSerial(this.cia1, this.timing.clockHz);
@@ -851,33 +868,63 @@ export class C128Machine extends BaseMachine implements Machine {
       const free = vic.stealEnd(cpu.tStates);
       if (free !== cpu.tStates) { cpu.tStates = free; continue; }
       if (this.running8502 !== this.memory.mmu.cpu8502) this.switchCpu();
-      if (!this.running8502) { this.stepZ80(); continue; }
-      if (this.checkStops(cpu.pc)) return false;
-      const fast = this.fast2MHz;
-      if (fast !== vic.blank) vic.setBlank(fast, cpu.tStates);
-      this.fastNow = fast;
-      this.fastIo = 0;
-      const start = cpu.tStates;
-      const pc = cpu.pc;
-      this.beforeInsn(pc);
-      this.insnStart = start;
-      this.insnOp = cpu.interruptPending() ? -1 : this.memory.peekByte(pc);
-      this.insnRmw = this.insnOp >= 0 && isReadModifyWrite(this.insnOp);
-      this.rmwAddr = -1;
-      cpu.step();
-      if (fast) {
-        // Cycles of the 2 MHz clock are halves of the master's; an I/O access is a whole one.
-        const halves = (cpu.tStates - start) + this.fastIo + this.fastCarry;
-        cpu.tStates = start + (halves >> 1);
-        this.fastCarry = halves & 1;
-      }
-      cpu.tStates += vic.stretch(start, cpu.tStates);
-      this.lastInsnStart = start;
-      const stopped = this.afterInsn();
-      this.afterStep();
-      if (stopped) return false;
+      if (this.runInstruction(true)) return false;
     }
     return true;
+  }
+
+  /** One instruction of the CPU in charge, as the frame loop runs it (chips
+   *  clocked, the VIC-IIe's holds taken). `stops` is whether a breakpoint or
+   *  beam target at its address stops the run first. True when a stop was
+   *  raised, before the instruction (a breakpoint) or after it (a watchpoint). */
+  private runInstruction(stops: boolean): boolean {
+    const cpu = this.cpu;
+    const vic = this.vic;
+    if (!this.running8502) {
+      const zpc = this.z80.pc;
+      if (stops && this.checkStops(zpc)) return true;
+      this.beforeInsn(zpc);
+      // The Z80's accesses are stamped as they happen; only the 8502's wait for its instruction's end.
+      this.deferAccessStamps = false;
+      this.stepZ80();
+      this.deferAccessStamps = true;
+      return this.afterInsn();
+    }
+    if (stops && this.checkStops(cpu.pc)) return true;
+    const fast = this.fast2MHz;
+    if (fast !== vic.blank) vic.setBlank(fast, cpu.tStates);
+    this.fastNow = fast;
+    this.fastIo = 0;
+    const start = cpu.tStates;
+    const pc = cpu.pc;
+    this.beforeInsn(pc);
+    this.insnStart = start;
+    this.insnOp = cpu.interruptPending() ? -1 : this.memory.peekByte(pc);
+    this.insnRmw = this.insnOp >= 0 && isReadModifyWrite(this.insnOp);
+    this.rmwAddr = -1;
+    cpu.step();
+    if (fast) {
+      // Cycles of the 2 MHz clock are halves of the master's; an I/O access is a whole one.
+      const halves = (cpu.tStates - start) + this.fastIo + this.fastCarry;
+      cpu.tStates = start + (halves >> 1);
+      this.fastCarry = halves & 1;
+    }
+    cpu.tStates += vic.stretch(start, cpu.tStates);
+    this.lastInsnStart = start;
+    const stopped = this.afterInsn();
+    this.afterStep();
+    return stopped;
+  }
+
+  /** Execute exactly one instruction of the CPU in charge, the debugger's step:
+   *  the Z80 until the BIOS hands over, then the 8502. The VIC-IIe's line
+   *  events (bad lines, sprite fetches) are the frame loop's and catch up
+   *  when it runs again. */
+  stepInstruction(): void {
+    if (this.running8502 !== this.memory.mmu.cpu8502) this.switchCpu();
+    this.runInstruction(false);
+    // A step that hands the machine over leaves the new CPU at its start, to be seen there.
+    if (this.running8502 !== this.memory.mmu.cpu8502) this.switchCpu();
   }
 
   /** One Z80 instruction (or interrupt), its T-states charged to the master clock. */
@@ -1102,7 +1149,7 @@ export class C128Machine extends BaseMachine implements Machine {
       cyclesPerLine: this.timing.cyclesPerLine,
       linesPerFrame: this.timing.linesPerFrame,
       displayStart: 0,
-      note: `line 0 is raster line 0 and cycle 0 of a line is the ${this.timing.ntsc ? '8564' : '8566'}'s cycle 1, where the raster counter moves on and the raster interrupt is raised; bad lines hold the CPU from cycle 11 to 54 and sprite DMA from cycle 54 on. The display window is lines 51-250. The picture is drawn as the beam goes, caught up before every VIC-IIe and CIA 2 write. The 8502 runs at 1 MHz (2 MHz is not modelled) and the Z80 is stepped at two T-states to a cycle`,
+      note: `line 0 is raster line 0 and cycle 0 of a line is the ${this.timing.ntsc ? '8564' : '8566'}'s cycle 1, where the raster counter moves on and the raster interrupt is raised; bad lines hold the CPU from cycle 11 to 54 and sprite DMA from cycle 54 on. The display window is lines 51-250. The picture is drawn as the beam goes, caught up before every VIC-IIe and CIA 2 write. The 8502 runs at 1 MHz, or at 2 MHz with the VIC-IIe blank, against the same master clock the beam counts in. The Z80 is stepped at two T-states to a cycle; its accesses are stamped when its instruction runs, and its interrupts are not in the interrupt log`,
     };
   }
   override supportsBeamStops(): boolean { return true; }
@@ -1113,7 +1160,15 @@ export class C128Machine extends BaseMachine implements Machine {
     return (addr >> 12) === 0xD && this.memory.ioIn ? -1 : this.memory.peekByte(addr);
   }
 
-  protected override tracer = new M6502Trace(this, { io: [[0xD000, 0xDFFF]], ioLabel: c128IoLabel });
+  /** One trace over both CPUs: the Z80 (the BIOS, in its own address space) and the 8502. */
+  protected override tracer = new C128Trace(
+    new Z80Trace({
+      cpu: this.z80,
+      memory: { readByte: a => this.memory.z80Read(a), peekByte: a => this.memory.z80Read(a) },
+    }),
+    new M6502Trace(this, { io: [[0xD000, 0xDFFF]], ioLabel: c128IoLabel }),
+    () => this.running8502,
+  );
 
   ramExportBytes(): { data: Uint8Array; filename: string } {
     return { data: this.memory.ram.slice(), filename: `${this.model}-ram-128k.bin` };

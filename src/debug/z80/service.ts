@@ -20,11 +20,16 @@ import type {
   CpuPorts, DebugPanelDescriptor, DebugService, DisasmRow, Machine, MachineTraceMode, RegisterDesc, RegisterSnapshot,
 } from '@/machines/machine.ts';
 
-/** The structural surface a Z80 machine offers its debug service. Every Z80
- *  machine class satisfies this with its ordinary concrete members — the
- *  members stay OFF the machine-blind `Machine` interface. */
-export interface Z80DebugTarget extends Machine {
+/** What the Z80 debug service uses of the machine it debugs. A machine with a
+ *  second CPU (the Commodore 128's Z80 beside its 8502) offers this for the
+ *  Z80 alone, over its own address space. */
+export interface Z80DebugHost {
   cpu: Z80;
+  memory: { readByte(addr: number): number; snapshot(): Uint8Array };
+  breakpoints: Set<number>;
+  /** Execute one instruction inside the machine's frame loop (chips clocked,
+   *  the master clock charged), when it has one. */
+  stepInstruction?(): void;
   startTrace(mode?: string): void;
   stopTrace(): string;
   traceSession(): MachineTraceMode | null;
@@ -34,6 +39,11 @@ export interface Z80DebugTarget extends Machine {
   ramExportBytes?(): { data: Uint8Array; filename: string } | null;
   printerExportBytes?(): { data: Uint8Array; filename: string } | null;
 }
+
+/** The structural surface a Z80 machine offers its debug service. Every Z80
+ *  machine class satisfies this with its ordinary concrete members — the
+ *  members stay OFF the machine-blind `Machine` interface. */
+export type Z80DebugTarget = Machine & Z80DebugHost;
 
 /** Family accessor: the Z80 CPU of a machine, or null for another family.
  *  The ONLY sanctioned way for a host (MCP) to reach a CPU object. */
@@ -60,7 +70,7 @@ export class Z80DebugService implements DebugService {
    *  handlers, exactly as an `IN A,(n)` would drive them. */
   readonly ports: CpuPorts;
 
-  constructor(private readonly m: Z80DebugTarget) {
+  constructor(private readonly m: Z80DebugHost) {
     this.ports = {
       in: (port: number) => this.m.cpu.portIn(port),
       out: (port: number, value: number) => this.m.cpu.portOut(port, value),
@@ -189,12 +199,19 @@ export class Z80DebugService implements DebugService {
     return formatDisasmHtml(disassembleAroundPC(snap, pc, lines), snap, pc, this.m.breakpoints);
   }
 
+  /** One instruction: through the machine's frame loop when it has one, so
+   *  the chips keep time; else the bare CPU. */
+  private step1(): void {
+    if (this.m.stepInstruction) this.m.stepInstruction();
+    else this.m.cpu.step();
+  }
+
   /** Raw single instruction — no halted-wake semantics (MCP `step`). */
-  stepOne(): void { this.m.cpu.step(); }
+  stepOne(): void { this.step1(); }
 
   /** UI step-into: wake a halted CPU into the interrupt handler first. */
   stepInto(): void {
-    if (!wakeHaltedIntoInterrupt(this.m.cpu)) this.m.cpu.step();
+    if (!wakeHaltedIntoInterrupt(this.m.cpu)) this.step1();
   }
 
   /**
@@ -227,15 +244,15 @@ export class Z80DebugService implements DebugService {
       const instrLen = (op & 0xC7) === 0xC2 ? 3 : 2;
       const nextPC = (cpu.pc + instrLen) & 0xFFFF;
       const limit = cpu.tStates + 5_000_000;
-      cpu.step();
-      while (cpu.pc !== nextPC && cpu.tStates < limit) cpu.step();
+      this.step1();
+      while (cpu.pc !== nextPC && cpu.tStates < limit) this.step1();
     } else if (!isCall) {
-      cpu.step();
+      this.step1();
     } else {
       const targetSP = cpu.sp;
       const limit = cpu.tStates + 5_000_000; // safety: max ~1.4 seconds
-      cpu.step(); // execute the CALL/RST
-      while (((targetSP - cpu.sp) & 0xFFFF) > 0 && cpu.tStates < limit) cpu.step();
+      this.step1(); // execute the CALL/RST
+      while (((targetSP - cpu.sp) & 0xFFFF) > 0 && cpu.tStates < limit) this.step1();
     }
   }
 
@@ -244,7 +261,7 @@ export class Z80DebugService implements DebugService {
     const cpu = this.m.cpu;
     const targetSP = (cpu.sp + 2) & 0xFFFF;
     const limit = cpu.tStates + 10_000_000; // safety: max ~2.8 seconds
-    while (((targetSP - cpu.sp) & 0xFFFF) > 0 && cpu.tStates < limit) cpu.step();
+    while (((targetSP - cpu.sp) & 0xFFFF) > 0 && cpu.tStates < limit) this.step1();
   }
 
   /** The clipboard CPU-state + disassembly block (Copy CPU state button). */

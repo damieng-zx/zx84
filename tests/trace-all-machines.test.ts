@@ -134,7 +134,8 @@ describe.each(FAMILIES)('execution trace on $kind ($model)', ({ kind, model, ent
     try {
       m.services.debug.startTrace('bogus');
       expect(m.services.debug.traceSession()).toBeNull();
-      if (m.descriptor.cpuFamily !== 'z80') {
+      // 'zxtl' is a Z80 layout: a 6502 machine does not offer it, but the 128 has a Z80 as well.
+      if (m.descriptor.cpuFamily !== 'z80' && m.descriptor.kind !== 'c128') {
         m.services.debug.startTrace('zxtl');
         expect(m.services.debug.traceSession()).toBeNull();
       }
