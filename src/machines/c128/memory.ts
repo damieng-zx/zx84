@@ -47,7 +47,15 @@
  * the character ROM only in banks 0 and 2, the MMU's $FF00-$FF04 are plain
  * memory, and page 0 and 1 relocation is off (the C64 mode start-up leaves
  * the pointers at their defaults). The 128's own ROMs are out of the map.
- * No cartridge is modelled yet: /GAME and /EXROM are taken as high.
+ *
+ * The expansion port holds either a 64 cartridge (`cart`) or a 128 function ROM
+ * (`extRom`). In C64 mode the cartridge's /GAME and /EXROM lines make the 64's
+ * map exactly as on a 64 (ROML at $8000, ROMH at $A000 or, in Ultimax mode,
+ * $E000, the rest open). In C128 mode the MMU's configuration register sets
+ * the external function ROM over $8000-$BFFF and $C000-$FFFF, and the internal
+ * one (`intRom`, an empty socket unless something fits it) likewise. The lines
+ * are also what the MMU's mode register reads at bits 4 and 5, so the BIOS
+ * starts a 64 cartridge in C64 mode.
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
@@ -58,6 +66,8 @@ import {
   C128_KERNAL64_SIZE, C128_KERNAL_SIZE, C128_Z80_BIOS_OFFSET,
 } from './constants.ts';
 import { Mmu } from './mmu.ts';
+import type { C64Cartridge } from '@/machines/shared/cbm/cartridge.ts';
+import type { C128FunctionRom } from './function-rom.ts';
 
 /** I/O handlers the machine installs for $D000-$DFFF. */
 export type IoRead = (addr: number) => number;
@@ -98,6 +108,15 @@ export class C128Memory implements IMachineMemory, VicBus {
   readonly colorBanks: readonly [Uint8Array, Uint8Array] = [new Uint8Array(0x400), new Uint8Array(0x400)];
 
   readonly mmu = new Mmu();
+
+  /** A 64 cartridge on the expansion port, and the lines it holds (as levels,
+   *  0 = pulled low); null for none. */
+  cart: C64Cartridge | null = null;
+  /** The external and internal function ROMs, for the MMU's choice of them. */
+  extRom: C128FunctionRom | null = null;
+  intRom: C128FunctionRom | null = null;
+  private cartExrom = 1;
+  private cartGame = 1;
 
   /** 8502 port: direction (1 = output) and output latch. */
   portDdr = 0;
@@ -141,8 +160,40 @@ export class C128Memory implements IMachineMemory, VicBus {
     this.portDdr = 0;
     this.portData = 0;
     this.mmu.reset();
+    this.cart?.reset();
+    this.refreshCart();
     this.updatePort();
   }
+
+  /** Power-up of the cartridge, after the CPU's clock has restarted. */
+  resetCartridge(): void {
+    this.cart?.reset();
+    this.refreshCart();
+  }
+
+  /** Put a 64 cartridge on the port (null takes it off). */
+  setCartridge(cart: C64Cartridge | null, clock: () => number): void {
+    if (this.cart) this.cart.onLines = null;
+    this.cart = cart;
+    if (cart) {
+      cart.clock = clock;
+      cart.onLines = () => this.refreshCart();
+    }
+    this.refreshCart();
+  }
+
+  /** The cartridge's lines moved (or it came or went): follow them, and tell
+   *  the MMU's mode register, which reads them. */
+  private refreshCart(): void {
+    const lines = this.cart ? this.cart.lines : { exrom: 1, game: 1 };
+    this.cartExrom = lines.exrom;
+    this.cartGame = lines.game;
+    this.mmu.exrom = lines.exrom !== 0;
+    this.mmu.game = lines.game !== 0;
+  }
+
+  /** Ultimax: the 64's cartridge-only map (EXROM high, GAME low). */
+  get ultimax(): boolean { return this.mmu.c64Mode && this.cartExrom === 1 && this.cartGame === 0; }
 
   /** Install the ROM images; one that is null or left out keeps what it has. */
   loadRoms(
@@ -227,8 +278,9 @@ export class C128Memory implements IMachineMemory, VicBus {
       case 2:
         switch ((cr >> 2) & 3) {
           case 0: return this.basicHi[addr - 0x8000];
-          case 3: return this.ramRead(addr);
-          default: return 0xFF;               // a function ROM socket with nothing in it
+          case 1: return this.intRom ? this.intRom.byte(addr) : 0xFF;
+          case 2: return this.extRom ? this.extRom.byte(addr) : 0xFF;
+          default: return this.ramRead(addr);
         }
       default: {
         if (addr >= 0xFF00 && addr <= 0xFF04) return mmu.readFF(addr);
@@ -239,7 +291,9 @@ export class C128Memory implements IMachineMemory, VicBus {
         } else if (hi === 0) {
           return this.kernal[addr - 0xC000];
         }
-        return hi === 3 ? this.ramRead(addr) : 0xFF;
+        if (hi === 1) return this.intRom ? this.intRom.byte(addr) : 0xFF;
+        if (hi === 2) return this.extRom ? this.extRom.byte(addr) : 0xFF;
+        return this.ramRead(addr);
       }
     }
   }
@@ -316,6 +370,7 @@ export class C128Memory implements IMachineMemory, VicBus {
 
   /** What $D000-$DFFF is in C64 mode: RAM, the character ROM or I/O. */
   private get c64Plane(): number {
+    if (this.ultimax) return C64_IO;
     const p = this.portPins;
     if ((p & 3) === 0) return C64_RAM;
     return (p & 4) !== 0 ? C64_IO : C64_CHARGEN;
@@ -325,11 +380,29 @@ export class C128Memory implements IMachineMemory, VicBus {
    *  or a read with no I/O). */
   private c64Byte(addr: number, how: number): number {
     const p = this.portPins;
+    const cart = this.cart;
+    const ultimax = this.cartExrom === 1 && this.cartGame === 0;
     switch (addr >> 12) {
+      case 0x8: case 0x9:
+        if (cart !== null) {
+          // The Epyx FastLoad's capacitor decides this by the clock.
+          if (cart.dynamicLines) this.refreshCart();
+          if ((this.cartExrom === 0 && (p & 3) === 3) || (this.cartExrom === 1 && this.cartGame === 0)) {
+            return how === C64_PEEK ? cart.peekRoml(addr & 0x1FFF) : cart.readRoml(addr & 0x1FFF);
+          }
+        }
+        break;
       case 0xA: case 0xB:
-        if ((p & 3) === 3) return this.basic64[addr - 0xA000];
+        if (ultimax) return 0xFF;
+        if (cart !== null && this.cartExrom === 0 && this.cartGame === 0 && (p & 2) !== 0) return cart.readRomh(addr & 0x1FFF);
+        if ((p & 3) === 3 && this.cartGame === 1) return this.basic64[addr - 0xA000];
         break;
       case 0xD:
+        if (ultimax) {
+          if (how === C64_READ) return this.ioRead(addr);
+          if (how === C64_PEEK) return this.ioPeek(addr) & 0xFF;
+          return 0xFF;
+        }
         if ((p & 3) !== 0) {
           if ((p & 4) === 0) return this.chargen[addr - 0xD000];
           if (how === C64_READ) return this.ioRead(addr);
@@ -338,7 +411,11 @@ export class C128Memory implements IMachineMemory, VicBus {
         }
         break;
       case 0xE: case 0xF:
+        if (ultimax) return cart!.readRomh(addr & 0x1FFF);
         if ((p & 2) !== 0) return this.kernal64[addr - 0xE000];
+        break;
+      case 0x1: case 0x2: case 0x3: case 0x4: case 0x5: case 0x6: case 0x7: case 0xC:
+        if (ultimax) return 0xFF;
         break;
       default: break;
     }
@@ -348,6 +425,8 @@ export class C128Memory implements IMachineMemory, VicBus {
   /** A write in C64 mode: to I/O when it is in view, otherwise to the RAM under whatever is. */
   private c64Store(addr: number, v: number): void {
     if ((addr >> 12) === 0xD && this.c64Plane === C64_IO) { this.ioWrite(addr, v); return; }
+    // Ultimax has no RAM above $1000 (ROM where the KERNAL goes).
+    if (addr >= 0x1000 && this.ultimax) return;
     this.ram[this.mmu.ramAddress(addr, this.mmu.ramBlock)] = v;
   }
 
@@ -443,6 +522,7 @@ export class C128Memory implements IMachineMemory, VicBus {
     this.portDdr = r.u8(); this.portData = r.u8();
     this.setVicBank(r.u8());
     this.mmu.loadState(r);
+    this.refreshCart();
     this.updatePort();
   }
 
@@ -453,6 +533,8 @@ export class C128Memory implements IMachineMemory, VicBus {
   vicRead(addr14: number): number {
     const a = addr14 & 0x3FFF;
     if (this.mmu.c64Mode) {
+      // Ultimax: the VIC-II sees the ROMH at $3000-$3FFF of every bank.
+      if (this.ultimax && (a & 0x3000) === 0x3000) return this.cart!.readRomh(0x1000 | (a & 0x0FFF));
       // The 64's rule: the character ROM (its 4K set) in banks 0 and 2.
       if ((a & 0x3000) === 0x1000 && (this.vicBase & 0x4000) === 0) return this.chargen[a & 0x0FFF];
     } else if (this.vicChargen && (a & 0x3000) === 0x1000) {

@@ -52,8 +52,8 @@ const C128_UI: MachineUiCapabilities = {
     { id: C128_MOUSE_PORT1, label: '1351 in port 1' },
     { id: C128_MOUSE_PORT2, label: '1351 in port 2' },
   ],
-  // Cartridges (64 mode's expansion port and 128 mode's function ROM sockets) are not there yet.
-  cartridge: false,
+  // The expansion port: 64 cartridges in 64 mode, function ROMs in 128 mode.
+  cartridge: true,
   systemRomLabel: 'BASIC 7 + system + characters + 64 ROMs',
   romPages: 0,
   beeper: false,
@@ -70,7 +70,9 @@ const C128_UI: MachineUiCapabilities = {
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
-  bootCartridge: false,
+  // A cartridge mounted from a file is kept across a reload (the slot has no
+  // hidden default cartridge: there is no `bootCartridgeSource`).
+  bootCartridge: true,
   library: false,
   memoryRegions: [
     { value: 'rom-basic-lo', label: 'BASIC low ROM' },

@@ -1,6 +1,6 @@
 # Plan: Commodore 128
 
-Status: **decisions settled; Phases 0-2 and 4-7 done (research, shared parts, C128 mode booting to READY, the VDC 80-column display, C64 mode, the drives with burst mode, and the machine as part of the app: descriptor, services, UI; cartridges, 2 MHz mode, the BASIC pane and the TEXT overlay are not done).** Worktree `F:/src/zx/zx84-c128`, branch
+Status: **decisions settled; Phases 0-2 and 4-7 done (research, shared parts, C128 mode booting to READY, the VDC 80-column display, C64 mode, the drives with burst mode, and the machine as part of the app: descriptor, services, UI; cartridges are done: 64 boards in 64 mode and function ROMs in 128 mode; 2 MHz mode is not).** Worktree `F:/src/zx/zx84-c128`, branch
 `feature/c128`, cut from `dev` and fast-forwarded to 12cdae9d (the VIC-20 merge). When the machine lands, this file
 becomes `docs/machines/commodore-128.md`, written to
 [`TEMPLATE.md`](../machines/TEMPLATE.md). Follow
@@ -482,9 +482,14 @@ supports four), and the snapshot of a drive's state (Phase 7).
 - Tests: `tests/c128/c128-services.test.ts`; `tests/bare-boot.ts` hands the ROM-less 128 from its Z80
   to the 8502 for the all-machines stop, beam and trace tests.
 
-**Not done:** cartridges (64 mode's expansion port, 128 mode's function ROM sockets), the BASIC 7.0
-pane (token table and variable layout), the 2 MHz indicator (Phase 3), Z80 tracing and breakpoints
-(the debugger follows the 8502 only), and any check in a browser (the dev server was not started).
+**Cartridges done:** the expansion port takes a 64 cartridge (the boards of `shared/cbm/cartridge.ts`, seen in
+C64 mode; the BIOS starts the machine in C64 mode for one) or a 128 function ROM (`c128/function-rom.ts`:
+a `C128 CARTRIDGE` `.crt` or a bare 8K/16K/32K image, mapped by the MMU's external function ROM setting;
+the KERNAL autostarts it by its CBM header). One thing on the port at a time. The BASIC 7.0 panes and the
+TEXT overlay are done too.
+
+**Not done:** the 2 MHz mode (Phase 3), Z80 tracing and breakpoints (the debugger follows the 8502
+only), banked 128 cartridges, and the internal function ROM socket's UI.
 
 ### Phase 8: Z80 and CP/M *(only if wanted, decision 3)*
 - Z80 memory and I/O through the MMU, the Z80 clock/wait-state model, the

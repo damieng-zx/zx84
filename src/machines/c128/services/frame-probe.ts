@@ -11,6 +11,7 @@ import { parseC128Basic, parseC128BasicVariables } from '@/basic/c128-basic-pars
 import { hex8 } from '@/utils/hex.ts';
 import type { C128Machine } from '../c128-machine.ts';
 import { sampleCbmDrives } from '@/machines/shared/cbm/drive-services.ts';
+import { C64_CART_TYPE_NAMES } from '@/machines/shared/cbm/cartridge.ts';
 
 const ROM_AT_8000 = ['BASIC high ROM', 'Internal function ROM', 'External function ROM', 'RAM'];
 const ROM_AT_C000 = ['System ROM (editor, KERNAL)', 'Internal function ROM', 'External function ROM', 'RAM'];
@@ -24,18 +25,28 @@ function c128MemoryMap(m: C128Machine): MemoryMapSnapshot {
   // In C64 mode the 8502's port bits 0-2 are the 64's PLA lines.
   const pins = mem.portPins;
   const loram = (pins & 1) !== 0, hiram = (pins & 2) !== 0;
+  const cart = mem.cart;
+  const { exrom, game } = cart ? cart.lines : { exrom: 1, game: 1 };
+  const ultimax = mem.ultimax;
+  const func = (name: string, rom: unknown): string => (rom ? `${name}: ${m.cartridgeFile || m.cartridge?.name || 'fitted'}` : `${name} (empty)`);
   const slots = m.c64Mode
     ? [
-      { range: 'E000-FFFF', read: hiram ? '64 KERNAL ROM' : 'RAM' },
+      { range: 'E000-FFFF', read: ultimax ? 'Cartridge ROMH' : hiram ? '64 KERNAL ROM' : 'RAM' },
       { range: 'D000-DFFF', read: mem.ioIn ? 'I/O' : loram || hiram ? 'Character ROM' : 'RAM' },
-      { range: 'C000-CFFF', read: 'RAM' },
-      { range: 'A000-BFFF', read: loram && hiram ? '64 BASIC ROM' : 'RAM' },
-      { range: '0000-9FFF', read: 'RAM' },
+      { range: 'C000-CFFF', read: ultimax ? 'Open' : 'RAM' },
+      {
+        range: 'A000-BFFF',
+        read: ultimax ? 'Open'
+          : exrom === 0 && game === 0 && hiram ? 'Cartridge ROMH'
+            : loram && hiram && game === 1 ? '64 BASIC ROM' : 'RAM',
+      },
+      { range: '8000-9FFF', read: ultimax || (exrom === 0 && loram && hiram) ? 'Cartridge ROML' : 'RAM' },
+      { range: '0000-7FFF', read: 'RAM' },
     ]
     : [
-      { range: 'C000-FFFF', read: ROM_AT_C000[(cr >> 4) & 3] },
+      { range: 'C000-FFFF', read: ((cr >> 4) & 3) === 2 ? func(ROM_AT_C000[2], mem.extRom) : ROM_AT_C000[(cr >> 4) & 3] },
       { range: 'D000-DFFF', read: mem.ioIn ? 'I/O' : 'Character ROM / system ROM / RAM' },
-      { range: '8000-BFFF', read: ROM_AT_8000[(cr >> 2) & 3] },
+      { range: '8000-BFFF', read: ((cr >> 2) & 3) === 2 ? func(ROM_AT_8000[2], mem.extRom) : ROM_AT_8000[(cr >> 2) & 3] },
       { range: '4000-7FFF', read: cr & 0x02 ? 'RAM' : 'BASIC low ROM' },
       { range: '0000-3FFF', read: 'RAM' },
     ];
@@ -49,6 +60,11 @@ function c128MemoryMap(m: C128Machine): MemoryMapSnapshot {
     { name: 'Display', value: m.showing80 ? '80 columns (VDC)' : '40 columns (VIC-IIe)' },
     { name: 'Cassette', value: mem.motorOn ? 'motor on' : 'motor off' },
   ];
+  if (cart) {
+    registers.push({ name: 'Cartridge', value: `${C64_CART_TYPE_NAMES[cart.type]}, EXROM ${exrom} GAME ${game}${ultimax ? ' (Ultimax)' : ''}` });
+  } else if (mem.extRom) {
+    registers.push({ name: 'Cartridge', value: '128 function ROM' });
+  }
   if (mmu.relocated) {
     registers.push({ name: 'Pages 0/1', value: `-> $${hex8(mmu.p0l)}/$${hex8(mmu.p1l)}` });
   }

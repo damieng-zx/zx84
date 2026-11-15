@@ -1,7 +1,7 @@
 /**
  * The 128's chips as the debugger's `chip_state` shows them: the VIC-IIe, the
- * SID, both CIAs, the 8563 VDC, the MMU with the 8502's port and, when drives
- * are fitted, the drives.
+ * SID, both CIAs, the 8563 VDC, the MMU with the 8502's port, the cartridge
+ * when one is fitted and, when drives are fitted, the drives.
  *
  * Every dump reads the chips' own state, never the bus, so taking one clears
  * no interrupt flag and trips no watchpoint (a CIA ICR read would, and so
@@ -9,6 +9,7 @@
  */
 
 import type { ChipSection } from '@/debug/chip-state.ts';
+import { C64_CART_TYPE_NAMES } from '@/machines/shared/cbm/cartridge.ts';
 import { bits, dumpCia, dumpSid, dumpVic, hx } from '@/machines/shared/cbm/chip-dump.ts';
 import { cbmDriveChips } from '@/machines/shared/cbm/drive-services.ts';
 import type { C128Machine } from './c128-machine.ts';
@@ -98,6 +99,26 @@ function dumpMmu(m: C128Machine): string {
   ].join('\n');
 }
 
+function dumpCart(m: C128Machine): string {
+  const cart = m.cartridge;
+  if (!cart) return 'No cartridge on the expansion port.';
+  const mem = m.memory;
+  if ('type' in cart) {
+    const { exrom, game } = cart.lines;
+    return [
+      `Cartridge  ${cart.name || '(unnamed)'}  (${C64_CART_TYPE_NAMES[cart.type]}), a 64 cartridge`,
+      `Lines      EXROM ${exrom ? 'high' : 'LOW'}  GAME ${game ? 'high' : 'LOW'}  ${mem.ultimax ? 'Ultimax' : exrom === 0 && game === 0 ? '16K' : exrom === 0 ? '8K' : 'out of the way'}` +
+        `  (a 64 cartridge is seen in C64 mode only)`,
+      ...cart.describe(),
+    ].join('\n');
+  }
+  return [
+    `Cartridge  ${cart.name || '(unnamed)'}  a 128 function ROM (external)`,
+    `Lines      /EXROM and /GAME high; the MMU maps it with CR bits 3-2 or 5-4 = 10`,
+    ...cart.describe(),
+  ].join('\n');
+}
+
 export function c128Chips(m: C128Machine): readonly ChipSection[] {
   return [
     { name: 'vic', description: 'VIC-IIe 8564/8566: mode, memory pointers, raster, IRQ, colours, sprites', dump: () => dumpVicIIe(m) },
@@ -106,6 +127,7 @@ export function c128Chips(m: C128Machine): readonly ChipSection[] {
     { name: 'cia1', description: 'CIA 1 ($DC00): keyboard, joysticks, timers, IRQ, fast serial shift register', dump: () => dumpCia1(m) },
     { name: 'cia2', description: 'CIA 2 ($DD00): VIC bank, serial bus, user port, timers, NMI', dump: () => dumpCia2(m) },
     { name: 'mmu', description: 'MMU 8722 and the 8502 port: configuration, RAM block, common RAM, page relocation, which CPU runs', dump: () => dumpMmu(m) },
+    ...(m.cartridge ? [{ name: 'cart', description: 'The cartridge on the expansion port: board, EXROM/GAME lines, banks', dump: () => dumpCart(m) }] : []),
     ...cbmDriveChips(m.drives),
   ];
 }

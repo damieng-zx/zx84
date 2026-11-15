@@ -48,6 +48,8 @@ import type {
 } from '@/machines/machine.ts';
 import type { C128Model } from './models.ts';
 import { C128Memory } from './memory.ts';
+import { parseCrt, type C64Cartridge } from '@/machines/shared/cbm/cartridge.ts';
+import { C128FunctionRom } from './function-rom.ts';
 import { C128Keyboard } from './keyboard.ts';
 import { Vdc, VDC_RAM_16K, VDC_RAM_64K } from './vdc.ts';
 import { c128ScreenText, vdcScreenText } from './screen-text.ts';
@@ -383,6 +385,9 @@ export class C128Machine extends BaseMachine implements Machine {
           if (this.iec.fitted && (addr & 0x0F) === 0) this.syncDrive(t);
           return cia2.read(addr);
         }
+        // The expansion port's two I/O areas, where a 64 cartridge keeps its registers.
+        case 0xE: return mmu.c64Mode && memory.cart ? memory.cart.io1Read(addr) : 0xFF;
+        case 0xF: return mmu.c64Mode && memory.cart ? memory.cart.io2Read(addr) : 0xFF;
         default: return 0xFF;
       }
     };
@@ -448,6 +453,8 @@ export class C128Machine extends BaseMachine implements Machine {
           if (bus) this.iec.update();
           break;
         }
+        case 0xE: if (mmu.c64Mode) memory.cart?.io1Write(addr, value); break;
+        case 0xF: if (mmu.c64Mode) memory.cart?.io2Write(addr, value); break;
         default: break;
       }
     };
@@ -514,6 +521,50 @@ export class C128Machine extends BaseMachine implements Machine {
     this.memory.loadRoms(basicLo, basicHi, kernal, chargen, basic64, kernal64);
   }
 
+  // ── Cartridge ────────────────────────────────────────────────────────────
+
+  /** What is on the expansion port: a 64 cartridge (the 64's boards; the BIOS
+   *  starts the machine in C64 mode for it) or a 128 function ROM (the MMU
+   *  maps it as the external function ROM), or null. */
+  get cartridge(): C64Cartridge | C128FunctionRom | null { return this.memory.cart ?? this.memory.extRom; }
+
+  /** Take whatever is on the port off, and fit `cart` or `rom` (or neither). */
+  setCartridge(cart: C64Cartridge | null, rom: C128FunctionRom | null = null): void {
+    this.memory.extRom = rom;
+    this.memory.setCartridge(cart, () => this.cpu.tStates);
+    if (cart === null && rom === null) this.cartridgeFile = '';
+  }
+
+  /** The file the cartridge came from, for the ROM pane ('' when it came
+   *  with a snapshot). */
+  cartridgeFile = '';
+
+  /** Change what is on the expansion port the way a person must: with the
+   *  power off, so the machine starts over with it. */
+  swapCartridge(change: () => void): void {
+    const wasActive = this.running || this.starting;
+    this.stop();
+    change();
+    this.reset();
+    if (wasActive) void this.start();
+  }
+
+  /** Plug a cartridge in (a 64 board or a 128 function ROM) and start over with it. */
+  mountCartridge(cart: C64Cartridge | C128FunctionRom, file: string): void {
+    this.swapCartridge(() => {
+      if (cart instanceof C128FunctionRom) this.setCartridge(null, cart);
+      else this.setCartridge(cart);
+      this.cartridgeFile = file;
+    });
+    this.setStatus(`Cartridge: ${file || cart.name}`);
+  }
+
+  /** Take the cartridge out and start over without it. */
+  ejectCartridge(): void {
+    this.swapCartridge(() => this.setCartridge(null));
+    this.setStatus('Cartridge ejected');
+  }
+
   /** The machine is in C64 mode (the MMU's mode register bit 6). */
   get c64Mode(): boolean { return this.memory.mmu.c64Mode; }
 
@@ -536,6 +587,8 @@ export class C128Machine extends BaseMachine implements Machine {
     this.memory.mmu.displayKeyUp = !this.keyboard.display80;
     this.cpu.reset();
     this.z80.reset();
+    // The cartridge starts over with the clock it keeps time by.
+    this.memory.resetCartridge();
     this.iec.reset();
     this.tapeRecorder.reset();
     this.recordedAtFrame = 0;
@@ -1188,6 +1241,13 @@ export class C128Machine extends BaseMachine implements Machine {
       w.bool(this.keyboard.capsLock); w.bool(this.keyboard.display80);
     });
     w.section('TV  ', () => w.bool(this.timing.ntsc));
+    w.section('CART', () => {
+      const cart = this.memory.cart;
+      const rom = this.memory.extRom;
+      w.u8(cart ? 1 : rom ? 2 : 0);
+      if (cart) { w.bytes(cart.image); cart.saveState(w); }
+      else if (rom) rom.saveState(w);
+    });
     w.section('MEM ', () => this.memory.saveState(w));
     w.section('VDC ', () => this.vdc.saveState(w));
     w.section('VIC ', () => this.vic.saveState(w));
@@ -1218,6 +1278,22 @@ export class C128Machine extends BaseMachine implements Machine {
     const ntsc = r.section('TV  ').bool();
     if (ntsc !== this.timing.ntsc) {
       throw new Error(`This is a ${ntsc ? 'NTSC' : 'PAL'} snapshot: choose the ${ntsc ? 'NTSC' : 'PAL'} Commodore 128 first`);
+    }
+    // States from before cartridges carry no CART section: nothing was fitted.
+    {
+      const kind = r.peekSection('CART') ? r.section('CART') : null;
+      const what = kind ? kind.u8() : 0;
+      if (what === 1 && kind) {
+        const parsed = parseCrt(kind.bytes());
+        if ('error' in parsed) throw new Error(`The snapshot's cartridge: ${parsed.error}`);
+        this.setCartridge(parsed.cart);
+        parsed.cart.loadState(kind);
+      } else if (what === 2 && kind) {
+        this.setCartridge(null, C128FunctionRom.loadState(kind));
+      } else if (this.cartridge) {
+        this.setCartridge(null);
+      }
+      if (what !== 0) this.cartridgeFile = '';
     }
     this.memory.loadState(r.section('MEM '));
     this.vdc.loadState(r.section('VDC '));

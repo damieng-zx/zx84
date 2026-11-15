@@ -9,6 +9,8 @@
  *  - `.d64` / `.g64`  a 1541 disk, put in the drive (device 8); a 1571 reads them too.
  *  - `.d71`  a double-sided disk for a 1571.
  *  - `.d81`  a 3.5" disk for a 1581.
+ *  - `.crt`  a cartridge: a 64 board (the machine starts in C64 mode for it) or
+ *            a 128 function ROM. The machine starts over with it.
  *  - `.c128state`  a zx84 snapshot.
  *
  * `.t64` and `.prg` are files rather than recordings, so they go straight
@@ -28,6 +30,8 @@ import type { C128Machine } from '../c128-machine.ts';
 import type { CbmDiskService } from '@/machines/shared/cbm/disk-service.ts';
 import type { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
 import { C128_STATE } from '../snapshots/c128-state.ts';
+import { parseC128Cartridge } from '../function-rom.ts';
+import { C64_CART_TYPE_NAMES } from '@/machines/shared/cbm/cartridge.ts';
 import { CBM_DISK_PATTERN, CBM_DISK_TYPES, mountCbmDisk } from '@/machines/shared/cbm/drive-services.ts';
 
 export class C128MediaService implements MediaService {
@@ -46,6 +50,7 @@ export class C128MediaService implements MediaService {
       { ext: '.t64', target: 'tape' },
       { ext: '.prg', target: 'tape' },
       ...CBM_DISK_TYPES,
+      { ext: '.crt', target: 'cartridge' },
       { ext: C128_STATE.ext, target: 'snapshot' },
     ];
   }
@@ -102,6 +107,18 @@ export class C128MediaService implements MediaService {
       return mountCbmDisk(this.m.iec, this.disks, data, name, target, this.m.refreshResumed);
     }
 
+    if (/\.crt$/i.test(name)) {
+      const parsed = parseC128Cartridge(data, name);
+      if ('error' in parsed) return { ok: false, message: `${parsed.error}: ${name}` };
+      if ('rom' in parsed) {
+        this.m.mountCartridge(parsed.rom, name);
+        return { ok: true, target: 'cartridge', message: `Cartridge: ${name} (128 function ROM)` };
+      }
+      this.m.mountCartridge(parsed.cart, name);
+      const kind = parsed.cart.type === 'normal' ? '' : ` (${C64_CART_TYPE_NAMES[parsed.cart.type]})`;
+      return { ok: true, target: 'cartridge', message: `Cartridge: ${name}${kind}` };
+    }
+
     if (name.toLowerCase().endsWith(C128_STATE.ext)) {
       const r = await this.snapshots.apply(data, name);
       if (r.needsReplay) return { ok: true, replay: true, message: r.message };
@@ -110,6 +127,6 @@ export class C128MediaService implements MediaService {
         : { ok: false, message: r.message };
     }
 
-    return { ok: false, message: 'The C128 loads .tap tapes, .t64 and .prg programs, .d64, .g64, .d71 and .d81 disks and .c128state snapshots' };
+    return { ok: false, message: 'The C128 loads .tap tapes, .t64 and .prg programs, .d64, .g64, .d71 and .d81 disks, .crt cartridges and .c128state snapshots' };
   }
 }

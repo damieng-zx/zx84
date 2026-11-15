@@ -3,17 +3,37 @@
  * ROM, the character ROM, and C64 mode's BASIC and KERNAL, each independently
  * overridable. The chips differ in size, so a socket sits at its own offset in
  * the six images end to end (`C128_ROM_SLOT_OFFSETS`); an override is cut to its
- * chip's size. The DOS ROM of each drive fitted is a socket of its own.
+ * chip's size. The cartridge slot takes a 64 cartridge or a 128 function ROM
+ * (`.crt`, or a bare 8K/16K/32K image). The DOS ROM of each drive fitted is a socket of its own.
  */
 
 import type {
-  MachineHost, RomService, RomSlotInfo, SidewaysRomSlot,
+  CartridgeSlot, MachineHost, RomService, RomSlotInfo, SidewaysRomSlot,
 } from '@/machines/machine.ts';
 import type { C128Machine } from '../c128-machine.ts';
 import {
   C128_ROM_CHIP_SIZES, C128_ROM_SLOT_LABELS, C128_ROM_SLOT_OFFSETS, C128_ROM_TOTAL,
 } from '../models.ts';
+import { parseC128Cartridge } from '../function-rom.ts';
 import { cbmDriveRomSlots, installCbmDriveRom } from '@/machines/shared/cbm/drive-services.ts';
+
+/** The expansion port: a 64 cartridge (64 mode), or a function ROM the 128 runs from (128 mode). */
+class C128CartridgeSlot implements CartridgeSlot {
+  constructor(private readonly m: C128Machine) {}
+
+  get name(): string {
+    const cart = this.m.cartridge;
+    return cart ? this.m.cartridgeFile || cart.name || 'Cartridge' : '';
+  }
+
+  insert(data: Uint8Array, name: string): void {
+    const parsed = parseC128Cartridge(data, name);
+    if ('error' in parsed) { this.m.onStatus?.(parsed.error); return; }
+    this.m.mountCartridge('cart' in parsed ? parsed.cart : parsed.rom, name);
+  }
+
+  eject(): void { this.m.ejectCartridge(); }
+}
 
 export class C128RomService implements RomService {
   constructor(
@@ -65,9 +85,7 @@ export class C128RomService implements RomService {
     await ops.rebuild();
   }
 
-  /** No cartridge slot yet (64 mode's expansion port and 128 mode's function
-   *  ROM sockets are not modelled). */
-  readonly cartridge = null;
+  readonly cartridge: CartridgeSlot = new C128CartridgeSlot(this.m);
 
   /** The DOS ROMs are sockets of their own, one per drive model fitted. */
   get sidewaysSlots(): readonly SidewaysRomSlot[] { return cbmDriveRomSlots(this.m.iec); }

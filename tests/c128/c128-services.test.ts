@@ -101,7 +101,7 @@ describe('C128 system ROM sockets', () => {
     expect(m.services.roms.systemSlots.map(s => s.title)).toEqual([...C128_ROM_SLOT_LABELS]);
     m.fitDrives(['1571', '1581']);
     expect(m.services.roms.sidewaysSlots?.length).toBe(2);
-    expect(m.services.roms.cartridge).toBeNull();
+    expect(m.services.roms.cartridge?.name, 'an empty expansion port').toBe('');
   });
 
   it('is recognised as a whole ROM by its size alone', () => {
