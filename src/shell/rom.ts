@@ -11,7 +11,7 @@
 import type { AuxRomRequest, MachineLocale } from '@/machines/machine.ts';
 import {
   type SpectrumModel, type MachineModel,
-  romPageSlotCount, romSlotSize,
+  romPageSlotCount, romSlotSize, romSlotOffset,
 } from '@/models.ts';
 import { registry } from '@/machines/registry.ts';
 import { resolveRomSource, type RomPage } from '@/managers/rom-manager.ts';
@@ -60,12 +60,12 @@ export async function assembleSystemRom(data: Uint8Array, model: MachineModel, k
   );
   if (!pages.some(p => p !== null)) return data;
   const result = new Uint8Array(data);
-  const slotSize = romSlotSize(model);
   pages.forEach((p, page) => {
     // The last slot can be shorter than the stride (the C64's 4K character
     // ROM ends a 20K image), so never write past the image.
-    const at = page * slotSize;
-    if (p) result.set(p.data.subarray(0, Math.min(slotSize, result.length - at)), at);
+    const at = romSlotOffset(model, page);
+    const size = romSlotSize(model, page);
+    if (p) result.set(p.data.subarray(0, Math.min(size, result.length - at)), at);
   });
   return result;
 }
@@ -163,13 +163,14 @@ export async function setSystemRomPage(page: RomPage, data: Uint8Array, label: s
   const pageCount = romPageSlotCount(model);
   if (pageCount === 0) { setStatus('This model has a single System ROM'); return; }
 
-  const slotSize = romSlotSize(model);
-  if (data.length >= pageCount * slotSize) {
+  const total = romSlotOffset(model, pageCount - 1) + romSlotSize(model, pageCount - 1);
+  if (data.length >= total) {
     for (let i = 0; i < pageCount; i++) {
-      await romManager.persistROMPage(key, i as RomPage, data.subarray(i * slotSize, (i + 1) * slotSize), `${label} (bank ${i + 1})`);
+      const at = romSlotOffset(model, i);
+      await romManager.persistROMPage(key, i as RomPage, data.subarray(at, at + romSlotSize(model, i)), `${label} (bank ${i + 1})`);
     }
   } else {
-    await romManager.persistROMPage(key, page, data.subarray(0, slotSize), label);
+    await romManager.persistROMPage(key, page, data.subarray(0, romSlotSize(model, page)), label);
   }
   await switchModel(currentModelValue());
 }

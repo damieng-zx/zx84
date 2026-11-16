@@ -8,6 +8,7 @@
  */
 
 import type { M6502 } from '@/cores/m6502.ts';
+import type { Mos6526 } from '@/cores/mos6526.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
@@ -84,6 +85,11 @@ export interface CbmDriveUnit {
   /** What the drive holds low. */
   readonly clkAsserted: boolean;
   readonly dataAsserted: boolean;
+  /** A drive with a fast serial port (the 1571) has a 6526 whose SP pin is
+   *  the bus's DATA line and whose CNT pin is its SRQ clock, and a direction
+   *  pin that says whether the drive is the one sending. */
+  readonly fastCia?: Mos6526;
+  readonly fastTransmitting?: boolean;
   /** Bytes moved to or from the disk since the last call. */
   takeActivity(): number;
 

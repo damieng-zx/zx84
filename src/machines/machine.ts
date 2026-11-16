@@ -25,7 +25,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64' | 'vic20';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64' | 'vic20' | 'c128';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -291,7 +291,7 @@ export type MemoryMapFlag = 'screen' | 'active';
  *  declared here so machine descriptors stay headless-safe. A machine lists the
  *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
 export const STATUS_LED_IDS = [
-  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'text', 'rainbow', 'beep', 'chip',
+  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'columns', 'text', 'rainbow', 'beep', 'chip',
 ] as const;
 
 export type StatusLedId = typeof STATUS_LED_IDS[number];
@@ -380,6 +380,7 @@ export type SaveMenuItem =
   | 'snapshot-a2state'
   | 'snapshot-c64state'
   | 'snapshot-vic20state'
+  | 'snapshot-c128state'
   | 'screenshot-png'
   | 'screen-scr'
   | 'ram-bin'
@@ -1133,6 +1134,8 @@ export interface FrameIndicators {
   disk: number;
   /** Sustained tape-turbo engine state — reflected immediately, not latched. */
   tapeTurbo: boolean;
+  /** Columns of the display on screen for a machine with two (the 128's 40 or 80), 0 otherwise. */
+  columns?: number;
 
   /* Cassette transport (deck machines; tapeLoaded=false ⇒ bridge leaves the
    * tape signals alone). */
@@ -1177,7 +1180,7 @@ export interface FrameIndicators {
 export function createFrameIndicators(): FrameIndicators {
   return {
     keyboard: 0, joystick: 0, mouse: 0, tapeIn: 0, tapeLoad: 0,
-    beeper: 0, psg: 0, videoFx: 0, disk: 0, tapeTurbo: false,
+    beeper: 0, psg: 0, videoFx: 0, disk: 0, tapeTurbo: false, columns: 0,
     tapeLoaded: false, tapePlaying: false, tapePaused: true, tapeFinished: false,
     tapePosition: 0, casBlock: -1, fastRomLoading: false,
     tracingActive: false,

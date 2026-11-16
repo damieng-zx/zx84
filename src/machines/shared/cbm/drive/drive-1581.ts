@@ -181,6 +181,16 @@ export class Drive1581 implements CbmDriveUnit {
     return (out & 0x02) !== 0 || ((out & 0x10) !== 0 && this.atn);
   }
 
+  // ── The fast serial bus ─────────────────────────────────────────────────
+
+  /** The CIA whose shift register is the drive's end of the burst bus: SP is
+   *  the bus's DATA line and CNT its SRQ clock, as on the 1571. */
+  get fastCia(): Mos6526 { return this.cia; }
+
+  /** CIA port B bit 5 is the direction pin: high, the drive sends. Low (the
+   *  DOS's start-up value) it listens. */
+  get fastTransmitting(): boolean { return (this.cia.prb & this.cia.ddrb & 0x20) !== 0; }
+
   // ── CIA pins ────────────────────────────────────────────────────────────
 
   private portAPins(driven: number): number {

@@ -5,7 +5,7 @@
  * the way to reach its running machine.
  */
 
-import { For, Show } from 'solid-js';
+import { For, Show, type JSX } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { KeyboardScene, SceneKey } from '@/ui/components/KeyboardScene.tsx';
 import { useCbmKeyboard, type ActiveCbmKeyboard, type CbmKeyboardController } from './keyboard-common.tsx';
@@ -58,7 +58,9 @@ function CbmKey(props: { def: CbmKeyDef; keyboard: CbmKeyboardController }) {
   );
 }
 
-export function CbmKeyboardPane(props: { active: ActiveCbmKeyboard; label: string }) {
+/** `extra` is shown under the keys: a machine with keys beyond the breadbin's
+ *  (the 128's) adds them there. */
+export function CbmKeyboardPane(props: { active: ActiveCbmKeyboard; label: string; extra?: JSX.Element }) {
   const keyboard = useCbmKeyboard(props.active);
   return (
     <Pane id="keyboard-panel" label="Keyboard" floatable>
@@ -73,6 +75,7 @@ export function CbmKeyboardPane(props: { active: ActiveCbmKeyboard; label: strin
           {(def) => <CbmKey def={def} keyboard={keyboard} />}
         </For>
       </KeyboardScene>
+      {props.extra}
     </Pane>
   );
 }

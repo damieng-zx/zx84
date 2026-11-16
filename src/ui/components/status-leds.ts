@@ -15,9 +15,11 @@
 
 import { machine } from '@/shell/context.ts';
 import { toggleTranscribeMode } from '@/shell/media.ts';
+import { applyDisplaySettings } from '@/shell/settings.ts';
+import * as settings from '@/store/settings.ts';
 import {
   ledKbd, ledKemp, ledMouse, ledEar, ledLoad,
-  ledDsk, ledText, ledRainbow, ledBeep, ledAy,
+  ledDsk, ledText, ledRainbow, ledBeep, ledAy, displayColumns,
 } from '@/state/activity-state.ts';
 import type { MachineUiCapabilities, StatusLedId } from '@/machines/machine.ts';
 
@@ -52,6 +54,17 @@ export const STATUS_LEDS: readonly StatusLed[] = [
   { id: 'load', label: 'TAPE', group: 2, signal: ledLoad, tip: 'Tape-load routine is active' },
   { id: 'dsk', label: 'DISK', group: 2, signal: ledDsk, tip: 'Floppy disk controller is being accessed' },
   // Group 3 — screen effects and transcription
+  {
+    id: 'columns', label: () => (displayColumns() === 80 ? '80COL' : '40COL'), group: 3,
+    signal: () => displayColumns() === 80,
+    tip: 'Which video chip the screen shows: 40 columns (VIC-IIe) or 80 (VDC). Click to switch (the 40/80 key does the same until you do)',
+    onClick: () => {
+      const next = displayColumns() === 80 ? '40' : '80';
+      settings.setC128Display(next);
+      settings.persistSetting('c128-display', next);
+      applyDisplaySettings();
+    },
+  },
   {
     id: 'text', label: 'TEXT', group: 3, signal: ledText,
     tip: 'Pixel-based screen OCR — click to toggle overlay',

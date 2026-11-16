@@ -3,13 +3,13 @@
  *
  * A 6510 (a 6502 with an I/O port at $00/$01) at 985 kHz, 64K of RAM, the
  * BASIC, KERNAL and character ROMs, the PLA that banks them (see
- * `memory.ts`), the 6569 VIC-II (`vic-ii.ts`), the 6581 SID, and two 6526
+ * `memory.ts`), the 6569 VIC-II (`src/cores/vic-ii.ts`), the 6581 SID, and two 6526
  * CIAs: CIA 1 scans the keyboard and joysticks, reads the cassette (its FLAG
  * input) and interrupts the CPU on IRQ; CIA 2 picks the VIC-II's bank, talks
  * to the serial bus and interrupts on NMI, wired-OR with the RESTORE key.
  *
  * The frame loop runs line by line, stopping at the cycles where the VIC-II
- * does its per-line work (`EV_*` in vic-ii.ts). Before each instruction the
+ * does its per-line work (`EV_*` in cores/vic-ii.ts). Before each instruction the
  * CPU waits out any cycles the VIC-II holds the bus for (bad lines, sprite
  * DMA); an instruction overtaken by a hold part-way is stretched by it.
  * Register accesses to the VIC-II, SID and CIAs are made at the cycle of the
@@ -45,7 +45,7 @@ import { C64Memory } from './memory.ts';
 import { C64Keyboard } from './keyboard.ts';
 import {
   EV_SPRITE_DMA, EV_SPRITE_MCB, EV_VC, VicII,
-} from './vic-ii.ts';
+} from '@/cores/vic-ii.ts';
 import { c64Descriptor } from './descriptor.ts';
 import { c64Chips } from './chip-dump.ts';
 import { parseCrt, type C64Cartridge } from './cartridge.ts';
@@ -210,7 +210,7 @@ export class C64Machine extends BaseMachine implements Machine {
     this.tape = new TapeDeck(this.timing.clockHz);
     this.mixer = new AudioMixer(this.timing.clockHz);
     this.lineEvents = [EV_VC, EV_SPRITE_MCB, EV_SPRITE_DMA, this.timing.lineEndCycle, this.timing.cyclesPerLine];
-    this.vic = new VicII(this.memory, this.timing);
+    this.vic = new VicII(this.memory, this.timing, C64_PALETTE);
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
     this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
     this.mixer.beeperGain = 0;

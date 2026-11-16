@@ -69,6 +69,7 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   atari130xe: 'Atari 130XE',
   c64: 'Commodore 64',
   vic20: 'Commodore VIC-20',
+  c128: 'Commodore 128',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -100,12 +101,13 @@ export const MODEL_LOCALES: Partial<Record<MachineModel, MachineLocale[]>> = {
   atari130xe: ['uk', 'us'],
   c64: ['uk', 'us'],
   vic20: ['uk', 'us'],
+  c128: ['uk', 'us'],
 };
 
 /** Models whose locale variants are TV standards rather than languages. */
 const TV_STANDARD_MODELS: ReadonlySet<MachineModel> = new Set<MachineModel>([
   'atari400', 'atari800', 'atari600xl', 'atari800xl', 'atari1200xl',
-  'atari65xe', 'atari800xe', 'atari130xe', 'c64', 'vic20',
+  'atari65xe', 'atari800xe', 'atari130xe', 'c64', 'vic20', 'c128',
 ]);
 const TV_STANDARD_LABELS: Partial<Record<MachineLocale, string>> = { uk: 'PAL', us: 'NTSC' };
 
@@ -238,6 +240,7 @@ export const MODEL_MENU: MenuItem[] = [
     children: [
       modelEntry('vic20'),
       modelEntry('c64'),
+      modelEntry('c128'),
     ],
   },
   {

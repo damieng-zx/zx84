@@ -56,6 +56,11 @@ const _ledRainbow = createSignal(false);
 export const ledRainbow = _ledRainbow[0];
 export const setLedRainbow = _ledRainbow[1];
 
+// Which chip's display a two-display machine is showing (the 128's 40/80 columns); 0 = n/a
+const _displayColumns = createSignal(0);
+export const displayColumns = _displayColumns[0];
+export const setDisplayColumns = _displayColumns[1];
+
 // Transcription
 const _ledText = createSignal(false);
 export const ledText = _ledText[0];

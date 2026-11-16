@@ -134,6 +134,10 @@ const DEFAULTS = {
   'vic20-ram':      'none',
   'vic20-blk5':     'off',
   'vic20-drive':    'on',
+  'c128-drive':     'on',
+  'c128-vdc-ram':   '16k',
+  'c128-vdc-chip':  'r8',
+  'c128-display':   'auto',
   'drive-counts':   '{}',
   'drive-models':   '{}',
   'apple2-langcard': 'on',
@@ -478,6 +482,14 @@ export const [vic20Ram, setVic20Ram] = signal(
 export const [vic20Blk5, setVic20Blk5] = signal(savedFlag('vic20-blk5'));
 export const [vic20Drive, setVic20Drive] = signal(savedFlag('vic20-drive'));
 
+export const [c128Drive, setC128Drive] = signal(savedFlag('c128-drive'));
+/** VDC RAM: '16k' (the 128) or '64k' (the 128D and later boards). */
+export const [c128VdcRam, setC128VdcRam] = signal(savedText('c128-vdc-ram') as '16k' | '64k');
+/** The VDC chip: 'r7a' (8563 R7A), 'r8' (8563 R8/R9, the flat 128 and the 128D) or '8568' (the 128DCR). */
+export const [c128VdcChip, setC128VdcChip] = signal(savedText('c128-vdc-chip') as 'r7a' | 'r8' | '8568');
+/** Which video chip the one canvas shows: 'auto' (the 40/80 key), '40' or '80'. */
+export const [c128Display, setC128Display] = signal(savedText('c128-display') as 'auto' | '40' | '80');
+
 export const [apple1BasicRam, setApple1BasicRam] = signal(savedFlag('apple1-basic-ram'));
 export const [apple1Aci, setApple1Aci] = signal(savedFlag('apple1-aci'));
 export const [mtx512kRam, setMtx512kRam] = signal(savedFlag('mtx-512k-ram'));
@@ -665,6 +677,10 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'vic20-ram', set: setVic20Ram, type: 'string' },
     { key: 'vic20-blk5', set: setVic20Blk5, type: 'bool' },
     { key: 'vic20-drive', set: setVic20Drive, type: 'bool' },
+    { key: 'c128-drive', set: setC128Drive, type: 'bool' },
+    { key: 'c128-vdc-ram', set: setC128VdcRam, type: 'string' },
+    { key: 'c128-vdc-chip', set: setC128VdcChip, type: 'string' },
+    { key: 'c128-display', set: setC128Display, type: 'string' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
     { key: 'apple2-joystick', set: setApple2Joystick, type: 'bool' },
     { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },

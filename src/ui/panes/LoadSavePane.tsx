@@ -28,6 +28,7 @@ const SAVE_ITEMS: Record<SaveMenuItem, { label: string; run: () => void }> = {
   'snapshot-elkstate': { label: 'Snapshot (.elkstate)', run: () => { void saveSnapshot('elkstate'); } },
   'snapshot-c64state': { label: 'Snapshot (.c64state)', run: () => { void saveSnapshot('c64state'); } },
   'snapshot-vic20state': { label: 'Snapshot (.vic20state)', run: () => { void saveSnapshot('vic20state'); } },
+  'snapshot-c128state': { label: 'Snapshot (.c128state)', run: () => { void saveSnapshot('c128state'); } },
   'snapshot-a1state': { label: 'Snapshot (.a1state)', run: () => { void saveSnapshot('a1state'); } },
   'snapshot-a2state': { label: 'Snapshot (.a2state)', run: () => { void saveSnapshot('a2state'); } },
   'snapshot-sna-v2': { label: 'Snapshot v2 (.sna)', run: () => saveCpcSnapshot(2) },

@@ -512,8 +512,9 @@ body:not(.sinclair-mode):not(.cpc-mode) .section-label::after {
   grid-column: 1 / -1;
 }
 
-/* Every VIC-20 Hardware option takes a whole row. */
-.vic20-hw-row {
+/* Every VIC-20 and C128 Hardware option takes a whole row. */
+.vic20-hw-row,
+.c128-hw-row {
   grid-column: 1 / -1;
 }
 
@@ -5353,6 +5354,130 @@ input[type="range"]::-moz-range-thumb {
   background: #ff3b24;
   box-shadow: 0 0 calc(var(--bbc-u) * 5) rgba(255,70,40,0.85);
 }
+
+/* ── Commodore 128 keyboard ──────────────────────────────────────────── */
+.c128-keyboard {
+  --c128-u: var(--keyboard-scene-px);
+  --c128-case-top: #d9d4c8;
+  --c128-case-bottom: #c6c0b2;
+  --c128-case-edge: #8e887a;
+  --c128-cap-top: #e4e0d4;
+  --c128-cap-bottom: #cbc6b8;
+  --c128-cap-edge: #8f8a7c;
+  --c128-grey-top: #b3b1a8;
+  --c128-grey-bottom: #96948b;
+  --c128-grey-edge: #7a776e;
+  --c128-legend: #1d1b18;
+  position: relative;
+  font-family: Helvetica, Arial, sans-serif;
+}
+/* The case is a full-bleed backdrop behind the fixed key coordinates (see the
+   note on .a2-keyboard::before). */
+.c128-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border: 1px solid var(--c128-case-edge);
+  border-radius: calc(var(--c128-u) * 6);
+  background: linear-gradient(180deg, var(--c128-case-top) 0%, var(--c128-case-bottom) 100%);
+  box-shadow:
+    inset 0 calc(var(--c128-u) * 2) calc(var(--c128-u) * 4) rgba(255,255,255,0.45),
+    0 2px 5px rgba(0,0,0,0.5);
+}
+.c128-key {
+  z-index: 2;
+  overflow: hidden;
+  border: 1px solid var(--c128-cap-edge);
+  border-radius: calc(var(--c128-u) * 3);
+  background: linear-gradient(180deg, var(--c128-cap-top) 0%, var(--c128-cap-bottom) 100%);
+  box-shadow:
+    inset calc(var(--c128-u) * 2) calc(var(--c128-u) * 2) 0 rgba(255,255,255,0.45),
+    inset calc(var(--c128-u) * -2) calc(var(--c128-u) * -3) calc(var(--c128-u) * 4) rgba(0,0,0,0.18),
+    0 calc(var(--c128-u) * 2) calc(var(--c128-u) * 2) rgba(0,0,0,0.35);
+  color: var(--c128-legend);
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease, transform 0.05s ease;
+}
+.c128-key--grey {
+  border-color: var(--c128-grey-edge);
+  background: linear-gradient(180deg, var(--c128-grey-top) 0%, var(--c128-grey-bottom) 100%);
+}
+.c128-key:hover { filter: brightness(1.08); }
+.c128-key.pressed {
+  filter: brightness(0.8);
+  transform: translateY(calc(var(--c128-u) * 1.5));
+}
+/* The latching keys show down while they are on, and stay there. */
+.c128-key--lock.pressed {
+  filter: brightness(0.72);
+  box-shadow: inset 0 calc(var(--c128-u) * 2) calc(var(--c128-u) * 4) rgba(0,0,0,0.45);
+}
+.c128-key__legend {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  line-height: 1;
+}
+.c128-key__main { font-size: calc(var(--c128-u) * 17); font-weight: 600; }
+.c128-key__shift { font-size: calc(var(--c128-u) * 11); font-weight: 600; }
+/* A key with its shifted legend over it sets the pair at the left of the cap. */
+.c128-key--shifted .c128-key__legend {
+  align-items: flex-start;
+  padding-left: calc(var(--c128-u) * 11);
+  gap: calc(var(--c128-u) * 1);
+}
+.c128-key--shifted .c128-key__main { font-size: calc(var(--c128-u) * 14); }
+/* Word caps: small bold lettering, a stack of lines when it has two. */
+.c128-key--word .c128-key__main,
+.c128-key__line {
+  font-size: calc(var(--c128-u) * 8.5);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.c128-key--stack .c128-key__legend {
+  align-items: flex-start;
+  padding-left: calc(var(--c128-u) * 6);
+  gap: calc(var(--c128-u) * 1.5);
+}
+.c128-key--stack .c128-key__shift { font-size: calc(var(--c128-u) * 8.5); font-weight: 700; }
+/* The cursor keys: an arrow, CRSR and an arrow, centred. */
+.c128-key--crsr .c128-key__legend { align-items: center; padding-left: 0; gap: calc(var(--c128-u) * 0.5); }
+.c128-key--crsr .c128-key__line { font-size: calc(var(--c128-u) * 8); }
+.c128-key--crsr .c128-key__line:first-child,
+.c128-key--crsr .c128-key__line:last-child { font-size: calc(var(--c128-u) * 12); }
+/* The C= key's logo fills most of its cap. */
+.c128-key__logo { display: block; height: calc(var(--c128-u) * 22); width: auto; }
+/* The keypad's ENTER reads downwards on its tall cap. */
+.c128-key--enter .c128-key__main {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.12em;
+  font-size: calc(var(--c128-u) * 8);
+}
+/* The function keys: the key's name at the top, what SHIFT gives small on the front. */
+.c128-key--front .c128-key__legend { align-items: flex-start; padding: 0 0 calc(var(--c128-u) * 8) calc(var(--c128-u) * 8); }
+.c128-key--front .c128-key__main { font-size: calc(var(--c128-u) * 10); }
+.c128-key__front {
+  position: absolute;
+  left: calc(var(--c128-u) * 8);
+  bottom: calc(var(--c128-u) * 3);
+  font-size: calc(var(--c128-u) * 6);
+  font-weight: 700;
+  opacity: 0.6;
+  pointer-events: none;
+  line-height: 1;
+}
+/* The grey caps' legends sit at the top left too. */
+.c128-key--grey.c128-key--word .c128-key__legend { align-items: flex-start; padding-left: calc(var(--c128-u) * 6); }
+.c128-key--grey .c128-key__line { font-size: calc(var(--c128-u) * 7); letter-spacing: 0; }
+.c128-key--grey.c128-key--stack .c128-key__legend { padding-left: calc(var(--c128-u) * 4); }
+.c128-key--grey:not(.c128-key--word) .c128-key__main { font-size: calc(var(--c128-u) * 20); font-weight: 500; }
+.c128-key--space { background: linear-gradient(180deg, var(--c128-cap-top) 0%, var(--c128-cap-bottom) 100%); }
 
 /* ── Commodore 64 keyboard ───────────────────────────────────────────── */
 .c64-keyboard {

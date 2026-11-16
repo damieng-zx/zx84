@@ -12,8 +12,17 @@
  * place on the bus is its device number. Each drive keeps its own clock; the
  * computer brings them up to its time (`syncTo`) at each bus access and at
  * frame end.
+ *
+ * The C128 adds a fast serial (burst) bus: the computer's CIA 1 and a 1571's
+ * CIA are wired SP to SP and CNT to CNT (the bus's DATA and SRQ lines), and
+ * whichever end its direction pin makes the sender shifts bytes out for the
+ * other to shift in (`attachFastSerial`). Each bit is handed across as its
+ * sender shifts it, to the receiver at the moment it is delivered: both ends
+ * are brought up to the same time at every bus access, so a bit is seen by
+ * the receiver no later than the access that follows it.
  */
 
+import type { Mos6526 } from '@/cores/mos6526.ts';
 import type { AuxRomRequest } from '@/machines/machine.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 import { Drive1541 } from './drive/drive-1541.ts';
@@ -40,9 +49,60 @@ export class CbmSerialBus {
    *  build fits (kept while the drives are unplugged). */
   driveModels: CbmDriveModel[] = ['1541'];
 
+  /** The computer's fast serial end: its CIA, its clock in Hz, and whether its
+   *  direction pin (the MMU's FSDIR) has it sending. Null on a machine without
+   *  one. */
+  private fastHost: { cia: Mos6526; hz: number } | null = null;
+  fastHostTransmits = false;
+  /** Each drive's hand-off function, made once so it can be told apart. */
+  private readonly fastWires = new Map<CbmDriveUnit, (bit: number) => void>();
+
   /** `hostLines` reads which lines the computer holds low now
    *  (`IEC_ATN | IEC_CLK | IEC_DATA`). */
   constructor(private readonly hostLines: () => number) {}
+
+  /** Wire the computer's CIA (running at `hostHz`) to the fast serial pins of
+   *  the drives on the bus, and the drives fitted later. */
+  attachFastSerial(cia: Mos6526, hostHz: number): void {
+    this.fastHost = { cia, hz: hostHz };
+    cia.onShiftOut = (bit, t) => this.hostShiftedOut(bit, t);
+    this.wireFastDrives();
+  }
+
+  private wireFastDrives(): void {
+    if (!this.fastHost) return;
+    for (const d of this._drives) {
+      const cia = d.fastCia;
+      if (!cia) continue;
+      let wire = this.fastWires.get(d);
+      if (!wire) {
+        wire = (bit: number): void => this.driveShiftedOut(d, bit);
+        this.fastWires.set(d, wire);
+      }
+      cia.onShiftOut = wire;
+    }
+  }
+
+  /** The computer's CIA shifted a bit out at its cycle `t`: the drives that are
+   *  listening shift it in. */
+  private hostShiftedOut(bit: number, t: number): void {
+    const host = this.fastHost;
+    if (!host || !this.fastHostTransmits) return;
+    for (const d of this._drives) {
+      const cia = d.fastCia;
+      if (!cia || d.fastTransmitting) continue;
+      d.runTo(Math.floor(t * d.clockHz / host.hz));
+      cia.cntEdge(cia.now, bit !== 0);
+    }
+  }
+
+  /** A drive's CIA shifted a bit out: the computer, if it is listening, shifts
+   *  it in. */
+  private driveShiftedOut(d: CbmDriveUnit, bit: number): void {
+    const host = this.fastHost;
+    if (!host || this.fastHostTransmits || !d.fastTransmitting) return;
+    host.cia.cntEdge(host.cia.now, bit !== 0);
+  }
 
   /** The disk drives on the bus, device 8 first; none while unplugged. */
   get drives(): readonly CbmDriveUnit[] { return this._drives; }
@@ -64,6 +124,7 @@ export class CbmSerialBus {
     const lines = this.hostLines();
     const atn = (lines & IEC_ATN) !== 0, clk = (lines & IEC_CLK) !== 0, data = (lines & IEC_DATA) !== 0;
     for (const d of this._drives) d.setHostLines(atn, clk, data);
+    this.wireFastDrives();
   }
 
   /** Bring the drives up to the computer's cycle `t`, at `hostHz`. */

@@ -58,10 +58,11 @@ export class CbmKeyboard {
   private readonly cellOf = new Map<string, number>();
   /** Hold counts per cell, so a typed character's SHIFT and the user's own
    *  SHIFT do not release each other. */
-  private readonly holds = new Uint8Array(64);
-  /** Pressed rows per column (bit = row line), and columns per row. */
-  readonly columns = new Uint8Array(8);
-  readonly rows = new Uint8Array(8);
+  private readonly holds: Uint8Array;
+  /** Pressed rows per column (bit = row line), and columns per row (bit =
+   *  column line: a matrix wider than eight columns, like the 128's, has more). */
+  readonly columns: Uint8Array;
+  readonly rows: Uint16Array;
   private readonly held = new Map<string, number[]>();
   /** RESTORE is down. */
   restore = false;
@@ -70,6 +71,9 @@ export class CbmKeyboard {
 
   /** `matrix[column][row]` names the key on each crossing. */
   constructor(readonly matrix: readonly (readonly string[])[]) {
+    this.holds = new Uint8Array(matrix.length * 8);
+    this.columns = new Uint8Array(matrix.length);
+    this.rows = new Uint16Array(8);
     matrix.forEach((rows, col) => rows.forEach((name, row) => this.cellOf.set(name, col * 8 + row)));
   }
 
@@ -105,7 +109,7 @@ export class CbmKeyboard {
   /** The row lines: rows of every column driven low pull low. */
   rowsFor(columnsDriven: number): number {
     let v = 0xFF;
-    for (let col = 0; col < 8; col++) {
+    for (let col = 0; col < this.columns.length; col++) {
       if (((columnsDriven >> col) & 1) === 0) v &= ~this.columns[col];
     }
     return v;
