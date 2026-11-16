@@ -291,7 +291,7 @@ export type MemoryMapFlag = 'screen' | 'active';
  *  declared here so machine descriptors stay headless-safe. A machine lists the
  *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
 export const STATUS_LED_IDS = [
-  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'text', 'rainbow', 'beep', 'chip',
+  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'columns', 'text', 'rainbow', 'beep', 'chip',
 ] as const;
 
 export type StatusLedId = typeof STATUS_LED_IDS[number];
@@ -1134,6 +1134,8 @@ export interface FrameIndicators {
   disk: number;
   /** Sustained tape-turbo engine state — reflected immediately, not latched. */
   tapeTurbo: boolean;
+  /** Columns of the display on screen for a machine with two (the 128's 40 or 80), 0 otherwise. */
+  columns?: number;
 
   /* Cassette transport (deck machines; tapeLoaded=false ⇒ bridge leaves the
    * tape signals alone). */
@@ -1178,7 +1180,7 @@ export interface FrameIndicators {
 export function createFrameIndicators(): FrameIndicators {
   return {
     keyboard: 0, joystick: 0, mouse: 0, tapeIn: 0, tapeLoad: 0,
-    beeper: 0, psg: 0, videoFx: 0, disk: 0, tapeTurbo: false,
+    beeper: 0, psg: 0, videoFx: 0, disk: 0, tapeTurbo: false, columns: 0,
     tapeLoaded: false, tapePlaying: false, tapePaused: true, tapeFinished: false,
     tapePosition: 0, casBlock: -1, fastRomLoading: false,
     tracingActive: false,

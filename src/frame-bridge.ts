@@ -31,7 +31,7 @@ import {
   setDriveCStatus, setDriveDStatus, setCurrentDiskInfoC, setCurrentDiskInfoD,
   setClockSpeedText,
   setTapePosition, setCasPosition, tapePaused, setTapePaused, tapePlaying, setTapePlaying, transcribeMode, setTranscribeText, setTranscribeHtml, setTranscribeGrid, setTranscribeField,
-  setLedKbd, setLedKemp, setLedEar, setLedLoad, setLedText,
+  setLedKbd, setLedKemp, setLedEar, setLedLoad, setLedText, setDisplayColumns,
   setLedBeep, setLedAy, setLedDsk, setLedRainbow, setLedMouse, setLedTapeTurbo,
   setStatus, setEmulationPaused, setTracing,
   getPendingRunTo, clearPendingRunTo,
@@ -464,6 +464,7 @@ export function onFrame(): void {
       setLedMouse(ledLatched('mouse', ind.mouse > 0, ledNow));
       // tapeTurbo is sustained engine state, not a burst — reflect immediately.
       setLedTapeTurbo(ind.tapeTurbo);
+      setDisplayColumns(ind.columns ?? 0);
       // The transcribe-mode half is sustained user state (immediate); the EAR
       // half shares the latched 500ms hold used by the EAR LED.
       setLedText(transcribeMode() === 'text' || earOn);

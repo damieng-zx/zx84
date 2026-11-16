@@ -123,6 +123,7 @@ export class C128FrameProbe implements FrameProbe {
     out.beeper = 0;
     out.psg = m.activity.sidWrites;
     out.videoFx = 0;
+    out.columns = m.showing80 ? 80 : 40;
     const tape = m.tape;
     out.tapeTurbo = m.tapeTurboActive;
     out.tapeLoaded = tape.blocks.length > 0;
