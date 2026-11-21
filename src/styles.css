@@ -1456,6 +1456,98 @@ canvas {
 }
 .zxk--zx80 .zxk-block rect { fill: #f2c53d; }
 
+/* ── Timex Sinclair 1500 face ───────────────────────────────────────────────
+   Traced from the machine: a silver case, mid-grey caps with the glyph in white at the top, the shifted symbol and a
+   small black legend (EDIT, STOP, THEN…) at the bottom-left beside a light block
+   swatch, and the keyword above / function word below the key printed in black on
+   the case. SHIFT and SPACE are wide; ENTER and FUNCTION share one key. */
+.zxk--ts1500 {
+  --case: linear-gradient(180deg, #d0d3d7 0%, #bcbfc4 40%, #adb0b6 100%);
+}
+.zxk--ts1500::before {
+  box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+/* Case legends: black keyword above, dark-grey function word below, both centred. */
+.zxk--ts1500 .zxk-above, .zxk--ts1500 .zxk-below {
+  justify-content: center; text-align: center;
+  font-weight: 600; letter-spacing: 0;
+}
+.zxk--ts1500 .zxk-above { color: #101114; }
+.zxk--ts1500 .zxk-below { color: #34363b; }
+
+/* Caps: mid-grey with a lit top edge and a dark underside. */
+.zxk--ts1500 .zxk-key {
+  background: linear-gradient(180deg, #8b8f96 0%, #7c8087 55%, #71757c 100%);
+  border-radius: calc(var(--u1) * 3);
+  box-shadow:
+    inset 0 calc(var(--u1) * 1) 0 rgba(255, 255, 255, 0.32),
+    inset 0 calc(var(--u1) * -1.2) 0 rgba(0, 0, 0, 0.28),
+    0 calc(var(--u1) * 1) calc(var(--u1) * 1.5) rgba(0, 0, 0, 0.35);
+}
+.zxk--ts1500 .zxk-key:hover { background: linear-gradient(180deg, #999da4 0%, #8a8e95 55%, #7f838a 100%); }
+.zxk--ts1500 .zxk-key.pressed { background: linear-gradient(180deg, #686c73 0%, #62666d 100%); box-shadow: inset 0 calc(var(--u1) * 1) calc(var(--u1) * 2) rgba(0, 0, 0, 0.4); }
+
+/* The glyph: large and white, top of the cap, a little left of centre. */
+.zxk--ts1500 .zxk-main {
+  top: calc(var(--u1) * 2.5); bottom: auto; left: 0; width: 84%;
+  text-align: center;
+  font-size: calc(var(--u1) * 15); font-weight: 700; line-height: 1;
+  color: #f6f7f8; text-shadow: 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.zxk--ts1500 .zxk-key--num .zxk-main { font-feature-settings: 'zero' 1; }
+
+/* The shifted symbol or word, and EDIT / AND / THEN…: small and black at the
+   bottom-left, beside the swatch. A key with no swatch centres it under the glyph. */
+.zxk--ts1500 .zxk-capfn, .zxk--ts1500 .zxk-shift {
+  top: auto; bottom: calc(var(--u1) * 3.5); left: calc(var(--u1) * 3.5); right: auto;
+  width: auto; max-width: 62%; text-align: left;
+  font-size: calc(var(--u1) * 5.5); font-weight: 700; letter-spacing: 0;
+  color: #101114; overflow: visible;
+}
+.zxk--ts1500 .zxk-shift--sym { font-size: calc(var(--u1) * 8); top: auto; }
+.zxk--ts1500 .zxk-key--plain .zxk-capfn, .zxk--ts1500 .zxk-key--plain .zxk-shift {
+  left: 0; width: 84%; max-width: none; text-align: center;
+}
+/* Cursor arrows: a small solid arrow at the bottom-left. */
+.zxk--ts1500 .zxk-arrow {
+  position: absolute; left: calc(var(--u1) * 4); bottom: calc(var(--u1) * 3.5);
+  width: calc(var(--u1) * 7); height: calc(var(--u1) * 8); fill: #101114;
+}
+/* The block swatch: a light square, its quadrants dark. */
+.zxk--ts1500 .zxk-block {
+  right: calc(var(--u1) * 3.5); bottom: calc(var(--u1) * 3.5);
+  width: calc(var(--u1) * 9); height: calc(var(--u1) * 9);
+  background: #e6e8ea; border-color: #26272b;
+}
+.zxk--ts1500 .zxk-block rect { fill: #26272b; }
+
+/* Word keys. SHIFT: black, centred. SPACE: the word in white over the pound sign.
+   ENTER over FUNCTION: two small white lines. */
+.zxk--ts1500 .zxk-key--label .zxk-main {
+  left: 0; width: 100%; font-size: calc(var(--u1) * 6.5); font-weight: 700;
+  color: #f6f7f8; line-height: 1.2;
+}
+.zxk--ts1500 .zxk-key--mod .zxk-main {
+  top: 50%; bottom: auto; transform: translateY(-50%);
+  font-size: calc(var(--u1) * 8); color: #101114; text-shadow: none;
+}
+.zxk--ts1500 .zxk-key--label:not(.zxk-key--mod) .zxk-main {
+  top: calc(var(--u1) * 5); font-size: calc(var(--u1) * 7);
+}
+.zxk--ts1500 .zxk-key--label:not(.zxk-key--mod):not(:has(.zxk-shift)) .zxk-main {
+  top: 50%; transform: translateY(-50%); font-size: calc(var(--u1) * 6);
+}
+/* The full-stop key prints "." and "," side by side. */
+.zxk--ts1500 .zxk-key--dot .zxk-main {
+  top: 50%; transform: translateY(-50%); left: 22%; width: auto;
+  font-size: calc(var(--u1) * 12);
+}
+.zxk--ts1500 .zxk-key--dot .zxk-shift {
+  top: 50%; bottom: auto; transform: translateY(-50%);
+  left: auto; right: 22%; width: auto;
+  font-size: calc(var(--u1) * 12); color: #f6f7f8;
+}
+
 /* ── Jupiter Ace keyboard ──────────────────────────────────────────────────
    The Spectrum 48K's layout on the Ace's own case: white plastic, "very dark
    brown" moulded-rubber keys "with characters marked in white" (Micro Choice,

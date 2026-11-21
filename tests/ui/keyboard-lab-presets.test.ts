@@ -25,6 +25,7 @@ describe('keyboard lab presets', () => {
       'spectrum-plus3',
       'zx80',
       'zx81',
+      'ts1500',
       'cpc464',
       'cpc664',
       'cpc6128',
@@ -34,7 +35,7 @@ describe('keyboard lab presets', () => {
       'memotech-mtx',
     ]);
     expect(presets.map((preset) => preset.keys.length)).toEqual([
-      40, 58, 58, 58, 58, 40, 40, 74, 74, 74, 73, 67, 69, 79,
+      40, 58, 58, 58, 58, 40, 40, 40, 74, 74, 74, 73, 67, 69, 79,
     ]);
     for (const preset of presets) {
       expect(new Set(preset.keys.map((key) => key.id)).size).toBe(preset.keys.length);
@@ -56,6 +57,10 @@ describe('keyboard lab presets', () => {
     expect(spectrum48.keys.find((key) => key.id === 'q')?.legends.shift).toContain('PLOT');
     expect(spectrum128.keys.find((key) => key.shape === 'return')?.clipPath).toMatch(/^polygon/);
     expect(zx81.keys.find((key) => key.legends.main === 'Q')?.legends.aux).toContain('PLOT');
+    const ts1500 = zx8xKeyboardLabPresets()[2];
+    expect(ts1500.name).toBe('Timex Sinclair 1500');
+    expect(ts1500.keys.find((key) => key.legends.main === 'Q')?.legends.aux).toContain('PLOT');
+    expect(ts1500.keys.find((key) => key.legends.main.startsWith('ENTER'))?.cell).toEqual([6, 0]);
   });
 
   it('keeps every editable key within its preset scene', () => {

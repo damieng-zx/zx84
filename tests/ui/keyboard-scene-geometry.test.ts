@@ -16,7 +16,7 @@ import {
   placeZx8xRows,
   zx8xScene,
 } from '@/machines/zx8x/ui/keyboard/scene-geometry.ts';
-import { ZX80_ROWS, ZX81_ROWS } from '@/machines/zx8x/ui/keyboard/legends.ts';
+import { TS1500_ROWS, ZX80_ROWS, ZX81_ROWS } from '@/machines/zx8x/ui/keyboard/legends.ts';
 import type { SceneBox } from '@/ui/components/KeyboardScene.tsx';
 
 function expectWithin(box: SceneBox, width: number, height: number) {
@@ -136,5 +136,59 @@ describe('ZX80/ZX81 scenes', () => {
     expect(zx81[0].cap.height).toBe(30);
     expect(zx80[0].cap.height).toBe(40);
     expect(zx8xScene('zx80').height).toBeGreaterThan(zx8xScene('zx81').height);
+  });
+});
+
+describe('Timex Sinclair 1500 scene', () => {
+  const scene = zx8xScene('ts1500');
+  const placed = placeZx8xRows(TS1500_ROWS, 'ts1500');
+  const row = (r: number) => placed.slice(r * 10, r * 10 + 10);
+
+  it('places all 40 keys and their case legends inside the scene', () => {
+    expect(placed).toHaveLength(40);
+    for (const key of placed) {
+      expectWithin(key.above, scene.width, scene.height);
+      expectWithin(key.cap, scene.width, scene.height);
+      expectWithin(key.below, scene.width, scene.height);
+      expect(key.above.y + key.above.height).toBeLessThan(key.cap.y);
+      expect(key.below.y).toBeGreaterThan(key.cap.y + key.cap.height);
+    }
+  });
+
+  it('keeps the photo\'s stagger: the second row half a key in, the third three-quarters, the fourth flush', () => {
+    // A 48-unit pitch: Q sits 24 right of 1 (half a pitch), A 37 right (3/4).
+    expect(placed[0].cap.x).toBe(14);
+    expect(placed[10].cap.x).toBe(14 + 24);
+    expect(placed[20].cap.x).toBe(14 + 37);
+    expect(placed[30].cap.x).toBe(14);
+    expect(placed[1].cap.x - placed[0].cap.x).toBe(48);
+  });
+
+  it('has a wide SHIFT and SPACE, and ordinary caps elsewhere', () => {
+    const shift = placed[30].cap, space = placed[39].cap, z = placed[31].cap;
+    expect(shift.width).toBe(50);
+    expect(space.width).toBe(61);
+    expect(z.width).toBe(37);
+    expect(z.x).toBe(shift.x + shift.width + 11);         // the keys after SHIFT shift right with it
+  });
+
+  it('brings SPACE and ENTER to one right edge, past the digit row\'s', () => {
+    const space = placed[39].cap, enter = placed[29].cap, zero = placed[9].cap;
+    expect(space.x + space.width).toBe(enter.x + enter.width);
+    expect(space.x + space.width).toBeGreaterThan(zero.x + zero.width + 30);
+  });
+
+  it('never overlaps two keys in a row, and leaves the same gap between each', () => {
+    for (let r = 0; r < 4; r++) {
+      const caps = row(r).map((p) => p.cap);
+      for (let i = 1; i < caps.length; i++) expect(caps[i].x - (caps[i - 1].x + caps[i - 1].width)).toBe(11);
+    }
+  });
+
+  it('leaves the ZX80 and ZX81 scenes alone', () => {
+    expect(zx8xScene('zx81').height).toBe(10 + (16 + 3 + 30) * 4 + 12);
+    expect(zx8xScene('zx80').height).toBe(10 + (16 + 3 + 40) * 4 + 12);
+    // The TS1500's caps are a unit shorter than the ZX81's, in rows of 16 + 3 + 29.
+    expect(zx8xScene('ts1500').height).toBe(10 + (16 + 3 + 29) * 4 + 12);
   });
 });

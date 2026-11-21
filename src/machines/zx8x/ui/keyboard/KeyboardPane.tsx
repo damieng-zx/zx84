@@ -1,5 +1,10 @@
 /**
- * ZX81 / ZX80 on-screen keyboard.
+ * ZX81 / ZX80 / Timex Sinclair 1500 on-screen keyboard.
+ *
+ * The TS1500 face is traced from the machine: a silver case, grey caps with a
+ * white glyph at the top, the shifted symbol and a small black legend below it, a
+ * wide SHIFT and SPACE, and solid arrows on the cursor keys. The TS1000 keeps the
+ * ZX81's membrane keyboard.
  *
  * A staggered 4×10 grid of flat keycaps on a textured case (see `legends.ts`).
  * Each key prints the keyword above / FUNCTION word below on the case, and the
@@ -12,6 +17,7 @@
 import { For, Show } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { currentModel } from '@/state/machine-state.ts';
+import type { Zx8xModel } from '@/machines/zx8x/models.ts';
 import { KeyboardScene, SceneElement, SceneKey } from '@/ui/components/KeyboardScene.tsx';
 import { rowsForModel, type Graphic } from './legends.ts';
 import { useKeyboard, type KeyboardController } from './keyboard-common.tsx';
@@ -58,7 +64,22 @@ function Block(props: { g: Graphic }) {
   );
 }
 
-function KeyCell(props: { placed: PlacedZx8xKey; kbd: KeyboardController; zx80?: boolean }) {
+/** A small solid cursor arrow, as the TS1500 prints them (the arrow points up at 0°). */
+const ARROW_TURN: Record<string, number> = { '↑': 0, '→': 90, '↓': 180, '←': 270 };
+function Arrow(props: { dir: string }) {
+  return (
+    <svg
+      class="zxk-arrow"
+      viewBox="0 0 10 10"
+      aria-hidden="true"
+      style={{ transform: `rotate(${ARROW_TURN[props.dir] ?? 0}deg)` }}
+    >
+      <path d="M5 0 L10 5 H7 V10 H3 V5 H0 Z" />
+    </svg>
+  );
+}
+
+function KeyCell(props: { placed: PlacedZx8xKey; kbd: KeyboardController; zx80?: boolean; ts1500?: boolean }) {
   const k = props.placed.key;
   const pressed = () => props.kbd.isDown(k.pos);
   const arrow = () => (k.capFn ? ARROW_OUTLINE[k.capFn] : undefined);
@@ -81,6 +102,8 @@ function KeyCell(props: { placed: PlacedZx8xKey; kbd: KeyboardController; zx80?:
           k.latch ? 'zxk-key--mod' : '',
           k.main.includes('\n') || k.main.length > 1 ? 'zxk-key--label' : '',
           /^[0-9]$/.test(k.main) ? 'zxk-key--num' : '',
+          k.graphic ? '' : 'zxk-key--plain',
+          k.main === '.' ? 'zxk-key--dot' : '',
         ].filter(Boolean).join(' ')}
         pressed={pressed()}
         label={k.main.replace('\n', ' ')}
@@ -90,7 +113,12 @@ function KeyCell(props: { placed: PlacedZx8xKey; kbd: KeyboardController; zx80?:
         {/* Red shifted-function at the top of the cap. Cursor keys print a big
             fat outline arrow; everything else prints the word. */}
         <Show when={!props.zx80 && k.capFn}>
-          <span class="zxk-capfn" classList={{ 'zxk-capfn--arrow': !!arrow() }}>{arrow() ?? k.capFn}</span>
+          <Show
+            when={props.ts1500 && arrow()}
+            fallback={<span class="zxk-capfn" classList={{ 'zxk-capfn--arrow': !!arrow() }}>{arrow() ?? k.capFn}</span>}
+          >
+            <Arrow dir={k.capFn!} />
+          </Show>
         </Show>
         <span class="zxk-main">{k.main}</span>
         {/* Red shift tokens that are symbols (no letters) print larger than words. */}
@@ -105,8 +133,20 @@ function KeyCell(props: { placed: PlacedZx8xKey; kbd: KeyboardController; zx80?:
   );
 }
 
+const FACE_LABEL: Record<Zx8xModel, string> = {
+  zx80: 'Sinclair ZX80 keyboard',
+  zx81: 'Sinclair ZX81 keyboard',
+  ts1000: 'Timex Sinclair 1000 keyboard',
+  ts1500: 'Timex Sinclair 1500 keyboard',
+};
+
 export function KeyboardPane() {
-  const model = () => (currentModel() === 'zx80' ? 'zx80' : 'zx81');
+  // The TS1000 is a ZX81 inside, with the ZX81's membrane keyboard; only the
+  // TS1500 has keys of its own.
+  const model = (): Zx8xModel => {
+    const m = currentModel();
+    return m === 'zx80' ? 'zx80' : m === 'ts1500' ? 'ts1500' : 'zx81';
+  };
   const rows = () => rowsForModel(model());
   const scene = () => zx8xScene(model());
   const keys = () => placeZx8xRows(rows(), model());
@@ -118,11 +158,11 @@ export function KeyboardPane() {
         height={scene().height}
         unit={scene().unit}
         class="zxk-bezel"
-        classList={{ 'zxk--zx81': model() === 'zx81', 'zxk--zx80': model() === 'zx80' }}
-        label={model() === 'zx80' ? 'Sinclair ZX80 keyboard' : 'Sinclair ZX81 keyboard'}
+        classList={{ 'zxk--zx81': model() === 'zx81', 'zxk--zx80': model() === 'zx80', 'zxk--ts1500': model() === 'ts1500' }}
+        label={FACE_LABEL[currentModel() as Zx8xModel] ?? FACE_LABEL[model()]}
       >
         <For each={keys()}>
-          {(placed) => <KeyCell placed={placed} kbd={kbd} zx80={model() === 'zx80'} />}
+          {(placed) => <KeyCell placed={placed} kbd={kbd} zx80={model() === 'zx80'} ts1500={model() === 'ts1500'} />}
         </For>
       </KeyboardScene>
     </Pane>

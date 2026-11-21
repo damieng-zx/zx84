@@ -1,6 +1,11 @@
 /**
- * ZX81 / ZX80 on-screen keyboard legend data (pure — no solid-js, so it stays
- * unit-testable on its own).
+ * ZX81 / ZX80 / Timex Sinclair 1500 on-screen keyboard legend data (pure — no
+ * solid-js, so it stays unit-testable on its own).
+ *
+ * The TS1500 has the ZX81's keyboard under a different face: every key prints the
+ * same keyword, shifted symbol, function word and block graphic as the ZX81 (read
+ * from a photograph, key by key), except that 0 says DELETE where the ZX81 says
+ * RUBOUT and NEW LINE is a single ENTER / FUNCTION key.
  *
  * The real machines are a flat 4×10 grid of 40 keys filling the whole 8×5
  * (rows × bits) matrix. There are NO dedicated cursor/edit keys: the arrows,
@@ -205,16 +210,30 @@ const ZX80_LEGENDS: Record<string, Legend> = {
   SPACE: { keyword: 'BREAK', shift: '£' },
 };
 
+// ── Timex Sinclair 1500 — the ZX81's legends on its own keycaps ─────────────
+const TS1500_LEGENDS: Record<string, Legend> = {
+  ...ZX81_LEGENDS,
+  '0': { capFn: 'DELETE' },
+};
+
 function build(legends: Record<string, Legend>): Zx8xKey[][] {
   return LAYOUT.map((row) =>
     row.map((k) => ({ pos: k.pos, main: k.main, latch: k.latch, ...legends[k.main] })),
   );
 }
 
+/** The TS1500 prints ENTER over FUNCTION on the one key, instead of a NEW LINE
+ *  label with FUNCTION above it. */
+const TS1500_ENTER = 'ENTER\nFUNCTION';
+
 export const ZX81_ROWS: Zx8xKey[][] = build(ZX81_LEGENDS);
 export const ZX80_ROWS: Zx8xKey[][] = build(ZX80_LEGENDS);
+export const TS1500_ROWS: Zx8xKey[][] = build(TS1500_LEGENDS).map((row) =>
+  row.map((k) => (k.main === NEWLINE ? { ...k, main: TS1500_ENTER, capFn: undefined } : k)),
+);
 
-/** The key rows for a model's on-screen keyboard. */
+/** The key rows for a model's on-screen keyboard. The Timex Sinclair 1000 has the
+ *  ZX81's membrane keyboard. */
 export function rowsForModel(model: Zx8xModel): Zx8xKey[][] {
-  return model === 'zx80' ? ZX80_ROWS : ZX81_ROWS;
+  return model === 'zx80' ? ZX80_ROWS : model === 'ts1500' ? TS1500_ROWS : ZX81_ROWS;
 }
