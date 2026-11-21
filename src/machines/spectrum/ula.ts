@@ -173,6 +173,27 @@ export class ULA {
    *  for a bitmap at 0x4000-0x57FF), instead of one per 8x8 cell. */
   attrPerByte = false;
 
+  /** Timex SCLD video (TC2048): the ULA draws the screen mode of port 0xFF
+   *  instead of the plain Spectrum screen. See scld.ts for the modes. Off on
+   *  every other model, which keep the unchanged paths below. */
+  timexEnabled = false;
+  /** Port 0xFF bits 0-2: the screen mode. */
+  timexMode = 0;
+  /** Port 0xFF bits 3-5: the hi-res ink (the paper is its complement). */
+  hiResInk = 0;
+  /** Buffer pixels per logical (256-mode) pixel across: 1, or 2 while the
+   *  picture is hi-res (512 wide). The beam, the border and the cells are all
+   *  addressed in logical pixels; only the buffer is scaled. */
+  xScale: 1 | 2 = 1;
+  /** Picture width in logical pixels (the border-size setting changes it);
+   *  `screenWidth` is this times `xScale`. */
+  logicalWidth = SCREEN_WIDTH;
+  /** Whether a hi-res cell was drawn since the frame began. */
+  private hiResUsed = false;
+  /** Called when `xScale` changes the buffer's size, after the new buffer is
+   *  in place, so the display can be resized to it. */
+  onGeometryChange: (() => void) | null = null;
+
   /** Reference to the key matrix for port reads */
   keyboard: KeyMatrixSource;
 
@@ -187,10 +208,60 @@ export class ULA {
     if (b === this.borderLeft) return;
     this.borderLeft = b;
     this.borderTop = b;
-    this.screenWidth = DISPLAY_WIDTH + b * 2;
+    this.logicalWidth = DISPLAY_WIDTH + b * 2;
+    this.screenWidth = this.logicalWidth * this.xScale;
     this.screenHeight = DISPLAY_HEIGHT + b * 2;
     this.pixels = new Uint8Array(this.screenWidth * this.screenHeight * 4);
     this.pixels32 = new Uint32Array(this.pixels.buffer);
+  }
+
+  /** True while the Timex hi-res (512x192) modes are selected. */
+  get isHiRes(): boolean { return this.timexEnabled && (this.timexMode & 4) !== 0; }
+
+  /** The border colour index now in force: the paper of the hi-res colour pair
+   *  (bright) in hi-res mode, else the port 0xFE border colour. */
+  get effectiveBorder(): number {
+    return this.isHiRes ? (7 - this.hiResInk) + 8 : this.borderColor;
+  }
+
+  /** Follow a write to port 0xFF (the caller has flushed the beam). */
+  setTimexVideo(dec: number): void {
+    this.timexMode = dec & 7;
+    this.hiResInk = (dec >> 3) & 7;
+  }
+
+  /** Make the buffer `scale` buffer pixels per logical pixel across. Widening
+   *  keeps what is drawn (each pixel doubled); narrowing starts a blank buffer,
+   *  and is only done where the frame about to be drawn replaces it all. */
+  private setXScale(scale: 1 | 2, keep: boolean): void {
+    if (scale === this.xScale) return;
+    const oldWidth = this.screenWidth;
+    const old = this.pixels32;
+    this.xScale = scale;
+    this.screenWidth = this.logicalWidth * scale;
+    this.pixels = new Uint8Array(this.screenWidth * this.screenHeight * 4);
+    this.pixels32 = new Uint32Array(this.pixels.buffer);
+    if (keep && scale === 2) {
+      for (let y = 0; y < this.screenHeight; y++) {
+        const from = y * oldWidth;
+        const to = y * this.screenWidth;
+        for (let x = 0; x < oldWidth; x++) {
+          const rgba = old[from + x];
+          this.pixels32[to + 2 * x] = rgba;
+          this.pixels32[to + 2 * x + 1] = rgba;
+        }
+      }
+    }
+    this.onGeometryChange?.();
+  }
+
+  /** Called as each frame begins. The buffer is 512 wide only for a frame that
+   *  has hi-res in it: one that did not (and does not start in hi-res) goes
+   *  back to the normal width. */
+  beginFrame(): void {
+    if (!this.timexEnabled) return;
+    if (this.xScale === 2 && !this.hiResUsed && !this.isHiRes) this.setXScale(1, false);
+    this.hiResUsed = false;
   }
 
   reset(): void {
@@ -206,6 +277,11 @@ export class ULA {
     this.tapeActive = false;
     this.flashCounter = 0;
     this.flashState = false;
+    if (this.timexEnabled) {
+      this.setTimexVideo(0);
+      this.hiResUsed = false;
+      this.setXScale(1, false);
+    }
     this.pixels.fill(0);
   }
 
@@ -286,6 +362,11 @@ export class ULA {
       this.flashState = !this.flashState;
     }
 
+    if (this.timexEnabled) {
+      this.renderFrameTimex(memory, vramOffset);
+      return;
+    }
+
     const borderRGBA = this.palette[this.borderColor];
 
     // Fill entire buffer with border
@@ -332,18 +413,21 @@ export class ULA {
 
         const startPx = col * cellWidth + xOffset;
         const attrCol = Math.min(31, startPx >> 3);
-        const attr = memory[vramAttrAddr(attrRow << 3, attrCol) - vramOffset];
-        const [, paperRGBA] = this.decodeAttr(attr);
+        // Hi-res has no attributes: its paper is the complement of the hi-res ink, bright.
+        const paperRGBA = this.isHiRes
+          ? this.palette[(7 - this.hiResInk) + 8]
+          : this.decodeAttr(memory[vramAttrAddr(attrRow << 3, attrCol) - vramOffset])[1];
 
         for (let py = 0; py < cellHeight; py++) {
           const y = pixelY + py;
           if (y < 0 || y >= DISPLAY_HEIGHT) continue;
           const screenY = y + this.borderTop;
-          const px = this.borderLeft + startPx;
+          const scale = this.xScale;
+          const px = (this.borderLeft + startPx) * scale;
           const baseIdx = screenY * screenW + px;
           for (let x = 0; x < cellWidth; x++) {
             if (startPx + x >= DISPLAY_WIDTH) break;
-            this.pixels32[baseIdx + x] = paperRGBA;
+            for (let k = 0; k < scale; k++) this.pixels32[baseIdx + x * scale + k] = paperRGBA;
           }
         }
       }
@@ -364,6 +448,10 @@ export class ULA {
    * y: display line 0..191, col: character column 0..31.
    */
   renderDisplayCell(y: number, col: number, memory: Uint8Array, vramOffset = 0): void {
+    if (this.timexEnabled) {
+      this.drawTimexCell(y, col, memory, vramOffset);
+      return;
+    }
     const screenY = y + this.borderTop;
     const rowStart = screenY * this.screenWidth;
 
@@ -383,8 +471,65 @@ export class ULA {
   fillBorder(screenY: number, x1: number, x2: number, borderColor: number): void {
     const rgba = this.palette[borderColor];
     const rowStart = screenY * this.screenWidth;
-    for (let x = x1; x < x2; x++) {
+    const scale = this.xScale;
+    for (let x = x1 * scale; x < x2 * scale; x++) {
       this.pixels32[rowStart + x] = rgba;
     }
+  }
+
+  /** The whole frame at once, in the screen mode now selected (the low scanline
+   *  accuracy path). The buffer takes the width that mode needs. */
+  private renderFrameTimex(memory: Uint8Array, vramOffset: number): void {
+    this.setXScale(this.isHiRes ? 2 : 1, false);
+    this.hiResUsed = this.isHiRes;
+    this.pixels32.fill(this.palette[this.effectiveBorder]);
+    for (let y = 0; y < DISPLAY_HEIGHT; y++) {
+      for (let col = 0; col < DISPLAY_COLS; col++) this.drawTimexCell(y, col, memory, vramOffset);
+    }
+  }
+
+  /**
+   * One 8-pixel character cell on display line `y` in the Timex screen mode.
+   * `memory` is the displayed 16K bank, `vramOffset` the address its first byte
+   * has in the Z80 map (0x4000). Screen 1 is the same layout 0x2000 higher. In
+   * the hi-res modes the cell is two bytes, 16 pixels, in the hi-res colours.
+   */
+  private drawTimexCell(y: number, col: number, memory: Uint8Array, vramOffset: number): void {
+    const mode = this.timexMode;
+    const bitmap = vramBitmapAddr(y) - vramOffset + col;     // this cell's byte in screen 0
+    const second = (mode & 1) !== 0 ? 0x2000 : 0;            // bit 0 picks screen 1
+    const attr = vramAttrAddr(y, col) - vramOffset;           // its 8x8 attribute in screen 0
+
+    if ((mode & 4) === 0) {
+      const data = memory[bitmap + second];
+      // Bit 1: the attribute is a byte per bitmap byte, laid out like the bitmap in screen 1.
+      const [inkRGBA, paperRGBA] = this.decodeAttr(
+        (mode & 2) !== 0 ? memory[bitmap + 0x2000] : memory[attr + second],
+      );
+      const scale = this.xScale;
+      let idx = (y + this.borderTop) * this.screenWidth + (this.borderLeft + (col << 3)) * scale;
+      for (let bit = 7; bit >= 0; bit--) {
+        const rgba = (data & (1 << bit)) ? inkRGBA : paperRGBA;
+        this.pixels32[idx++] = rgba;
+        if (scale === 2) this.pixels32[idx++] = rgba;
+      }
+      return;
+    }
+
+    this.hiResUsed = true;
+    if (this.xScale === 1) this.setXScale(2, true);
+    const left = memory[bitmap + second];
+    let right: number;
+    switch (mode) {
+      case 4: right = memory[attr]; break;                     // screen 0's attribute byte
+      case 5: right = memory[attr + 0x2000]; break;            // screen 1's attribute byte
+      case 6: right = memory[bitmap + 0x2000]; break;          // screen 1's bitmap byte
+      default: right = left; break;                            // 7: the same byte twice
+    }
+    const inkRGBA = this.palette[this.hiResInk + 8];
+    const paperRGBA = this.palette[(7 - this.hiResInk) + 8];
+    let idx = (y + this.borderTop) * this.screenWidth + (this.borderLeft + (col << 3)) * 2;
+    for (let bit = 7; bit >= 0; bit--) this.pixels32[idx++] = (left & (1 << bit)) ? inkRGBA : paperRGBA;
+    for (let bit = 7; bit >= 0; bit--) this.pixels32[idx++] = (right & (1 << bit)) ? inkRGBA : paperRGBA;
   }
 }

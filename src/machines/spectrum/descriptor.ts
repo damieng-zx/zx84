@@ -9,7 +9,7 @@ import type { SoundDeviceInfo, StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { isCpcModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
-import { is128kClass, isUspeechCapable, isPlus2AClass, isScorpionClass, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
+import { is128kClass, isUspeechCapable, isPlus2AClass, isScorpionClass, isTimexClass, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
 import { Spectrum } from './spectrum.ts';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './ula.ts';
 
@@ -26,6 +26,8 @@ function spectrumMemoryRegions(model: MachineModel): MemoryRegionInfo[] {
 
 function spectrumStatusLeds(model: MachineModel): StatusLedId[] {
   const leds: StatusLedId[] = ['kbd', 'kemp', 'mouse', 'ear', 'load', 'text', 'rainbow', 'beep'];
+  // The Timex board decodes only its own ports: no mouse interface answers.
+  if (isTimexClass(model)) leds.splice(leds.indexOf('mouse'), 1);
   if (is128kClass(model)) leds.push('chip');
   if (isPlus3(model)) leds.push('dsk');
   return leds;
@@ -44,6 +46,19 @@ function spectrumSoundDevices(model: MachineModel): SoundDeviceInfo[] {
   return devices;
 }
 
+/** The Save menu: snapshots, the tape recorded, screen dumps (plus the multicolour
+ *  one where the hardware has an attribute per 8x1 line: the Timex and the Pentagon
+ *  1024) and the RAM. .z80 holds at most 128K of RAM (and has no Scorpion paging),
+ *  so the Pentagon 512/1024 and the Scorpion save only as .szx. */
+function spectrumSaveMenu(model: MachineModel): MachineUiCapabilities['saveMenu'] {
+  const screens: MachineUiCapabilities['saveMenu'] = isTimexClass(model) || model === 'pentagon1024'
+    ? ['screenshot-png', 'screen-scr', 'screen-mlt']
+    : ['screenshot-png', 'screen-scr'];
+  return ramBankCountFor(model) > 8
+    ? ['snapshot-szx', 'tape-tap', ...screens, 'ram-bin']
+    : ['snapshot-szx', 'snapshot-z80', 'tape-tap', ...screens, 'ram-bin'];
+}
+
 function spectrumUi(model: MachineModel): MachineUiCapabilities {
   return {
     hiddenPanes: [],
@@ -56,7 +71,7 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     builtinDrives: 2,
     joystick: true,
     fixedJoystick: false,
-    mouseTypes: [
+    mouseTypes: isTimexClass(model) ? [] : [
       { id: 'kempston', label: 'Kempston' },
       { id: 'amx', label: 'AMX' },
     ],
@@ -77,9 +92,7 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     // 'tape-tap' downloads what SAVE has written to the MIC line (as .tzx).
     // .z80 holds at most 128K of RAM (and has no Scorpion paging), so the
     // Pentagon 512/1024 and the Scorpion save only as .szx.
-    saveMenu: ramBankCountFor(model) > 8
-      ? ['snapshot-szx', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin']
-      : ['snapshot-szx', 'snapshot-z80', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
+    saveMenu: spectrumSaveMenu(model),
     zipPolicy: 'all',
     persistMedia: true,
     bootDisk: false,
@@ -107,6 +120,8 @@ const ROM_SOURCES: Record<string, string[]> = {
   // ── UK defaults ──────────────────────────────────────────────────────────
   'zx16k':  ['sinclair/48.rom'],
   'zx48k':  ['sinclair/48.rom'],
+  // Timex Computer 2048: a lightly modified 48K BASIC ROM, 16K.
+  'tc2048': ['timex/tc2048.rom'],
   'zx128k': ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
   'zx128kplus2':   ['sinclair/plus2-0.rom', 'sinclair/plus2-1.rom'],
   'zx128kplus2a':  ['sinclair/plus3-41-0.rom', 'sinclair/plus3-41-1.rom', 'sinclair/plus3-41-2.rom', 'sinclair/plus3-41-3.rom'],
@@ -139,16 +154,20 @@ const ROM_SOURCES: Record<string, string[]> = {
 
 /** Descriptor for one Spectrum model — shared by the registry entry and the
  *  machine instance's own `descriptor` getter. */
-export function spectrumDescriptor(model: MachineModel, locale: MachineLocale = 'uk'): MachineDescriptor {
+export function spectrumDescriptor(
+  model: MachineModel, locale: MachineLocale = 'uk', xScale: 1 | 2 = 1,
+): MachineDescriptor {
+  // A Timex hi-res frame is 512 pixels across inside a buffer twice as wide,
+  // each pixel half the width of a normal one so the picture stays the same size.
   return {
     kind: 'spectrum',
     model,
     locale,
     cpuFamily: 'z80',
     screen: {
-      width: SCREEN_WIDTH, height: SCREEN_HEIGHT, pixelAspectX: 1,
-      activeWidth: 256, activeHeight: 192,
-      borderLeft: SPECTRUM_BORDER, borderTop: SPECTRUM_BORDER,
+      width: SCREEN_WIDTH * xScale, height: SCREEN_HEIGHT, pixelAspectX: 1 / xScale,
+      activeWidth: 256 * xScale, activeHeight: 192,
+      borderLeft: SPECTRUM_BORDER * xScale, borderTop: SPECTRUM_BORDER,
     },
     ui: spectrumUi(model),
   };
@@ -156,7 +175,7 @@ export function spectrumDescriptor(model: MachineModel, locale: MachineLocale = 
 
 export const spectrumEntry: MachineEntry = {
   kind: 'spectrum',
-  models: ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'],
+  models: ['zx16k', 'zx48k', 'tc2048', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'],
   descriptor: spectrumDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Spectrum(model as SpectrumModel, display);
@@ -173,7 +192,8 @@ export const spectrumEntry: MachineEntry = {
     const cur: SpectrumModel = isCpcModel(current) ? 'zx128k' : current as SpectrumModel;
     if (data.length >= 65536) return isPlus2AClass(cur) || isScorpionClass(cur) ? cur : 'zx128kplus2a';
     if (data.length >= 32768) return is128kClass(cur) ? cur : 'zx128k';
-    if (data.length >= 16384) return 'zx48k';
+    // A 16K image is a 48K-class ROM: keep the Timex model already in use.
+    if (data.length >= 16384) return isTimexClass(cur) ? cur : 'zx48k';
     return null;   // too small to be a system ROM
   },
 };

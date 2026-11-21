@@ -35,6 +35,7 @@ const SAVE_ITEMS: Record<SaveMenuItem, { label: string; run: () => void }> = {
   'snapshot-sna-v3': { label: 'Snapshot v3 (.sna)', run: () => saveCpcSnapshot(3) },
   'screenshot-png': { label: 'Screenshot (.png)', run: () => saveScreenshot('png') },
   'screen-scr': { label: 'Screen (.scr)', run: () => saveScreenshot('scr') },
+  'screen-mlt': { label: 'Multicolour screen (.mlt)', run: () => saveScreenshot('mlt') },
   'ram-bin': { label: 'RAM (.bin)', run: () => saveRAM() },
   'tape-tap': { label: 'Saved tape', run: () => saveRecordedTape() },
   'printer-txt': { label: 'Printer output (.txt)', run: () => savePrinterOutput() },

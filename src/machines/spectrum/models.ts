@@ -9,7 +9,7 @@
 import type { MachineModel } from '@/models.ts';
 
 export type SpectrumModel = 'zx16k' | 'zx48k' | 'zx128k' | 'zx128kplus2' | 'zx128kplus2a' | 'zx128kplus3'
-  | 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256';
+  | 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256' | 'tc2048';
 
 /** The ids the Spectrum models carried before they were unified under a `zx`
  *  prefix, paired with their current id. Saved settings, stored ROM overrides
@@ -32,6 +32,11 @@ export function is128kClass(m: MachineModel): boolean {
   return m === 'zx128k' || m === 'zx128kplus2' || m === 'zx128kplus2a' || m === 'zx128kplus3'
     || isPentagonClass(m) || isScorpionClass(m);
 }
+
+/** Returns true for the Timex Computer 2048: a 48K-class Spectrum whose SCLD ULA adds the
+ *  port-0xFF screen modes, decodes its ports on the low eight address bits, has no
+ *  floating bus and carries a Kempston joystick port on the board. */
+export function isTimexClass(m: MachineModel): boolean { return m === 'tc2048'; }
 
 /** Returns true for the Pentagon family of Russian 128K clones: no contention,
  *  no floating bus, 71680 T-state frame, and a Beta Disk built in. */

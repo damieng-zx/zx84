@@ -10,6 +10,7 @@ import { createFerranti128K } from './spectrum-ferranti.ts';
 import { createAmstrad } from './spectrum-amstrad.ts';
 import { createPentagon } from './spectrum-pentagon.ts';
 import { spectrumScorpion } from './spectrum-scorpion.ts';
+import { spectrumTc2048 } from './spectrum-timex.ts';
 
 export type { MachineVariant } from './machine-variant.ts';
 
@@ -25,5 +26,6 @@ export function createVariant(model: SpectrumModel): MachineVariant {
     case 'pentagon512': return createPentagon('pentagon512');
     case 'pentagon1024': return createPentagon('pentagon1024');
     case 'scorpion256': return spectrumScorpion;
+    case 'tc2048': return spectrumTc2048;
   }
 }

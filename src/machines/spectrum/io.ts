@@ -127,8 +127,88 @@ export function installMemoryHooks(s: Spectrum): void {
 export function wirePortIO(s: Spectrum): void {
   const v = s.variant;
 
+  /** A write to the ULA port (0xFE): the beeper, MIC, the border colour. */
+  function writeUla(val: number): void {
+    const newBeeperBit = (val >> 4) & 1;
+    if (newBeeperBit !== s.mixer.prevBeeperBit) {
+      s.activity.beeperToggled = true;
+      s.mixer.prevBeeperBit = newBeeperBit;
+    }
+    s.flushBeam();
+    s.ula.writePort(val);
+    s.micRecorder.observe((val >> 3) & 1, s.cpu.tStates);
+  }
+
+  /** A read of the ULA port (0xFE): the keyboard half-rows and the EAR bit, with
+   *  the tape deck and loader detection kept in step. */
+  function readUla(port: number): number {
+    s.activity.ulaReads++;
+    s.advanceTapeTo();
+    if (s.ula.tapeActive) {
+      // tapePolls counts every ULA read while the tape plays (any port);
+      // earReads is the 0xFF subset (standard ROM loader). Custom loaders
+      // poll non-0xFF ports, so tapePolls is what engages turbo for them.
+      s.activity.tapePolls++;
+      if ((port >> 8) === 0xFF) s.activity.earReads++;
+    }
+    if (s.tape.loaded && !s.tape.finished) {
+      const playing = s.tape.playing && !s.tape.paused;
+      // Auto play/stop: sniff the IN A,(0xFE) cadence to start/stop the tape.
+      const event = s.loaderDetector.onULARead(s.cpu, playing);
+      if (event === 'start') {
+        s.tape.paused = false;
+        if (!s.tape.playing) s.tape.startPlayback();
+        // Nothing advanced the deck while it was paused, and
+        // tapeLastAdvanceT still reads the top of this frame — measure the
+        // next advance from now, or the deck gets up to a frame of
+        // catch-up (tens of pilot edges) the moment the loader resumes.
+        s.resetTapeAdvance();
+        s.activity.loaderDetected = true;
+      } else if (event === 'stop') {
+        s.tape.paused = true;
+      }
+    }
+    return s.ula.readPort((port >> 8) & 0xFF);
+  }
+
+  /** Timex SCLD: only its own ports answer, each decoded on the low eight address
+   *  bits - 0xFE (the ULA), 0xFF (screen mode, hi-res colour, interrupt disable)
+   *  and the SpecDrum's 0xDF. Nothing else on the board listens to an OUT. */
+  function timexOut(port: number, val: number): void {
+    const low = port & 0xFF;
+    if (low === 0xFE) {
+      writeUla(val);
+    } else if (low === 0xFF) {
+      const timex = s.timex!;
+      // The mode, the hi-res colour and the border it implies change what the
+      // beam draws from here on: render up to it in the old state first.
+      if (((timex.dec ^ val) & 0x3F) !== 0) s.flushBeam();
+      timex.write(val);
+      s.ula.setTimexVideo(val);
+    } else if (s.specdrum.enabled && s.specdrum.matchPort(port)) {
+      s.specdrum.writePort(val);
+      s.activity.specdrumWrites++;
+    }
+  }
+
+  /** Timex SCLD reads: 0xFE is the ULA with bits 5 and 7 always clear, 0xFF
+   *  returns the last byte written to it, the Kempston joystick answers any
+   *  port with A5 low, and there is no floating bus - an unattached port is 0xFF. */
+  function timexIn(port: number): number {
+    const low = port & 0xFF;
+    if (low === 0xFE) return readUla(port) & 0x5F;
+    if (low === 0xFF) return s.timex!.dec;
+    if ((port & 0x20) === 0) {
+      s.activity.kempstonReads++;
+      return s.joystick.state;
+    }
+    return 0xFF;
+  }
+
   s.cpu.portOutHandler = (port: number, val: number) => {
     if (s.portWatchpoints.size > 0) s.recordPortWatch(port & 0xFFFF, val, 'out');
+
+    if (s.timex !== null) { timexOut(port, val); return; }
 
     // MGT +D ports (page out, WD1772 registers, control register). Handled
     // first and returned so a +D OUT can't also trip banking/AY decoding.
@@ -169,16 +249,7 @@ export function wirePortIO(s: Spectrum): void {
     }
 
     // ULA port: any port with bit 0 = 0
-    if ((port & 0x01) === 0) {
-      const newBeeperBit = (val >> 4) & 1;
-      if (newBeeperBit !== s.mixer.prevBeeperBit) {
-        s.activity.beeperToggled = true;
-        s.mixer.prevBeeperBit = newBeeperBit;
-      }
-      s.flushBeam();
-      s.ula.writePort(val);
-      s.micRecorder.observe((val >> 3) & 1, s.cpu.tStates);
-    }
+    if ((port & 0x01) === 0) writeUla(val);
 
     // 128K bank switching: port 0x7FFD
     if (v.hasBanking) {
@@ -247,6 +318,8 @@ export function wirePortIO(s: Spectrum): void {
   };
 
   function dispatch(port: number): number {
+    if (s.timex !== null) return timexIn(port);
+
     // MGT +D ports (page in, WD1772 registers) take priority.
     if (s.mgtPlusD.enabled && s.mgtPlusD.matchPort(port)) {
       return s.mgtPlusD.readPort(port, s.memory);
@@ -263,35 +336,7 @@ export function wirePortIO(s: Spectrum): void {
     }
 
     // ULA port: any port with bit 0 = 0
-    if ((port & 0x01) === 0) {
-      s.activity.ulaReads++;
-      s.advanceTapeTo();
-      if (s.ula.tapeActive) {
-        // tapePolls counts every ULA read while the tape plays (any port);
-        // earReads is the 0xFF subset (standard ROM loader). Custom loaders
-        // poll non-0xFF ports, so tapePolls is what engages turbo for them.
-        s.activity.tapePolls++;
-        if ((port >> 8) === 0xFF) s.activity.earReads++;
-      }
-      if (s.tape.loaded && !s.tape.finished) {
-        const playing = s.tape.playing && !s.tape.paused;
-        // Auto play/stop: sniff the IN A,(0xFE) cadence to start/stop the tape.
-        const event = s.loaderDetector.onULARead(s.cpu, playing);
-        if (event === 'start') {
-          s.tape.paused = false;
-          if (!s.tape.playing) s.tape.startPlayback();
-          // Nothing advanced the deck while it was paused, and
-          // tapeLastAdvanceT still reads the top of this frame — measure the
-          // next advance from now, or the deck gets up to a frame of
-          // catch-up (tens of pilot edges) the moment the loader resumes.
-          s.resetTapeAdvance();
-          s.activity.loaderDetected = true;
-        } else if (event === 'stop') {
-          s.tape.paused = true;
-        }
-      }
-      return s.ula.readPort((port >> 8) & 0xFF);
-    }
+    if ((port & 0x01) === 0) return readUla(port);
 
     // AY register read: port 0xFFFD — 128K only
     if (v.hasAY && (port & 0xC002) === 0xC000) {

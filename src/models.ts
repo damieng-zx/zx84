@@ -46,6 +46,7 @@ export {
   hasBuiltinBetaDisk,
   betaRomInSystemRom,
   isInterface2Capable,
+  isTimexClass,
   LEGACY_SPECTRUM_IDS,
   legacySpectrumModel,
   type RomPage,

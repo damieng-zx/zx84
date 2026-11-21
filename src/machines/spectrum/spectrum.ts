@@ -22,7 +22,7 @@ import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Contention } from '@/machines/spectrum/contention.ts';
-import { ScreenText, OCR_GRIDS, detectGrid } from '@/ocr/spectrum.ts';
+import { ScreenText, OCR_GRIDS, HIRES_GRID_KEYS, detectGrid } from '@/ocr/spectrum.ts';
 import type { FontSource, OcrResult, OcrGridName, SpectrumOcrGrid } from '@/ocr/ocr.ts';
 import { trapTapeLoad } from '@/machines/spectrum/tape-loader.ts';
 import { LoaderDetector } from '@/media/tape/loader-detector.ts';
@@ -72,9 +72,11 @@ const UNVERIFIED_DISPLAY_START: ReadonlySet<string> = new Set([
 ]);
 
 import type { SpectrumModel } from '@/models.ts';
-import { betaRomInSystemRom, hasBoardIssueOption, isPentagonClass, isPlus2AClass, isScorpionClass } from '@/machines/spectrum/models.ts';
+import { betaRomInSystemRom, hasBoardIssueOption, isPentagonClass, isPlus2AClass, isScorpionClass, isTimexClass } from '@/machines/spectrum/models.ts';
 import { withTrdosMenuEntry } from '@/machines/spectrum/pentagon-menu.ts';
 import { ScorpionBoard } from '@/machines/spectrum/scorpion.ts';
+import { Scld } from '@/machines/spectrum/scld.ts';
+import { encodeMlt, encodeScr, hiResLinear, type ScreenState } from '@/machines/spectrum/screen-formats.ts';
 import { IOActivity } from '@/machines/spectrum/activity.ts';
 
 // Re-export IOActivity from its neutral home so existing imports from
@@ -237,6 +239,18 @@ export class Spectrum extends BaseMachine implements Machine {
    *  button); null on every other model. See scorpion.ts. */
   readonly scorpion: ScorpionBoard | null;
 
+  /** Timex SCLD (port 0xFF) state on the TC2048; null on every other model. */
+  readonly timex: Scld | null;
+
+  /** The ULA changed the width of its buffer (a Timex hi-res mode came or went):
+   *  resize the display to it and tell the shell the screen's geometry changed. */
+  private applyUlaGeometry(): void {
+    this.display?.resize(this.ula.screenWidth, this.ula.screenHeight);
+    this.display?.setPixelAspectX(this.ula.xScale === 2 ? 0.5 : 1);
+    this.onScreenChange?.();
+    this.needsDisplay = true;
+  }
+
   get tStatesPerFrame(): number { return this.contention.timing.tStatesPerFrame; }
 
   // The `turbo` flag plus running/starting/rafId/needsDisplay and the wall-clock
@@ -369,6 +383,9 @@ export class Spectrum extends BaseMachine implements Machine {
     this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.keyboard = new SpectrumKeyboard();
     this.ula = new ULA(this.keyboard);
+    this.timex = isTimexClass(model) ? new Scld() : null;
+    this.ula.timexEnabled = this.timex !== null;
+    this.ula.onGeometryChange = () => this.applyUlaGeometry();
     this.setBoardIssue2(false);
     this.display = display ?? null;
     this.audio = new Audio();
@@ -391,6 +408,9 @@ export class Spectrum extends BaseMachine implements Machine {
     installMemoryHooks(this);
     wirePortIO(this);
     this.scorpion = isScorpionClass(model) ? new ScorpionBoard(this) : null;
+    // Both Timex screens (0x4000-0x5AFF and 0x6000-0x7AFF) are drawn from, so a
+    // write anywhere in the first 0x3B00 bytes of the bank must flush the beam.
+    if (this.timex !== null) this.setVramFlushLen(0x3B00);
 
     this.tape.onPlayStateChange = () => {
       this.loaderDetector.onTapePlayStateChange();
@@ -423,7 +443,7 @@ export class Spectrum extends BaseMachine implements Machine {
 
   attachHost(host: MachineHost): void { this.host = host; }
 
-  get descriptor(): MachineDescriptor { return spectrumDescriptor(this.model); }
+  get descriptor(): MachineDescriptor { return spectrumDescriptor(this.model, 'uk', this.ula.xScale); }
 
   /** Current frame-buffer geometry (shrinks with the border-size setting). */
   get frameWidth(): number { return this.ula.screenWidth; }
@@ -433,7 +453,43 @@ export class Spectrum extends BaseMachine implements Machine {
   get cpuClockHz(): number { return this.tape.cpuClock; }
 
   /** `.scr` export: the 6912-byte display file from the currently displayed bank. */
-  screenExportBytes(): Uint8Array { return this.memory.screenBank.slice(0, 6912); }
+  /**
+   * The screen on show as a file. `scr` is the 6912-byte dump, or the Timex /
+   * multicolour size that holds the whole picture: 12288 bytes for an attribute
+   * per 8x1 line (Timex hi-colour, the Pentagon 1024's multicolour), 12289 for
+   * Timex hi-res. `mlt` is the multicolour format (bitmap, then an attribute per
+   * line in plain order) and is null in hi-res, which has no attributes.
+   */
+  screenExportBytes(format: 'scr' | 'mlt' = 'scr'): Uint8Array | null {
+    const state: ScreenState = {
+      timexMode: this.ula.timexEnabled ? this.ula.timexMode : 0,
+      hiResInk: this.ula.hiResInk,
+      perByteAttributes: this.ula.attrPerByte,
+    };
+    const bank = this.memory.screenBank;
+    return format === 'mlt' ? encodeMlt(bank, state) : encodeScr(bank, state);
+  }
+
+  /**
+   * The displayed screen as the text readers see it. Normally a view whose first
+   * 6912 bytes are the bitmap and attributes in the usual layout: the screen bank
+   * itself, except on a Timex showing screen 1 (modes 1 and 3), where it starts
+   * 0x2000 in. In a Timex hi-res mode it is the 512-pixel bitmap as 64 bytes a row
+   * (see hiResLinear), which the hi-res grids read; there are no attributes.
+   */
+  get textScreen(): Uint8Array {
+    const bank = this.memory.screenBank;
+    if (this.timex === null) return bank;
+    if (this.ula.isHiRes) return hiResLinear(bank, this.ula.timexMode);
+    return (this.ula.timexMode & 1) !== 0 ? bank.subarray(0x2000) : bank;
+  }
+
+  /** The OCR grid to read with: `grid` if it suits the picture on show (a hi-res
+   *  grid for a hi-res picture, a standard one otherwise), else that picture's usual. */
+  private ocrGridFor(grid: SpectrumOcrGrid): SpectrumOcrGrid {
+    const hires = this.ula.isHiRes;
+    return (OCR_GRIDS[grid].linear === true) === hires ? grid : hires ? '64x24h' : '32x24';
+  }
 
   /** RAM export: 0x4000-0xFFFF, or all 64K under +2A/+3 special paging. */
   ramExportBytes(): { data: Uint8Array; filename: string } {
@@ -670,6 +726,7 @@ export class Spectrum extends BaseMachine implements Machine {
     // fetch trap (0x3Dxx) once BASIC enters it. See beta-disk.ts.
     this.betaDisk.reset();
     this.scorpion?.reset();
+    this.timex?.reset();
     this.syncPentagonVideo();
     // The µSpeech drops out on reset and its ROM maps itself in again on the first
     // interrupt (the M1 fetch at 0x0038).
@@ -876,9 +933,13 @@ export class Spectrum extends BaseMachine implements Machine {
         idealStart <= this.cpu.tStates ? idealStart : this.contention.frameStartTStates;
     }
     const frameStart = this.contention.frameStartTStates;
-    if (!resuming) this.tapeLastAdvanceT = this.cpu.tStates;
+    if (!resuming) {
+      this.tapeLastAdvanceT = this.cpu.tStates;
+      this.ula.beginFrame();
+    }
     const frameEnd = frameStart + tpf;
-    const intWindowEnd = frameStart + this.contention.timing.intLength;
+    // Port 0xFF bit 6 (Timex) holds the frame interrupt off: no window at all.
+    const intWindowEnd = frameStart + (this.timex?.interruptDisabled ? 0 : this.contention.timing.intLength);
 
     // Fire interrupt (IM 1 = 13T, IM 2 = 19T — consumed from the frame budget).
     // On real hardware, INT is held LOW for a model-dependent window:
@@ -1268,8 +1329,8 @@ export class Spectrum extends BaseMachine implements Machine {
     const borderTop = ula.borderTop;
     const borderLeft = ula.borderLeft;
     const dispEnd = borderLeft + DISPLAY_WIDTH;
-    const w = ula.screenWidth;
-    const border = ula.borderColor;
+    const w = ula.logicalWidth;
+    const border = ula.effectiveBorder;
 
     if (i < borderTop || i >= borderTop + DISPLAY_HEIGHT) {
       ula.fillBorder(i, xStart, xEnd, border);
@@ -1303,7 +1364,7 @@ export class Spectrum extends BaseMachine implements Machine {
     const ula = this.ula;
     const borderLeft = ula.borderLeft;
     const dispEnd = borderLeft + DISPLAY_WIDTH;
-    const w = ula.screenWidth;
+    const w = ula.logicalWidth;
     const tpl = this.contention.timing.tStatesPerLine;
     const t = this.cpu.tStates;
 
@@ -1357,7 +1418,7 @@ export class Spectrum extends BaseMachine implements Machine {
    * color, giving per-scanline border effects without mid-line tracking.
    */
   private renderCompletedScanlines(): void {
-    const w = this.ula.screenWidth;
+    const w = this.ula.logicalWidth;
     const tpl = this.contention.timing.tStatesPerLine;
     const t = this.cpu.tStates;
 
@@ -1377,7 +1438,7 @@ export class Spectrum extends BaseMachine implements Machine {
    * high mode only when the beam stopped inside the last line.
    */
   private flushRemainingLines(): void {
-    const w = this.ula.screenWidth;
+    const w = this.ula.logicalWidth;
     while (this.nextRenderLine < this.totalRenderLines) {
       this.renderLineSegment(
         this.nextRenderLine, this.nextPixelX, w, this.nextDisplayCol, 32,
@@ -1415,8 +1476,8 @@ export class Spectrum extends BaseMachine implements Machine {
 
   ocrScreen(extraFonts?: FontSource[], grid: SpectrumOcrGrid = '32x24'): string {
     return this.screenText.ocr(
-      this.memory.screenBank, this.memory.snapshot(), this.allMemBanks(),
-      this.romFont, OCR_GRIDS[grid], extraFonts,
+      this.textScreen, this.memory.snapshot(), this.allMemBanks(),
+      this.romFont, OCR_GRIDS[this.ocrGridFor(grid)], extraFonts,
     );
   }
 
@@ -1424,14 +1485,18 @@ export class Spectrum extends BaseMachine implements Machine {
     extraFonts?: FontSource[],
     grid: SpectrumOcrGrid | 'auto' = 'auto',
   ): OcrResult {
+    const screen = this.textScreen;
+    const hires = this.ula.isHiRes;
     const screenBankIdx = (this.memory.port7FFD & 0x08) ? 7 : 5;
     const resolved: SpectrumOcrGrid = grid === 'auto'
-      ? this.screenText.detectAndCacheGrid(this.memory.screenBank, `bank ${screenBankIdx}`)
-      : grid;
+      ? this.screenText.detectAndCacheGrid(screen, `bank ${screenBankIdx}`, hires ? HIRES_GRID_KEYS : undefined)
+      : this.ocrGridFor(grid);
     return this.screenText.ocrStyled(
-      this.memory.screenBank, this.memory.snapshot(), this.allMemBanks(),
+      screen, this.memory.snapshot(), this.allMemBanks(),
       this.romFont, this.ula.palette, this.ula.flashState,
       resolved, extraFonts,
+      // Hi-res has no attribute file: every cell is the hi-res ink (bright).
+      hires ? this.ula.hiResInk + 8 : undefined,
     );
   }
 
@@ -1450,11 +1515,12 @@ export class Spectrum extends BaseMachine implements Machine {
    *  can see which grid was used. */
   ocrScreenForMcp(mode: OcrGridName | 'auto' = 'auto'): string {
     const screenBankIdx = (this.memory.port7FFD & 0x08) ? 7 : 5;
+    const screen = this.textScreen;
     // Spectrum callers only ever pass a Spectrum grid (or 'auto'); the wider
     // OcrGridName on the Machine interface also admits the CPC grids.
     const grid: SpectrumOcrGrid = mode === 'auto'
-      ? detectGrid(this.memory.screenBank, `bank ${screenBankIdx}`)
-      : (mode as SpectrumOcrGrid);
+      ? detectGrid(screen, `bank ${screenBankIdx}`, this.ula.isHiRes ? HIRES_GRID_KEYS : undefined)
+      : this.ocrGridFor(mode as SpectrumOcrGrid);
     const text = this.ocrScreen(undefined, grid);
     return `[${grid}]\n${text}`;
   }

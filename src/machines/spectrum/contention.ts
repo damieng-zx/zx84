@@ -55,6 +55,28 @@ export const TIMING_48K: MachineTiming = {
   floatingBusAdjust: -1,
 };
 
+/** Timex Computer 2048 Z80 clock: 3.528 MHz. */
+export const Z80_CLOCK_TC2048 = 3_528_000;
+
+/**
+ * Timex Computer 2048 (SCLD "ULA"): a 3.528 MHz Z80 on a frame the 48K's
+ * shape. Fuse's measurements put the Timex contention pattern (6,5,4,3,2,1,0,0
+ * as the Ferranti ULA's) at T 14320, 15 T before the 48K's 14335, with the
+ * first pixel a T later at 14321; the line is taken as the 48K's 224 T x 312.
+ * The Timex literature leaves the exact line length open (226 T is quoted), so
+ * these are measured-close figures rather than hardware-verified ones.
+ */
+export const TIMING_TC2048: MachineTiming = {
+  cpuClock: Z80_CLOCK_TC2048,
+  tStatesPerFrame: TSTATES_PER_FRAME_48K,   // 224 x 312
+  tStatesPerLine: 224,
+  contentionStart: 14320,
+  displayOrigin: 14321,
+  intLength: 32,
+  // Unattached ports read 0xFF: there is no floating bus on the Timex ULA.
+  floatingBusAdjust: 0,
+};
+
 export const TIMING_128K: MachineTiming = {
   cpuClock: Z80_CLOCK_128K,
   tStatesPerFrame: TSTATES_PER_FRAME_128K,  // 228 × 311
