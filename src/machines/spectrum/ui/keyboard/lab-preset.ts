@@ -15,6 +15,7 @@ import {
   RUBBER_SCENE,
   type HardFace,
 } from './scene-geometry.ts';
+import { TC2048_ROWS, TC2048_SCENE, placeTc2048Rows } from './tc2048-keyboard.ts';
 
 type Cell = readonly [row: number, bit: number];
 
@@ -277,6 +278,30 @@ function hardDocument(
   };
 }
 
+function tc2048Document(): KeyboardLabDocument {
+  const placed = placeTc2048Rows(TC2048_ROWS);
+  const ids = uniqueIds(placed.map(({ key }) => key.main));
+  return {
+    version: 1,
+    id: 'timex-computer-2048',
+    name: 'Timex Computer 2048',
+    theme: 'tc2048',
+    scene: TC2048_SCENE,
+    keys: placed.map(({ key, cap }, index): KeyboardLabKey => ({
+      id: ids[index],
+      box: { ...cap },
+      cell: key.cells[0],
+      legends: {
+        main: key.main,
+        shift: compactLegend([key.strip, key.keyword, key.colour, key.above, key.below]),
+      },
+      tone: key.dark ? 'dark' : 'light',
+      region: key.kind,
+      shape: 'rectangle',
+    })),
+  };
+}
+
 export function spectrumKeyboardLabPresets(): readonly KeyboardLabDocument[] {
   return [
     rubberDocument(),
@@ -284,5 +309,6 @@ export function spectrumKeyboardLabPresets(): readonly KeyboardLabDocument[] {
     hardDocument('spectrum-plus2', 'ZX Spectrum +2', true, 'spectrum-plus2'),
     hardDocument('spectrum-plus2a', 'ZX Spectrum +2A', true, 'spectrum-amstrad'),
     hardDocument('spectrum-plus3', 'ZX Spectrum +3', true, 'spectrum-amstrad'),
+    tc2048Document(),
   ];
 }

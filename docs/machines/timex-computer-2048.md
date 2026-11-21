@@ -47,7 +47,7 @@ a TC2048 is the current machine keeps the TC2048.
 | Memory contention | all | ◐ | The Ferranti pattern (6,5,4,3,2,1,0,0) over 0x4000–0x7FFF, starting at T 14320 |
 | Floating bus | — | — | None: an unattached port reads 0xFF |
 | Kempston joystick | all | ✅ | Built in, answers any port with A5 low; not a Hardware-pane option |
-| Keyboard | all | ✅ | The 48K matrix; `IN 0xFE` has bits 5 and 7 clear |
+| Keyboard | all | ✅ | The 48K matrix; `IN 0xFE` has bits 5 and 7 clear. The on-screen keyboard is the TC2048's own: hard grey keys on a black case, a second CAPS SHIFT, a BREAK key (CAPS SHIFT and SPACE together) and a SPACE bar of its own |
 | Cassette interface | all | ✅ | Pulse-level deck, instant LOAD where the ROM allows |
 
 ### Port 0xFF

@@ -23,6 +23,7 @@ describe('keyboard lab presets', () => {
       'spectrum-plus2',
       'spectrum-plus2a',
       'spectrum-plus3',
+      'timex-computer-2048',
       'zx80',
       'zx81',
       'ts1500',
@@ -35,7 +36,7 @@ describe('keyboard lab presets', () => {
       'memotech-mtx',
     ]);
     expect(presets.map((preset) => preset.keys.length)).toEqual([
-      40, 58, 58, 58, 58, 40, 40, 40, 74, 74, 74, 73, 67, 69, 79,
+      40, 58, 58, 58, 58, 42, 40, 40, 40, 74, 74, 74, 73, 67, 69, 79,
     ]);
     for (const preset of presets) {
       expect(new Set(preset.keys.map((key) => key.id)).size).toBe(preset.keys.length);
@@ -49,6 +50,7 @@ describe('keyboard lab presets', () => {
     const spectrum48 = spectrumKeyboardLabPresets()[0];
     const spectrum128 = spectrumKeyboardLabPresets()[1];
     const zx81 = zx8xKeyboardLabPresets()[1];
+    const tc2048 = spectrumKeyboardLabPresets()[5];
 
     expect(cpc664.keys.find((key) => key.id === 'cursor-left')?.shape).toBe('wedge-left');
     expect(cpc6128.keys.find((key) => key.id === 'return')?.shape).toBe('return');
@@ -56,6 +58,10 @@ describe('keyboard lab presets', () => {
     expect(hx10.keys.find((key) => key.id === 'return')?.clipPath).toMatch(/^polygon/);
     expect(spectrum48.keys.find((key) => key.id === 'q')?.legends.shift).toContain('PLOT');
     expect(spectrum128.keys.find((key) => key.shape === 'return')?.clipPath).toMatch(/^polygon/);
+    expect(tc2048.name).toBe('Timex Computer 2048');
+    expect(tc2048.keys.find((key) => key.id === 'q')?.legends.shift).toContain('PLOT');
+    const capsShifts = tc2048.keys.filter((key) => key.id.startsWith('caps-shift'));
+    expect(capsShifts.map((key) => key.cell)).toEqual([[0, 0], [0, 0]]);
     expect(zx81.keys.find((key) => key.legends.main === 'Q')?.legends.aux).toContain('PLOT');
     const ts1500 = zx8xKeyboardLabPresets()[2];
     expect(ts1500.name).toBe('Timex Sinclair 1500');
