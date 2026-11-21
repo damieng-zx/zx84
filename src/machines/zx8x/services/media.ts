@@ -1,6 +1,7 @@
 import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
 import type { Zx8xMachine } from '../zx8x-machine.ts';
 import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
+import { ZX8X_MODEL_NAMES } from '../models.ts';
 import { isZx8xProgramFile, splitP81, zx8xTapeBlocks } from './tape.ts';
 
 /**
@@ -41,7 +42,8 @@ export class Zx8xMediaService implements MediaService {
     const isRecording = /\.(tzx|wav)$/i.test(filename);
     const isProgram = isZx8xProgramFile(m.model, filename);
     if (!isRecording && !isProgram) {
-      return { ok: false, message: m.model === 'zx80' ? 'ZX80 accepts .o and .80 program images, .tzx and .wav tapes and .zx8xstate snapshots' : 'ZX81 accepts .p, .81 and .p81 program images, .tzx and .wav tapes and .zx8xstate snapshots' };
+      const name = ZX8X_MODEL_NAMES[m.model];
+      return { ok: false, message: m.model === 'zx80' ? `${name} accepts .o and .80 program images, .tzx and .wav tapes and .zx8xstate snapshots` : `${name} accepts .p, .81 and .p81 program images, .tzx and .wav tapes and .zx8xstate snapshots` };
     }
     const payload = /\.p81$/i.test(filename) ? (splitP81(data)?.payload ?? data) : data;
     const address = m.model === 'zx80' ? 0x4000 : 0x4009;

@@ -12,7 +12,7 @@ import type {
 } from '@/machines/machine.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
-import type { Zx8xModel } from './models.ts';
+import { isZx81Class, isZx8xNtsc, type Zx8xModel } from './models.ts';
 import { Zx8xMemory } from './memory.ts';
 import { Zx8xKeyboard } from './keyboard.ts';
 import { zx8xDescriptor } from './descriptor.ts';
@@ -26,8 +26,8 @@ import { soundDeviceGains } from '@/machines/machine.ts';
 import { createZx8xServices, type Zx8xServices } from './services/index.ts';
 import {
   ZX8X_ACTIVE_HEIGHT, ZX8X_ACTIVE_WIDTH, ZX8X_BORDER_LEFT, ZX8X_BORDER_TOP,
-  ZX8X_CPU_CLOCK, ZX8X_LINES_PER_FRAME, ZX8X_SCREEN_HEIGHT, ZX8X_SCREEN_WIDTH, ZX8X_T_PER_FRAME,
-  ZX8X_T_PER_LINE,
+  ZX8X_CPU_CLOCK, ZX8X_SCREEN_HEIGHT, ZX8X_SCREEN_WIDTH, ZX8X_T_PER_LINE,
+  zx8xLinesPerFrame, zx8xTStatesPerFrame,
 } from './constants.ts';
 
 const WHITE = 0xffffffff;
@@ -40,7 +40,6 @@ const PSEUDO_HIRES_TEXT_MAX_ROWS = 64;
 // by the program's sync pulses; this rejects arbitrary high-memory execution.
 const PSEUDO_HIRES_SYNC_MAX_AGE_T = 207;
 const PSEUDO_HIRES_FRAME_GAP_T = 512;
-const PSEUDO_HIRES_TIMEOUT_T = ZX8X_T_PER_FRAME * 2;
 const ZX81_CDFLAG = 0x403b;
 /**
  * Where each ROM's cassette routines sit. Both save RAM from `base` up to, not
@@ -115,6 +114,11 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'zx8x';
   readonly model: Zx8xModel;
+  /** The ZX81 ROM, NMI display and expansion hardware (every model but the ZX80). */
+  private readonly zx81Class: boolean;
+  /** The US models' 60 Hz picture: 262 lines, and port FE bit 6 reads low. */
+  private readonly ntsc: boolean;
+  private readonly linesPerFrame: number;
   readonly cpu = new Z80();
   readonly memory: Zx8xMemory;
   readonly keyboard = new Zx8xKeyboard();
@@ -201,6 +205,9 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   constructor(model: Zx8xModel, display: IScreenRenderer | null = null) {
     super();
     this.model = model;
+    this.zx81Class = isZx81Class(model);
+    this.ntsc = isZx8xNtsc(model);
+    this.linesPerFrame = zx8xLinesPerFrame(model);
     this.display = display;
     this.memory = new Zx8xMemory(model);
     this.cassette = new Zx8xCassette(model);
@@ -217,7 +224,9 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   get pixels(): Uint8Array { return this.frame; }
   get frameWidth(): number { return ZX8X_SCREEN_WIDTH; }
   get frameHeight(): number { return ZX8X_SCREEN_HEIGHT; }
-  get tStatesPerFrame(): number { return ZX8X_T_PER_FRAME; }
+  /** Wall-clock pacing: 60 Hz for the US models' picture, else 50. */
+  protected override get frameHz(): number { return this.ntsc ? 60 : 50; }
+  get tStatesPerFrame(): number { return zx8xTStatesPerFrame(this.model); }
   get cpuClockHz(): number { return ZX8X_CPU_CLOCK; }
 
   private installCpuBus(): void {
@@ -269,7 +278,8 @@ export class Zx8xMachine extends BaseMachine implements Machine {
         value = this.printer.read(this.cpu.tStates);
       } else {
         this.activity.kbdReads++;
-        value = 0x60 | this.keyboard.read((port >> 8) & 0xff);
+        // Bit 6 is the ULA's 50/60 Hz strap: high for the British picture, low for the US one.
+        value = (this.ntsc ? 0x20 : 0x60) | this.keyboard.read((port >> 8) & 0xff);
         // The ULA's read (A0 low) starts vertical sync — on the ZX81 only
         // while the NMI generator is off, as the ROM arranges before it.
         if ((low & 0x01) === 0 && (this.model === 'zx80' || !this.nmiEnabled)) this.setVsync(true);
@@ -286,7 +296,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       const low = port & 0xff;
       // Any OUT ends vertical sync.
       this.setVsync(false);
-      if (this.model === 'zx81') {
+      if (this.zx81Class) {
         this.observeZx81SyncStart();
         if (low === 0xfe) this.nmiEnabled = true;
         else if (low === 0xfd) this.nmiEnabled = false;
@@ -319,7 +329,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
 
   loadROM(data: Uint8Array): void {
     this.memory.loadROM(data);
-    const map = this.model === 'zx81' ? ZX81_TAPE : ZX80_TAPE;
+    const map = this.zx81Class ? ZX81_TAPE : ZX80_TAPE;
     const stock = map.signature.every(([addr, bytes]) => bytes.every((b, i) => data[addr + i] === b));
     this.tapeRom = stock ? map : null;
   }
@@ -456,15 +466,15 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.memory.setWrxRam(false);
     this.memory.setMemotechHrg(false);
     this.memory.setQuickSilvaHrg(false);
-    if (this.model === 'zx81') {
+    if (this.zx81Class) {
       if (view.get('zx81-quicksilva-hrg', false)) this.memory.setQuickSilvaHrg(true);
       else if (view.get('zx81-memotech-hrg', false)) this.memory.setMemotechHrg(true);
       else if (view.get('zx81-wrx-hires', false)) this.memory.setWrxRam(true);
       else if (view.get('zx81-udg128-ram', false)) this.memory.setUdg128Ram(true);
       else if (view.get('zx81-udg-ram', false)) this.memory.setUdgRam(true);
     }
-    this.printerFitted = this.model === 'zx81' && view.get('zx81-zx-printer', false);
-    this.chromaFitted = this.model === 'zx81' && view.get('zx81-chroma81', false);
+    this.printerFitted = this.zx81Class && view.get('zx81-zx-printer', false);
+    this.chromaFitted = this.zx81Class && view.get('zx81-chroma81', false);
     this.zonxFitted = view.get('zx8x-zonx', false);
     this.vsyncSound = view.get('zx8x-vsync-sound', false);
     this.tapeFastRom = view.get('tape-instant-rom', true);
@@ -507,7 +517,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.memory.loadRamImage(data, address);
     this.cpu.iy = 0x4000;
     this.cpu.i = this.model === 'zx80' ? 0x0e : 0x1e;
-    if (this.model === 'zx81') {
+    if (this.zx81Class) {
       this.prepareZx81LoadedProgram();
     } else {
       this.cpu.sp = this.memory.has16kExpansion ? 0x7ffc : 0x43fc;
@@ -615,15 +625,15 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   private fLine = 0;
 
   /** The CPU makes the picture itself, so the frame here is a fixed slice of
-   *  CPU time: 312 lines of 207T, each opened by the ZX81's NMI generator
+   *  CPU time: 312 lines of 207T (262 on the US models), each opened by the ZX81's NMI generator
    *  while it is on. Where the picture falls in it is up to the software. */
   beam(): BeamPos { return this.gridBeam(); }
   beamInfo(): BeamInfo {
     return {
       cyclesPerLine: ZX8X_T_PER_LINE,
-      linesPerFrame: ZX8X_LINES_PER_FRAME,
+      linesPerFrame: this.linesPerFrame,
       displayStart: 0,
-      note: 'the CPU generates the picture, so a frame is a fixed slice of 312 lines of 207T counted from reset, not the TV frame: on the ZX81 each line starts with an NMI while the NMI generator is on (OUT (0xFE)); vertical sync and the position of the picture are made by the ROM or program (IN from 0xFE starts VSYNC), so line 0 is not the top of the picture and displayStart is 0 only nominally; the ZX80 has no NMI generator and its lines are just 207T of CPU time. The display file is drawn once at the end of the frame (pseudo-hi-res rows as the CPU fetches them)',
+      note: `the CPU generates the picture, so a frame is a fixed slice of ${this.linesPerFrame} lines of 207T counted from reset, not the TV frame: on the ZX81 each line starts with an NMI while the NMI generator is on (OUT (0xFE)); vertical sync and the position of the picture are made by the ROM or program (IN from 0xFE starts VSYNC), so line 0 is not the top of the picture and displayStart is 0 only nominally; the ZX80 has no NMI generator and its lines are just 207T of CPU time. The display file is drawn once at the end of the frame (pseudo-hi-res rows as the CPU fetches them)`,
     };
   }
   override supportsBeamStops(): boolean { return true; }
@@ -636,7 +646,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   protected runFrame(): void {
     // A frame a stop left part-way carries on from the line it was in, whose
     // NMI has already been raised.
-    let resumed = this.openFrame(ZX8X_T_PER_FRAME);
+    let resumed = this.openFrame(this.tStatesPerFrame);
     if (!resumed) {
       this.activity.kbdReads = 0;
       this.activity.earReads = 0;
@@ -649,12 +659,12 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     const skipAudio = this.turbo || this.tapeTurboActive;
     this.portWatchHit = null;
     this.memWatchHit = null;
-    const lineT = ZX8X_T_PER_FRAME / ZX8X_LINES_PER_FRAME;
+    const lineT = ZX8X_T_PER_LINE;
     let lastAudio = this.cpu.tStates;
     let broke = false;
-    for (; this.fLine < ZX8X_LINES_PER_FRAME; this.fLine++) {
+    for (; this.fLine < this.linesPerFrame; this.fLine++) {
       const lineEnd = this.frameStartT + (this.fLine + 1) * lineT;
-      if (!resumed && this.model === 'zx81' && this.nmiEnabled) this.cpu.nmi();
+      if (!resumed && this.zx81Class && this.nmiEnabled) this.cpu.nmi();
       resumed = false;
       while (this.cpu.tStates < lineEnd) {
         if (this.checkStops(this.cpu.pc)) { broke = true; break; }
@@ -743,7 +753,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     const isUdg = this.memory.isUdgPatternAddress(patternBase);
     const isUdg128 = this.memory.isUdg128PatternAddress(patternBase);
     const isWrx = this.memory.isWrxBitmapAddress(wrxAddress);
-    const isPseudoHires = this.model === 'zx81'
+    const isPseudoHires = this.zx81Class
       && (pc & 0x8000) !== 0
       && (raw & 0x40) === 0
       && (fontPage < 0x20 || isUdg || isWrx);
@@ -942,7 +952,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   private pseudoHiresActive(): boolean {
     if (this.pseudoHiresFrameRows === 0) return false;
     if (this.pseudoHiresLastFetchT >= 0
-        && this.cpu.tStates - this.pseudoHiresLastFetchT <= PSEUDO_HIRES_TIMEOUT_T) return true;
+        && this.cpu.tStates - this.pseudoHiresLastFetchT <= this.tStatesPerFrame * 2) return true;
     this.pseudoHiresFrameRows = 0;
     return false;
   }
@@ -1028,7 +1038,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     if (this.renderMemotechHrg() || this.renderQuickSilvaHrg()) return;
     if (this.renderPseudoHires()) return;
     const colour = this.chromaFitted && this.chroma.colourOn;
-    if (this.model === 'zx81' && !this.displayFetched
+    if (this.zx81Class && !this.displayFetched
         && (this.memory.readByte(ZX81_CDFLAG) & 0x80) === 0) {
       this.frame32.fill(colour ? this.chroma.border : WHITE);
       return;
@@ -1175,7 +1185,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
    */
   saveState(w: StateWriter, _withMedia: boolean): void {
     this.completeFrame();
-    w.section('CONF', () => { w.u8(this.memory.has16kExpansion ? 16 : 1); w.u8(this.memory.boardId); });
+    w.section('CONF', () => { w.u8(this.ramKb()); w.u8(this.memory.boardId); });
     w.section('PERI', () => {
       w.u8(this.peripheralFlags());
       w.bool(this.vsync);
@@ -1199,7 +1209,7 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     const conf = r.section('CONF');
     const ramKB = conf.u8();
     const board = conf.u8();
-    const liveKB = this.memory.has16kExpansion ? 16 : 1;
+    const liveKB = this.ramKb();
     if (ramKB !== liveKB) {
       throw new Error(`This snapshot was saved with ${ramKB}K of RAM and this machine has ${liveKB}K; ${ramKB === 16 ? 'fit' : 'remove'} the 16K RAM pack in the Hardware pane and load it again`);
     }
@@ -1249,6 +1259,11 @@ export class Zx8xMachine extends BaseMachine implements Machine {
     this.audio.reset();
     this.mixer.reset();
     this.needsDisplay = true;
+  }
+
+  /** Kilobytes of RAM fitted: 16 with the pack (or on a TS1500), else the board's own. */
+  private ramKb(): number {
+    return this.memory.has16kExpansion ? 16 : this.memory.builtinRamSize >> 10;
   }
 
   /** Bit 0 ZON X-81, bit 1 ZX Printer, bit 2 Chroma 81 (see PERIPHERAL_NAMES). */

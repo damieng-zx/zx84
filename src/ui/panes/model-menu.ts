@@ -27,6 +27,8 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   scorpion256: 'Scorpion ZS-256',
   zx80: 'ZX80',
   zx81: 'ZX81',
+  ts1000: 'Timex Sinclair 1000',
+  ts1500: 'Timex Sinclair 1500',
   cpc464: 'CPC 464',
   cpc664: 'CPC 664',
   cpc6128: 'CPC 6128',
@@ -173,6 +175,14 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('pentagon512'),
       modelEntry('pentagon1024'),
       modelEntry('scorpion256'),
+    ],
+  },
+  {
+    value: 'timex',
+    label: 'Timex Sinclair',
+    children: [
+      modelEntry('ts1000'),
+      modelEntry('ts1500'),
     ],
   },
   {

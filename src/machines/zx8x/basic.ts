@@ -45,7 +45,7 @@ function detokenize(mem: Uint8Array, model: Zx8xModel, start: number, end: numbe
   for (let offset = start; offset < end; offset++) {
     const value = mem[offset];
     if (value === 0x76) break;
-    if (model === 'zx81' && value === 0x7e) {
+    if (model !== 'zx80' && value === 0x7e) {
       offset += 5; // textual number is followed by its five-byte binary value
       continue;
     }
@@ -67,7 +67,7 @@ export function parseZx8xBasicProgram(mem: Uint8Array, model: Zx8xModel): BasicL
     const high = mem[offset];
     if ((high & 0xc0) !== 0) break;
     const lineNumber = (high << 8) | mem[offset + 1];
-    if (model === 'zx81') {
+    if (model !== 'zx80') {
       if (offset + 4 > end) break;
       const length = read16(mem, offset + 2);
       const next = offset + 4 + length;

@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
+import { isZx81Class, zx8xBuiltinRamKb } from '../../src/machines/zx8x/models.ts';
 import { state, initMachine } from '../state.ts';
 import {
   zx8x16kRam, zx81MemotechHrg, zx81QuickSilvaHrg, zx81Udg128Ram, zx81UdgRam, zx81WrxHires,
@@ -130,7 +131,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'model',
-    { description: 'Show or switch the machine model. Creates a fresh machine when switching. The Atari and the Commodore 64 may select the NTSC machine (tv "ntsc", otherwise PAL). ZX80/ZX81 may select 16KB RAM; ZX81 may select one high-resolution graphics device.', inputSchema: {
+    { description: 'Show or switch the machine model. Creates a fresh machine when switching. The Atari and the Commodore 64 may select the NTSC machine (tv "ntsc", otherwise PAL). ZX80/ZX81/TS1000 may select 16KB RAM (the TS1500 has it built in); ZX81-class models (ZX81, TS1000, TS1500) may select one high-resolution graphics device.', inputSchema: {
       target: z.enum(MCP_MODELS).optional().describe('Model to switch to (omit to show current)'),
       tv: z.enum(['pal', 'ntsc']).optional().describe('Atari and Commodore 64 only: the TV standard (default PAL). Switching it builds a fresh machine'),
       ram16k: z.boolean().optional().describe('ZX80/ZX81 only: enable or disable 16KB RAM'),
@@ -143,8 +144,8 @@ export function register(server: McpServer): void {
     async ({ target, tv, ram16k, udgRam, udg128Ram, wrxHires, memotechHrg, quickSilvaHrg }) => {
       if (!target && tv === undefined && ram16k === undefined && udgRam === undefined && udg128Ram === undefined
           && wrxHires === undefined && memotechHrg === undefined && quickSilvaHrg === undefined) {
-        const ram = state.spec.kind === 'zx8x' ? ` (${zx8x16kRam() ? '16KB' : '1KB'} RAM)` : '';
-        const hires = state.model === 'zx81'
+        const ram = state.spec.kind === 'zx8x' ? ` (${zx8x16kRam() ? 16 : zx8xBuiltinRamKb(state.model)}KB RAM)` : '';
+        const hires = isZx81Class(state.model)
           ? ` (hi-res: ${zx81QuickSilvaHrg() ? 'QuickSilva' : zx81MemotechHrg() ? 'Memotech'
             : zx81WrxHires() ? 'WRX' : zx81Udg128Ram() ? 'UDG-128' : zx81UdgRam() ? 'UDG' : 'off'})`
           : '';
@@ -161,7 +162,7 @@ export function register(server: McpServer): void {
         : null;
       const hardwareTouched = udgRam !== undefined || udg128Ram !== undefined || wrxHires !== undefined
         || memotechHrg !== undefined || quickSilvaHrg !== undefined;
-      const keep = sameModel && next === 'zx81' && !hardwareTouched ? {
+      const keep = sameModel && isZx81Class(next) && !hardwareTouched ? {
         zx81UdgRam: zx81UdgRam(),
         zx81Udg128Ram: zx81Udg128Ram(),
         zx81WrxHires: zx81WrxHires(),

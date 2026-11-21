@@ -20,6 +20,7 @@ import type { C64Machine } from '../src/machines/c64/c64-machine.ts';
 import type { C128Machine } from '../src/machines/c128/c128-machine.ts';
 import type { UPD765A } from '../src/cores/upd765a.ts';
 import type { Machine } from '../src/machines/machine.ts';
+import { isZx81Class, zx8xBuiltinRamKb } from '../src/machines/zx8x/models.ts';
 import { state, type InitMachineOptions } from './state.ts';
 import { fetchRomSource } from './rom-fetch.ts';
 
@@ -127,7 +128,7 @@ export function zx81QuickSilvaHrg(): boolean { return zx81QuickSilva; }
  *  initMachine's ready line. */
 export async function applyHeadlessKnobs(machine: Machine, options: InitMachineOptions): Promise<string> {
   zx8x16k = machine.kind === 'zx8x' ? (options.zx8x16kRam ?? false) : false;
-  const requested = machine.model === 'zx81' ? [
+  const requested = isZx81Class(machine.model) ? [
     options.zx81QuickSilvaHrg && 'quicksilva',
     options.zx81MemotechHrg && 'memotech',
     options.zx81WrxHires && 'wrx',
@@ -167,11 +168,11 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
     request.apply(rom);
   }
   if (machine.kind === 'zx8x') {
-    const hires = machine.model === 'zx81'
+    const hires = isZx81Class(machine.model)
       ? ` HIRES=${zx81QuickSilva ? 'QuickSilva' : zx81Memotech ? 'Memotech'
         : zx81Wrx ? 'WRX' : zx81Udg128 ? 'UDG-128' : zx81Udg ? 'UDG' : 'off'}`
       : '';
-    return ` RAM=${zx8x16k ? '16KB' : '1KB'}${hires}`;
+    return ` RAM=${zx8x16k ? 16 : zx8xBuiltinRamKb(machine.model)}KB${hires}`;
   }
   return '';
 }

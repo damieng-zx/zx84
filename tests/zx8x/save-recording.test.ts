@@ -20,7 +20,9 @@ import { Zx8xMachine } from '@/machines/zx8x/zx8x-machine.ts';
 import type { Zx8xModel } from '@/machines/zx8x/models.ts';
 
 const DIR = process.env.ZX8X_ROM_DIR ?? resolve(__dirname, '../../mcp/.cache');
-const ROMS: Record<Zx8xModel, string> = { zx81: 'zx81-v2.rom', zx80: 'zx80.rom' };
+const ROMS: Record<Zx8xModel, string> = {
+  zx81: 'zx81-v2.rom', zx80: 'zx80.rom', ts1000: 'zx81-v2.rom', ts1500: 'zx81-v2.rom',
+};
 const have = (model: Zx8xModel): boolean => existsSync(resolve(DIR, ROMS[model]));
 
 function boot(model: Zx8xModel): Zx8xMachine {
