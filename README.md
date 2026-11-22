@@ -2,7 +2,7 @@
 
 <img src="public/mascot.svg" align="right" width="100" height="140" alt="Blip, the ZX84 robot mascot">
 
-**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (and the Pentagon and Scorpion clones), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn BBC Micro and Electron, the Apple I and the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
+**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (and the Pentagon and Scorpion clones), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn Atom, Acorn BBC Micro and Electron, the Apple I and the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -27,6 +27,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Camputers Lynx](docs/machines/camputers-lynx.md) | 48K, 96K, 128K | Z80 |
 | [Jupiter Ace](docs/machines/jupiter-ace.md) | Jupiter Ace | Z80 |
 | [Enterprise](docs/machines/enterprise.md) | 64, 128 | Z80 |
+| [Acorn Atom](docs/machines/acorn-atom.md) | Acorn Atom (2K or 12K) | 6502 |
 | [Acorn BBC Micro](docs/machines/bbc-micro.md) | Model B | 6502 |
 | [Acorn Electron](docs/machines/acorn-electron.md) | Electron | 6502 |
 | [Apple I](docs/machines/apple-i.md) | Apple I | 6502 |
@@ -68,6 +69,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
 | Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw`; snapshots: `.ace` |
 | Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`, `.hfe`, `.scp`; tapes: `.uef`, `.csw` |
+| Acorn Atom | Tapes: `.uef`, `.csw`, `.wav`; listings typed in at the keyboard: `.txt`, `.bas`; snapshots: `.atmstate` |
 | Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, discs: `.adf`, `.ads`, `.adm`, `.adl`, `.ssd`, `.dsd`, `.img`, `.dsk`, `.hfe`, `.scp`; with the Plus 1, cartridges: `.rom` |
 | Apple I | Listings typed in at the keyboard: `.txt`, `.hex`; with the cassette interface fitted, cassettes: `.wav` |
 | Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through), `.nib`, `.woz`, `.2mg`, `.d13`; cassettes: `.wav` |
@@ -99,7 +101,7 @@ tool. The Spectrum's earlier ids (`48k`, `+3`, `plus2a`, …) still work in URLs
 Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3` `pentagon128` `pentagon512` `pentagon1024` `scorpion256` `zx80` `zx81` `jupiter-ace`
 `cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
 `pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `hb-55` `hb-55p` `mtx500` `mtx512`
-`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `c64` `ep64` `ep128`.
+`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `atom` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `c64` `ep64` `ep128`.
 
 ### Display And Audio
 
@@ -120,7 +122,7 @@ Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3
 
 ### Saving, Library, And Persistence
 
-- Export Spectrum `.szx` and `.z80` snapshots and CPC `.sna` snapshots, and zx84's own exact save states on every other machine (`.acestate`, `.zx8xstate`, `.lynxstate`, `.mtxstate`, `.msxstate`, `.einstate`, `.pcwstate`, `.epstate`, `.bbcstate`, `.elkstate`, `.a1state`, `.a2state`, `.a8state`, `.c64state`), plus screenshots and supported screen/RAM exports.
+- Export Spectrum `.szx` and `.z80` snapshots and CPC `.sna` snapshots, and zx84's own exact save states on every other machine (`.acestate`, `.zx8xstate`, `.lynxstate`, `.mtxstate`, `.msxstate`, `.einstate`, `.pcwstate`, `.epstate`, `.bbcstate`, `.elkstate`, `.a1state`, `.a2state`, `.a8state`, `.atmstate`, `.c64state`), plus screenshots and supported screen/RAM exports.
 - Every machine resumes where it left off after a browser refresh.
 - Record what software SAVEs to cassette and download it as a tape the machine loads back (`.tzx` on the Spectrum, `.cdt` on the CPC, `.wav` on the Apple I and II, and the machine's own format elsewhere), and download what the BBC Micro, Electron and PCW sent to their printers as text.
 - Persist settings, pane layout, custom ROMs and fonts, and supported media in browser storage.
@@ -153,6 +155,7 @@ zx84 stands on decades of work by people who documented, emulated and preserved 
 - **The MAME team**, **the openMSX team** and the authors of Arnold, Caprice32, BeebEm, beebjit, HxC and the other open-source emulators and tools whose published behaviour and documentation taught us how the hardware works.
 - **Sean Young**, **Cliff Lawson**, **Jacob Nevins**, the **Grimware** and **CPCWiki** contributors, and the many people who wrote hardware references, ROM disassemblies and technical notes.
 - **István Varga** for ep128emu and **Thomas Harte** for Clock Signal, whose Enterprise emulation showed how Nick, Dave and EXOS behave.
-- The ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Enterprise, SAM Coupé and BBC Micro communities, whose documentation, emulators and tools keep these machines alive.
+- **Tom Walker** and the **Atomulator** contributors, for the Acorn Atom ROM set and a clear reference for the 8255/6847 wiring.
+- The ZX Spectrum, CPC, PCW, Einstein, MSX, MTX, Camputers Lynx, Jupiter Ace, Acorn Atom, Enterprise, SAM Coupé and BBC Micro communities, whose documentation, emulators and tools keep these machines alive.
 
 Third-party code and data used in zx84, with their licences, are listed in [THIRD_PARTY.md](./THIRD_PARTY.md).
