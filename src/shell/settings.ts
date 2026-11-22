@@ -96,6 +96,7 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'apple1-ram': () => settings.apple1Ram(),
   'apple1-basic-ram': () => settings.apple1BasicRam(),
   'apple1-aci': () => settings.apple1Aci(),
+  'atom-ram': () => settings.atomRam(),
   'enterprise-exdos': () => settings.enterpriseExdos(),
   'pcw-60hz': () => settings.pcw60Hz(),
   // True while the SAA5050 upscaler is selected: machines that draw teletext

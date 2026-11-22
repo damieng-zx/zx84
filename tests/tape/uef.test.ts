@@ -58,6 +58,33 @@ describe('UEF parsing', () => {
     expect(Math.abs(sum(csw(blocks[0]).pulses) - TAPE_REF_HZ * 10 / 300)).toBeLessThanOrEqual(1);
   });
 
+  it('can force the nominal base frequency over a measured 0x0113 chunk', async () => {
+    // A capture may declare the transmitter's measured 1500 Hz; the receiver
+    // expects the nominal 1200 Hz.
+    const chunks = [
+      { id: 0x0113, data: new Uint8Array(new Float32Array([1500]).buffer) },
+      chunk(0x0100, 0x00),
+    ];
+    const measured = csw((await parseUEF(buildUef(chunks)))[0]);
+    const forced = csw((await parseUEF(buildUef(chunks), { fixedBaseHz: 1200 }))[0]);
+    // 9 zero-bit cycles at 1200 Hz plus a 2-cycle 2400 Hz stop bit.
+    expect(Math.abs(sum(forced.pulses) - TAPE_REF_HZ * (9 / 1200 + 2 / 2400))).toBeLessThanOrEqual(1);
+    expect(sum(measured.pulses)).not.toBe(sum(forced.pulses));
+  });
+
+  it('drops the negative-stop-bit short wave for a plain 8N1 receiver', async () => {
+    const uef = buildUef([chunk(0x0104, 8, 0x4E, 0xFF, 0x00)]);   // 8N1, stop count -1
+    const withWave = csw((await parseUEF(uef))[0]);
+    const plain = csw((await parseUEF(uef, { noShortWave: true }))[0]);
+    // start + 8 zero bits = 9 cycles at 1200 Hz (18 halves), stop = 2 cycles at
+    // 2400 Hz (4 halves); the short wave adds one more 2400 Hz cycle (2 halves).
+    expect(plain.pulses.length).toBe(22);
+    expect(withWave.pulses.length).toBe(24);
+    expect(Math.abs(sum(plain.pulses) - TAPE_REF_HZ * (9 / 1200 + 2 / 2400))).toBeLessThanOrEqual(1);
+    expect(withWave.pulses.length - plain.pulses.length).toBe(2);
+    expect(sum(withWave.pulses) - sum(plain.pulses)).toBeCloseTo(TAPE_REF_HZ / 2400, 0);
+  });
+
   it('turns carrier cycles into 2400 Hz tone', async () => {
     const blocks = await parseUEF(buildUef([chunk(0x0110, 0x60, 0x09)]));   // 2400 cycles = 1 s
     const b = csw(blocks[0]);

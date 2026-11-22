@@ -70,6 +70,7 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   c64: 'Commodore 64',
   vic20: 'Commodore VIC-20',
   c128: 'Commodore 128',
+  atom: 'Acorn Atom',
 };
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
@@ -203,6 +204,7 @@ export const MODEL_MENU: MenuItem[] = [
     value: 'acorn',
     label: 'Acorn',
     children: [
+      modelEntry('atom'),
       modelEntry('bbc-a'),
       modelEntry('bbc-b'),
       modelEntry('electron'),

@@ -101,6 +101,7 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     setLedRainbow: vi.fn(),
     setLedMouse: vi.fn(),
     setLedTapeTurbo: vi.fn(),
+    setDisplayColumns: vi.fn(),
     setStatus: vi.fn(),
     setEmulationPaused: vi.fn(),
     setTracing: vi.fn(),

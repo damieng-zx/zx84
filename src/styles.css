@@ -3571,6 +3571,104 @@ input[type="range"]::-moz-range-thumb {
   display: none;
 }
 
+/* Acorn Atom keyboard: a cream case with a black keyboard plate, charcoal
+   caps and the green ACORN ATOM badge beside the space bar. The caps follow
+   the machine's physical QWERTY rows, not its 10x6 scan matrix. */
+.atom-keyboard {
+  --atom-u: var(--keyboard-scene-px);
+  --atom-case-top: #e3ded1;
+  --atom-case-bottom: #cdc6b3;
+  --atom-case-edge: #a89f8a;
+  --atom-cap-top: #464646;
+  --atom-cap-mid: #303030;
+  --atom-cap-bottom: #232323;
+  --atom-cap-edge: #0c0c0c;
+  --atom-legend: #ece9df;
+  position: relative;
+  color: var(--atom-legend);
+  font-family: Helvetica, Arial, sans-serif;
+}
+.atom-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border: 1px solid var(--atom-case-edge);
+  border-radius: calc(var(--atom-u) * 12);
+  background:
+    linear-gradient(160deg, rgba(255,255,255,0.45), transparent 32%),
+    linear-gradient(180deg, var(--atom-case-top) 0%, var(--atom-case-bottom) 100%);
+  box-shadow:
+    inset 0 calc(var(--atom-u) * 2) calc(var(--atom-u) * 4) rgba(255,255,255,0.5),
+    inset 0 calc(var(--atom-u) * -3) calc(var(--atom-u) * 6) rgba(0,0,0,0.18),
+    0 2px 8px rgba(0,0,0,0.45);
+}
+/* The black plate under the caps, with the green PCB edge along its top. */
+.atom-plate {
+  z-index: 0;
+  border-radius: calc(var(--atom-u) * 4);
+  border-top: calc(var(--atom-u) * 1.5) solid #2f7a38;
+  background: linear-gradient(180deg, #1a1a1a 0%, #101010 100%);
+  box-shadow:
+    inset 0 calc(var(--atom-u) * 5) calc(var(--atom-u) * 12) rgba(0,0,0,0.75),
+    inset 0 calc(var(--atom-u) * -2) calc(var(--atom-u) * 6) rgba(255,255,255,0.04),
+    0 calc(var(--atom-u) * 1) calc(var(--atom-u) * 2) rgba(0,0,0,0.5);
+}
+.atom-badge {
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--atom-u) * 8);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #4fa054;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.atom-key {
+  z-index: 2;
+  overflow: hidden;
+  border: 1px solid var(--atom-cap-edge);
+  border-radius: calc(var(--atom-u) * 2.5);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.18) 0, transparent 18%),
+    linear-gradient(180deg, var(--atom-cap-top) 0%, var(--atom-cap-mid) 55%, var(--atom-cap-bottom) 100%);
+  box-shadow:
+    inset 0 calc(var(--atom-u) * 1.5) 0 rgba(255,255,255,0.14),
+    inset 0 calc(var(--atom-u) * -2) calc(var(--atom-u) * 3) rgba(0,0,0,0.42),
+    0 calc(var(--atom-u) * 2) calc(var(--atom-u) * 2) rgba(0,0,0,0.5);
+  color: var(--atom-legend);
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease, transform 0.05s ease;
+}
+.atom-key:hover { filter: brightness(1.12); }
+.atom-key.pressed { filter: brightness(0.78); transform: translateY(calc(var(--atom-u) * 1.5)); }
+.atom-key__legend {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--atom-u) * 0.5);
+  pointer-events: none;
+  line-height: 1;
+}
+.atom-key__main { font-size: calc(var(--atom-u) * 13); font-weight: 500; }
+.atom-key__shift { font-size: calc(var(--atom-u) * 9); color: #d9d5c9; }
+.atom-key--shifted .atom-key__main { font-size: calc(var(--atom-u) * 11); }
+.atom-key--word .atom-key__main {
+  font-size: calc(var(--atom-u) * 7.5);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.atom-key--cursor .atom-key__main { font-size: calc(var(--atom-u) * 13); }
+.atom-key--mod { background: linear-gradient(180deg, #3b3b3b 0%, #262626 100%); }
+.atom-key--mod .atom-key__main { font-size: calc(var(--atom-u) * 8); font-weight: 700; letter-spacing: 0.02em; }
+.atom-key--space { background: linear-gradient(180deg, #3a3a3a 0%, #242424 100%); }
+
 /* Apple II family. The ][/][+ has dark brown caps with white legends centred
    on a beige case; the //e warm grey caps with legends top left and lower-case
    word keys; the //c the //e's caps in light grey on its snow-white case. */

@@ -148,6 +148,7 @@ const DEFAULTS = {
   'apple1-ram':     '8k',
   'apple1-basic-ram': 'on',
   'apple1-aci':     'off',
+  'atom-ram':       '12k',
   'enterprise-exdos': 'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
@@ -492,6 +493,9 @@ export const [c128Display, setC128Display] = signal(savedText('c128-display') as
 
 export const [apple1BasicRam, setApple1BasicRam] = signal(savedFlag('apple1-basic-ram'));
 export const [apple1Aci, setApple1Aci] = signal(savedFlag('apple1-aci'));
+
+/** Acorn Atom fitted RAM: 2 KB standard or 12 KB fully expanded. */
+export const [atomRam, setAtomRam] = signal(savedText('atom-ram') as '2k' | '12k');
 export const [mtx512kRam, setMtx512kRam] = signal(savedFlag('mtx-512k-ram'));
 export const [mtxFloppy, setMtxFloppy] = signal(savedFlag('mtx-floppy'));
 export const [msxFloppy, setMsxFloppy] = signal(savedFlag('msx-floppy'));
@@ -687,6 +691,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'apple2-80col', set: setApple2EightyCol, type: 'bool' },
     { key: 'apple2e-80col', set: setApple2eEightyCol, type: 'bool' },
     { key: 'apple1-ram', set: setApple1Ram, type: 'string' },
+    { key: 'atom-ram', set: setAtomRam, type: 'string' },
     { key: 'apple1-basic-ram', set: setApple1BasicRam, type: 'bool' },
     { key: 'apple1-aci', set: setApple1Aci, type: 'bool' },
     { key: 'enterprise-exdos', set: setEnterpriseExdos, type: 'bool' },

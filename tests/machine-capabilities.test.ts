@@ -42,6 +42,7 @@ const SNAPSHOT_FORMAT: Partial<Record<SaveMenuItem, string>> = {
   'snapshot-a2state': '.a2state',
   'snapshot-c64state': '.c64state',
   'snapshot-c128state': '.c128state',
+  'snapshot-atomstate': '.atmstate',
 };
 
 /** Build a machine headlessly — no renderer, no ROM. */

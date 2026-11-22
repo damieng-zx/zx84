@@ -144,6 +144,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     HardwareSection: lazy(() =>
       import('@/machines/enterprise/ui/hardware-section.tsx').then(m => ({ default: m.EnterpriseHardwareSection }))),
   },
+  atom: {
+    HardwareSection: lazy(() =>
+      import('@/machines/atom/ui/hardware-section.tsx').then(m => ({ default: m.AtomHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/atom/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */

@@ -30,6 +30,7 @@ export type { AtariModel } from '@/machines/atari/models.ts';
 export type { C64Model } from '@/machines/c64/models.ts';
 export type { Vic20Model } from '@/machines/vic20/models.ts';
 export type { C128Model } from '@/machines/c128/models.ts';
+export type { AtomModel } from '@/machines/atom/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
 export {
@@ -66,6 +67,7 @@ export { isAtariModel } from '@/machines/atari/models.ts';
 export { isC64Model } from '@/machines/c64/models.ts';
 export { isVic20Model } from '@/machines/vic20/models.ts';
 export { isC128Model } from '@/machines/c128/models.ts';
+export { isAtomModel } from '@/machines/atom/models.ts';
 
 // ── System-ROM slot geometry (dispatches per family) ───────────────────────
 //
@@ -156,6 +158,7 @@ import type { AtariModel } from '@/machines/atari/models.ts';
 import type { C64Model } from '@/machines/c64/models.ts';
 import type { Vic20Model } from '@/machines/vic20/models.ts';
 import type { C128Model } from '@/machines/c128/models.ts';
+import type { AtomModel } from '@/machines/atom/models.ts';
 
 /** Any machine ZX84 can emulate. */
 export type MachineModel =
@@ -176,4 +179,5 @@ export type MachineModel =
   | AtariModel
   | C64Model
   | Vic20Model
-  | C128Model;
+  | C128Model
+  | AtomModel;

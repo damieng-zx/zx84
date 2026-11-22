@@ -45,12 +45,15 @@ export type BbcOcrGrid = `${20 | 40 | 80}x${25 | 32}`;
  *  sets them; programs choose others). */
 export type Vic20OcrGrid = `${number}x${number}`;
 
+/** Acorn Atom text grid: the 6847's 32x16 character window. */
+export type AtomOcrGrid = '32x16';
+
 /** Any grid label an OCR producer can stamp onto an OcrResult. `Vic20OcrGrid`
  *  and the C128's VDC grid are open forms: both read their column and row
  *  counts from registers, so any `WxH` a program sets is legitimate. */
 export type OcrGridName =
   SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | PcwOcrGrid
-  | LynxOcrGrid | AceOcrGrid | BbcOcrGrid | Vic20OcrGrid;
+  | LynxOcrGrid | AceOcrGrid | BbcOcrGrid | Vic20OcrGrid | AtomOcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only
