@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { registry } from '@/machines/registry.ts';
 import { MODEL_LABELS, MODEL_MENU, menuModels } from '@/ui/panes/model-menu.ts';
+import type { MenuItem } from '@/ui/components/DropDownMenuButton.tsx';
 
 const registered = registry.flatMap(entry => entry.models);
 
@@ -30,14 +31,34 @@ describe('model menu', () => {
     expect(new Set(models).size).toBe(models.length);
   });
 
-  it('gives every entry a label, and every group a name and children', () => {
-    for (const group of MODEL_MENU) {
-      expect(group.label, group.value).toBeTruthy();
-      expect(group.children?.length, group.value).toBeGreaterThan(0);
-      for (const item of group.children ?? []) {
-        expect(item.label, item.value).toBe(MODEL_LABELS[item.value as keyof typeof MODEL_LABELS]);
+  it('gives every entry a label, and every group (at any depth) a name and children', () => {
+    const walk = (items: readonly MenuItem[]): void => {
+      for (const item of items) {
+        if (item.children) {
+          expect(item.label, item.value).toBeTruthy();
+          expect(item.children.length, item.value).toBeGreaterThan(0);
+          walk(item.children);
+        } else {
+          expect(item.label, item.value).toBe(MODEL_LABELS[item.value as keyof typeof MODEL_LABELS]);
+        }
       }
+    };
+    for (const group of MODEL_MENU) {
+      expect(group.children?.length, group.value).toBeGreaterThan(0);
+      walk(group.children ?? []);
     }
+  });
+
+  it('files Timex and the clones as submenus inside Sinclair, after its own models', () => {
+    const sinclair = MODEL_MENU.find(group => group.label === 'Sinclair')!;
+    const entries = (sinclair.children ?? []).map(item => item.label);
+    expect(entries.slice(-2)).toEqual(['Timex', 'Clones']);
+    const sub = (label: string) => (sinclair.children ?? []).find(item => item.label === label)!.children!.map(item => item.value);
+    expect(sub('Timex')).toEqual(['ts1000', 'ts1500', 'tc2048', 'ts2068']);
+    expect(sub('Clones')).toEqual(['pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256']);
+    const top = MODEL_MENU.map(group => group.label);
+    expect(top).not.toContain('Timex Sinclair');
+    expect(top).not.toContain('Sinclair Clones');
   });
 
   it('files the niche British machines under one British Obscure group at the end', () => {

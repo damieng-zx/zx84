@@ -3071,6 +3071,13 @@ input[type="range"]::-moz-range-thumb {
   max-height: calc(100vh - 16px);
   overflow-y: auto;
 }
+/* Only a leaf submenu may scroll. Any overflow but visible clips both axes, so a
+   submenu holding further flyouts (Sinclair > Timex) would trap them, which sit
+   outside it at left: 100%, in a scrolling box instead of letting them pop out. */
+.ddmenu-sub:has(.ddmenu-parent) {
+  max-height: none;
+  overflow: visible;
+}
 .ddmenu-parent:hover > .ddmenu-sub {
   display: block;
 }

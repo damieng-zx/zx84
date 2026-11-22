@@ -169,26 +169,27 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('zx128kplus2'),
       modelEntry('zx128kplus2a'),
       modelEntry('zx128kplus3'),
-    ],
-  },
-  {
-    value: 'sinclair-clones',
-    label: 'Sinclair Clones',
-    children: [
-      modelEntry('pentagon128'),
-      modelEntry('pentagon512'),
-      modelEntry('pentagon1024'),
-      modelEntry('scorpion256'),
-    ],
-  },
-  {
-    value: 'timex',
-    label: 'Timex Sinclair',
-    children: [
-      modelEntry('ts1000'),
-      modelEntry('ts1500'),
-      modelEntry('tc2048'),
-      modelEntry('ts2068'),
+      // Sinclair-derived machines, one level down: Timex's own, and the clones.
+      {
+        value: 'timex',
+        label: 'Timex',
+        children: [
+          modelEntry('ts1000'),
+          modelEntry('ts1500'),
+          modelEntry('tc2048'),
+          modelEntry('ts2068'),
+        ],
+      },
+      {
+        value: 'sinclair-clones',
+        label: 'Clones',
+        children: [
+          modelEntry('pentagon128'),
+          modelEntry('pentagon512'),
+          modelEntry('pentagon1024'),
+          modelEntry('scorpion256'),
+        ],
+      },
     ],
   },
   {
@@ -283,7 +284,19 @@ export const MODEL_MENU: MenuItem[] = [
   },
 ];
 
-/** Every model the menu can reach, in menu order. */
+/** Every model the menu can reach, in menu order, through any depth of submenus. */
 export function menuModels(): string[] {
-  return MODEL_MENU.flatMap(group => (group.children ?? []).map(item => item.value));
+  const models = (items: readonly MenuItem[]): string[] =>
+    items.flatMap(item => (item.children ? models(item.children) : [item.value]));
+  return MODEL_MENU.flatMap(group => models(group.children ?? []));
+}
+
+/** The submenu `value` is the value of, searched at any depth. */
+export function findMenuGroup(value: string, items: readonly MenuItem[] = MODEL_MENU): MenuItem | undefined {
+  for (const item of items) {
+    if (item.value === value && item.children) return item;
+    const found = item.children ? findMenuGroup(value, item.children) : undefined;
+    if (found) return found;
+  }
+  return undefined;
 }
