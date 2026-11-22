@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Acorn Atom on-screen keyboard interaction and live highlighting.
  *
  * Caps drive the same matrix cells as host keys. CTRL, SHIFT and REPT latch
@@ -9,15 +9,10 @@
 
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { activeAtom } from '../active.ts';
-import type { AtomKeyDef } from './layout.ts';
+import type { DeckDriver } from '@/ui/keyboard/AcornDeck.tsx';
+import type { DeckKeyDef } from '@/ui/keyboard/deck-layout.ts';
 
-export interface AtomKeyboardController {
-  isDown(key: AtomKeyDef): boolean;
-  onDown(key: AtomKeyDef): void;
-  onUp(key: AtomKeyDef): void;
-}
-
-export function useAtomKeyboard(keys: () => readonly AtomKeyDef[]): AtomKeyboardController {
+export function useAtomKeyboard(keys: () => readonly DeckKeyDef[]): DeckDriver {
   const [lit, setLit] = createSignal<ReadonlySet<string>>(new Set());
   const [breakLit, setBreakLit] = createSignal(false);
   const machine = () => activeAtom();
@@ -39,7 +34,7 @@ export function useAtomKeyboard(keys: () => readonly AtomKeyDef[]): AtomKeyboard
 
   const releaseCells = () => { machine()?.keyboard.releaseAll(); };
 
-  const onDown = (key: AtomKeyDef) => {
+  const onDown = (key: DeckKeyDef) => {
     const m = machine();
     if (!m) return;
     m.cancelPaste();
@@ -67,7 +62,7 @@ export function useAtomKeyboard(keys: () => readonly AtomKeyDef[]): AtomKeyboard
     }
   };
 
-  const onUp = (key: AtomKeyDef) => {
+  const onUp = (key: DeckKeyDef) => {
     const m = machine();
     if (!m) return;
     const kb = m.keyboard;
@@ -84,7 +79,7 @@ export function useAtomKeyboard(keys: () => readonly AtomKeyDef[]): AtomKeyboard
     }
   };
 
-  const litNow = (key: AtomKeyDef): boolean => {
+  const litNow = (key: DeckKeyDef): boolean => {
     const kb = machine()?.keyboard;
     if (!kb) return false;
     switch (key.action) {

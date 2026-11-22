@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Fixed design-coordinate geometry for the Acorn Atom on-screen keyboard.
  *
  * The Atom's deck is staggered like a typewriter, not ortholinear: the Q row
@@ -13,8 +13,8 @@
 
 import type { SceneBox } from '@/ui/components/KeyboardScene.tsx';
 import {
-  ATOM_A_ROW, ATOM_Q_ROW, ATOM_SPACE_ROW, ATOM_TOP_ROW, ATOM_Z_ROW, type AtomKeyDef,
-} from './layout.ts';
+  DECK_A_ROW, DECK_Q_ROW, DECK_SPACE_ROW, DECK_TOP_ROW, DECK_Z_ROW, type DeckKeyDef,
+} from './deck-layout.ts';
 
 const PITCH = 46;
 const CAP = 41;
@@ -37,13 +37,13 @@ const Z_X = Q_X + 34;
 
 const TOP_RIGHT = TOP_X + ROW_WIDTH;
 
-export const ATOM_SCENE = {
+export const DECK_SCENE = {
   width: TOP_RIGHT + MARGIN,
   height: TOP + 4 * ROW_PITCH + SPACE_GAP + SPACE_H + BOTTOM,
 } as const;
 
 /** The black plate the keys and badge sit on. */
-export const ATOM_PLATE_BOX: SceneBox = {
+export const DECK_PLATE_BOX: SceneBox = {
   x: MARGIN - 6,
   y: TOP - 10,
   width: TOP_RIGHT - (MARGIN - 6) + 6,
@@ -56,22 +56,22 @@ const SPACE_X = Z_X + 3 * PITCH;
 const SPACE_W = 8 * PITCH - ROW_GAP;
 
 /** Right of the space bar, level with its top edge. */
-export const ATOM_BADGE_BOX: SceneBox = {
+export const DECK_BADGE_BOX: SceneBox = {
   x: SPACE_X + SPACE_W + 8,
   y: SPACE_Y,
   width: TOP_RIGHT - (SPACE_X + SPACE_W + 8) + 2,
   height: SPACE_H,
 };
 
-export interface PlacedAtomKey {
-  readonly key: AtomKeyDef;
+export interface PlacedDeckKey {
+  readonly key: DeckKeyDef;
   readonly box: SceneBox;
 }
 
-const placed: PlacedAtomKey[] = [];
+const placed: PlacedDeckKey[] = [];
 
 /** A row of equal caps starting at its staggered left edge. */
-function placeRow(keys: readonly AtomKeyDef[], x: number, y: number): void {
+function placeRow(keys: readonly DeckKeyDef[], x: number, y: number): void {
   keys.forEach((key, i) => {
     placed.push({
       key,
@@ -80,16 +80,16 @@ function placeRow(keys: readonly AtomKeyDef[], x: number, y: number): void {
   });
 }
 
-placeRow(ATOM_TOP_ROW, TOP_X, TOP);
-placeRow(ATOM_Q_ROW, Q_X, TOP + ROW_PITCH);
-placeRow(ATOM_A_ROW, A_X, TOP + 2 * ROW_PITCH);
-placeRow(ATOM_Z_ROW, Z_X, TOP + 3 * ROW_PITCH);
+placeRow(DECK_TOP_ROW, TOP_X, TOP);
+placeRow(DECK_Q_ROW, Q_X, TOP + ROW_PITCH);
+placeRow(DECK_A_ROW, A_X, TOP + 2 * ROW_PITCH);
+placeRow(DECK_Z_ROW, Z_X, TOP + 3 * ROW_PITCH);
 
 placed.push({
-  key: ATOM_SPACE_ROW[0],
+  key: DECK_SPACE_ROW[0],
   box: { x: SPACE_X, y: SPACE_Y, width: SPACE_W, height: SPACE_H },
 });
 
-export function placeAtomKeys(): readonly PlacedAtomKey[] {
+export function placeDeckKeys(): readonly PlacedDeckKey[] {
   return placed;
 }

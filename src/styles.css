@@ -3851,9 +3851,11 @@ input[type="range"]::-moz-range-thumb {
   display: none;
 }
 
-/* Acorn Atom keyboard: a cream case with a black keyboard plate, charcoal
-   caps and the green ACORN ATOM badge beside the space bar. The caps follow
-   the machine's physical QWERTY rows, not its 10x6 scan matrix. */
+/* Acorn ASCII deck: a cream case with a black keyboard plate, charcoal caps and
+   a badge beside the space bar. The Atom's built-in keyboard and the ASCII
+   keyboard sold for the System machines are the same deck, so both panes draw
+   it from `ui/keyboard/AcornDeck.tsx`; the caps follow the physical QWERTY
+   rows, not the Atom's 10x6 scan matrix. */
 .atom-keyboard {
   --atom-u: var(--keyboard-scene-px);
   --atom-case-top: #e3ded1;

@@ -150,6 +150,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/atom/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  // The System machines use the same ASCII deck as the Atom; each supplies its
+  // own driver (the Atom a matrix cell, the System an ASCII code).
+  'acorn-system': {
+    Keyboard: lazy(() =>
+      import('@/machines/acorn-system/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */

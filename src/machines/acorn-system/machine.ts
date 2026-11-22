@@ -232,6 +232,18 @@ export class AcornSystemMachine extends BaseMachine implements Machine {
     this.needsDisplay = true;
   }
 
+  /** An on-screen cap going down: its ASCII code goes on the keyboard port. */
+  pressKey(code: number): void { this.keyboard.press(code); }
+
+  /** The cap was let go. */
+  releaseKey(): void { this.keyboard.release(); }
+
+  /** Forget every held cap (the pane closed). */
+  releaseAllKeys(): void { this.keyboard.reset(); }
+
+  /** The keyboard's BREAK key: the machine's reset line. */
+  pressResetKey(): void { this.reset(); }
+
   /**
    * The cards the machine needs fetched besides the system ROM: the resident
    * BASIC where the memory card carries it, and the 80x25 VDU's character

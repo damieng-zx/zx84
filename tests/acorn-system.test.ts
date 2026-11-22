@@ -15,6 +15,7 @@ import { systemBasicListing, systemBasicVariables } from '@/machines/acorn-syste
 import { acornSystemEntry } from '@/machines/acorn-system/descriptor.ts';
 import { buildUef, type UefChunk } from '@/media/tape/uef.ts';
 import { parseSsd } from '@/media/floppy/ssd.ts';
+import { deckKeyByte } from '@/machines/acorn-system/ui/keyboard-ascii.ts';
 import type { HostKeyEvent } from '@/machines/machine.ts';
 
 const chunk = (id: number, ...data: number[]): UefChunk => ({ id, data: Uint8Array.from(data) });
@@ -384,6 +385,51 @@ describe('Acorn System 3 disc controller', () => {
     try {
       const mounted = await m.services.media.mount(new Uint8Array(2560 * 40), 'x.ssd');
       expect(mounted.ok).toBe(false);
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
+/**
+ * The on-screen deck is the Atom's ASCII keyboard (`ui/keyboard/AcornDeck.tsx`),
+ * but a System keyboard is an encoder: each cap puts one ASCII code on the port.
+ */
+describe('Acorn System on-screen keyboard', () => {
+  const cap = (main: string, shift?: string) => ({ main, shift, action: 'key' as const });
+
+  it('sends the shifted glyph for a two-legend cap', () => {
+    expect(deckKeyByte(cap('1', '!'), false, false)).toBe(0x31);
+    expect(deckKeyByte(cap('1', '!'), true, false)).toBe(0x21);
+  });
+
+  it('takes the code the system software gives the caps with no ASCII', () => {
+    expect(deckKeyByte(cap('RETURN'), false, false)).toBe(0x0d);
+    expect(deckKeyByte(cap('DELETE'), false, false)).toBe(0x7f);
+    // COPY is the DOS's copy key, Ctrl-Q; the arrows are its cursor moves.
+    expect(deckKeyByte(cap('COPY'), false, false)).toBe(0x11);
+    expect(deckKeyByte(cap('↔'), false, false)).toBe(0x01);
+    expect(deckKeyByte(cap('↑'), false, false)).toBe(0x17);
+  });
+
+  it('makes CTRL+letter a control code and LOCK lower case', () => {
+    expect(deckKeyByte(cap('C'), false, true)).toBe(0x03);
+    expect(deckKeyByte(cap('A'), false, false)).toBe(0x41);
+    expect(deckKeyByte(cap('A'), false, false, true)).toBe(0x61);
+  });
+
+  it('has no code for a modifier or the case lock', () => {
+    expect(deckKeyByte({ main: 'SHIFT', action: 'shift' }, false, false)).toBeNull();
+    expect(deckKeyByte(cap('LOCK'), false, false)).toBeNull();
+  });
+
+  it('puts a tapped cap on the keyboard port and clears it on release', () => {
+    const m = new AcornSystemMachine('acorn-system2', null);
+    try {
+      m.pressKey(0x41);
+      expect(m.memory.readByte(0x0E21)).toBe(0x41);
+      m.releaseKey();
+      expect(m.memory.readByte(0x0E21)).toBe(0xFF);
     } finally {
       m.destroy();
     }

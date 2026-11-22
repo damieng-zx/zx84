@@ -56,6 +56,12 @@ export class AcornSystemKeyboard {
     return true;
   }
 
+  /** An on-screen cap: put its code on the port (the encoder's job). */
+  press(code: number): void { this.code = code & 0x7F; }
+
+  /** The cap was let go: no key is down any more. */
+  release(): void { this.code = null; }
+
   reset(): void {
     this.code = null;
     this.held.clear();

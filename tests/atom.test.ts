@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Acorn Atom integration tests: registration, the 12 KB memory map, the PPI and
- * keyboard wiring, OCR mapping, native snapshots, and — when the Acorn ROMs are
- * in the MCP cache — a real boot to BASIC and a typed PRINT.
+ * keyboard wiring, OCR mapping, native snapshots, and â€” when the Acorn ROMs are
+ * in the MCP cache â€” a real boot to BASIC and a typed PRINT.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -11,8 +11,8 @@ import { AtomMachine } from '@/machines/atom/atom-machine.ts';
 import { atomEntry } from '@/machines/atom/descriptor.ts';
 import { AtomKeyboard } from '@/machines/atom/atom-keyboard.ts';
 import { ATOM_TAPE_EXTENSIONS, parseAtomTape } from '@/machines/atom/atom-tape.ts';
-import { ATOM_KEYS } from '@/machines/atom/ui/keyboard/layout.ts';
-import { ATOM_SCENE, ATOM_BADGE_BOX, placeAtomKeys } from '@/machines/atom/ui/keyboard/scene-geometry.ts';
+import { DECK_KEYS } from '@/ui/keyboard/deck-layout.ts';
+import { DECK_SCENE, DECK_BADGE_BOX, placeDeckKeys } from '@/ui/keyboard/deck-geometry.ts';
 import { buildUef, type UefChunk } from '@/media/tape/uef.ts';
 import { TAPE_REF_HZ, type CswBlock } from '@/media/tape/tap.ts';
 import { machineUi } from '@/ui/machine-ui.ts';
@@ -257,7 +257,7 @@ describe('atom keyboard', () => {
     expect(k.shiftHeld).toBe(true);
     expect(k.readRow(5)).toBe(0x7E);
     k.releaseAll();
-    expect(k.pressChar('€')).toBe(false);
+    expect(k.pressChar('â‚¬')).toBe(false);
   });
 });
 
@@ -343,7 +343,7 @@ describe('atom cassette', () => {
 describe('atom on-screen keyboard', () => {
   const rows = (): string[][] => {
     const byY = new Map<number, { x: number; main: string }[]>();
-    for (const { key, box } of placeAtomKeys()) {
+    for (const { key, box } of placeDeckKeys()) {
       const row = byY.get(box.y) ?? [];
       row.push({ x: box.x, main: key.main });
       byY.set(box.y, row);
@@ -354,14 +354,14 @@ describe('atom on-screen keyboard', () => {
   };
 
   it('places every cap exactly once inside the scene', () => {
-    const placed = placeAtomKeys();
-    expect(placed).toHaveLength(ATOM_KEYS.length);
-    expect(new Set(placed.map(p => p.key.id)).size).toBe(ATOM_KEYS.length);
+    const placed = placeDeckKeys();
+    expect(placed).toHaveLength(DECK_KEYS.length);
+    expect(new Set(placed.map(p => p.key.id)).size).toBe(DECK_KEYS.length);
     for (const { box } of placed) {
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.y).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width).toBeLessThanOrEqual(ATOM_SCENE.width);
-      expect(box.y + box.height).toBeLessThanOrEqual(ATOM_SCENE.height);
+      expect(box.x + box.width).toBeLessThanOrEqual(DECK_SCENE.width);
+      expect(box.y + box.height).toBeLessThanOrEqual(DECK_SCENE.height);
     }
   });
 
@@ -370,9 +370,9 @@ describe('atom on-screen keyboard', () => {
     // left/right arrow and COPY, the A row with CTRL and RETURN, the Z row with
     // two SHIFTs and REPT, then the space bar.
     expect(rows()).toEqual([
-      ['ESC', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', ':', '↑', 'BREAK'],
-      ['↔', 'COPY', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '@', '\\', 'DELETE'],
-      ['↕', 'CTRL', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', '[', ']', 'RETURN'],
+      ['ESC', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', ':', 'â†‘', 'BREAK'],
+      ['â†”', 'COPY', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '@', '\\', 'DELETE'],
+      ['â†•', 'CTRL', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', '[', ']', 'RETURN'],
       ['LOCK', 'SHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '.', '/', 'SHIFT', 'REPT'],
       [''],
     ]);
@@ -380,7 +380,7 @@ describe('atom on-screen keyboard', () => {
 
   it('staggers the rows like the machine instead of stacking them', () => {
     const byY = new Map<number, { x: number; w: number }[]>();
-    for (const { box } of placeAtomKeys()) {
+    for (const { box } of placeDeckKeys()) {
       const row = byY.get(box.y) ?? [];
       row.push({ x: box.x, w: box.width });
       byY.set(box.y, row);
@@ -407,14 +407,14 @@ describe('atom on-screen keyboard', () => {
     expect(z[1].x - z[0].x).toBe(z[2].x - z[1].x);
     expect(z[1].x - z[0].x).toBe(row(1)[1].x - row(1)[0].x);
     // The space bar sits a normal row gap below the Z row, not a key higher.
-    const space = placeAtomKeys().find(p => p.key.region === 'space')!;
-    const zed = placeAtomKeys().find(p => p.key.main === 'Z')!;
+    const space = placeDeckKeys().find(p => p.key.region === 'space')!;
+    const zed = placeDeckKeys().find(p => p.key.main === 'Z')!;
     expect(space.box.y - (zed.box.y + zed.box.height)).toBeLessThan(10);
   });
 
   it('puts every cap on its Atom matrix cell and keeps the unused cells empty', () => {
     const cells = new Map<string, string>();
-    for (const key of ATOM_KEYS) {
+    for (const key of DECK_KEYS) {
       if (key.row < 0) continue;
       expect(key.row).toBeGreaterThanOrEqual(0);
       expect(key.row).toBeLessThanOrEqual(9);
@@ -431,20 +431,20 @@ describe('atom on-screen keyboard', () => {
     expect(cells.get('4,5')).toBe('W');
     expect(cells.get('6,3')).toBe('A');
     expect(cells.get('1,5')).toBe('Z');
-    expect(cells.get('5,0')).toBe('↑');
+    expect(cells.get('5,0')).toBe('â†‘');
     expect(cells.get('9,0')).toBe('');
   });
 
   it('keeps the 26 letters and the SHIFT/CTRL/REPT/BREAK actions', () => {
-    expect(ATOM_KEYS.filter(k => k.region === 'letter')).toHaveLength(26);
-    expect(ATOM_KEYS.filter(k => k.action === 'shift')).toHaveLength(2);
-    expect(ATOM_KEYS.filter(k => k.action === 'ctrl')).toHaveLength(1);
-    expect(ATOM_KEYS.filter(k => k.action === 'rept')).toHaveLength(1);
-    expect(ATOM_KEYS.filter(k => k.action === 'break')).toHaveLength(1);
+    expect(DECK_KEYS.filter(k => k.region === 'letter')).toHaveLength(26);
+    expect(DECK_KEYS.filter(k => k.action === 'shift')).toHaveLength(2);
+    expect(DECK_KEYS.filter(k => k.action === 'ctrl')).toHaveLength(1);
+    expect(DECK_KEYS.filter(k => k.action === 'rept')).toHaveLength(1);
+    expect(DECK_KEYS.filter(k => k.action === 'break')).toHaveLength(1);
     // Only the space bar is wider than one cap, and the badge sits beside it.
-    const wide = placeAtomKeys().filter(p => p.box.width > p.box.height * 1.5);
+    const wide = placeDeckKeys().filter(p => p.box.width > p.box.height * 1.5);
     expect(wide.map(p => p.key.region)).toEqual(['space']);
-    expect(wide[0].box.x + wide[0].box.width).toBeLessThan(ATOM_BADGE_BOX.x);
+    expect(wide[0].box.x + wide[0].box.width).toBeLessThan(DECK_BADGE_BOX.x);
   });
 
   it('is registered as a Keyboard UI contribution', () => {
