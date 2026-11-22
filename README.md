@@ -27,6 +27,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Camputers Lynx](docs/machines/camputers-lynx.md) | 48K, 96K, 128K | Z80 |
 | [Jupiter Ace](docs/machines/jupiter-ace.md) | Jupiter Ace | Z80 |
 | [Enterprise](docs/machines/enterprise.md) | 64, 128 | Z80 |
+| [Acorn System](docs/machines/acorn-system.md) | System 2, 3, 4, 5 | 6502 / 6502A |
 | [Acorn Atom](docs/machines/acorn-atom.md) | Acorn Atom (2K or 12K) | 6502 |
 | [Acorn BBC Micro](docs/machines/bbc-micro.md) | Model B | 6502 |
 | [Acorn Electron](docs/machines/acorn-electron.md) | Electron | 6502 |
