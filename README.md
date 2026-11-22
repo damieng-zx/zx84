@@ -18,6 +18,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Sinclair clones](docs/machines/sinclair-clones.md) | Pentagon 128, 512, 1024; Scorpion ZS-256 | Z80 |
 | [Sinclair ZX80 / ZX81](docs/machines/zx80-zx81.md) | ZX80, ZX81, Timex Sinclair 1000, Timex Sinclair 1500 | Z80 |
 | [Timex Computer 2048](docs/machines/timex-computer-2048.md) | Timex Computer 2048 | Z80 |
+| [Timex Sinclair 2068](docs/machines/timex-sinclair-2068.md) | Timex Sinclair 2068, Timex Computer 2068 | Z80 |
 | [Amstrad CPC](docs/machines/amstrad-cpc.md) | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Z80 |
 | [Amstrad PCW](docs/machines/amstrad-pcw.md) | 8256, 8512, 9256, 9512 | Z80 |
 | [Tatung Einstein](docs/machines/tatung-einstein.md) | TC-01, 256 | Z80 |

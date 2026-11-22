@@ -9,7 +9,8 @@ import type { SoundDeviceInfo, StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { isCpcModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
-import { is128kClass, isUspeechCapable, isPlus2AClass, isScorpionClass, isTimexClass, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
+import { is128kClass, isUspeechCapable, isPlus2AClass, isScorpionClass, isTimexClass, isTimex2068Class, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
+import { TIMEX_JOY_LEFT, TIMEX_JOY_RIGHT } from './peripherals/joysticks.ts';
 import { Spectrum } from './spectrum.ts';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './ula.ts';
 
@@ -28,7 +29,9 @@ function spectrumStatusLeds(model: MachineModel): StatusLedId[] {
   const leds: StatusLedId[] = ['kbd', 'kemp', 'mouse', 'ear', 'load', 'text', 'rainbow', 'beep'];
   // The Timex board decodes only its own ports: no mouse interface answers.
   if (isTimexClass(model)) leds.splice(leds.indexOf('mouse'), 1);
-  if (is128kClass(model)) leds.push('chip');
+  // Its joysticks are read through the AY, not a Kempston port the LED is named for.
+  if (isTimex2068Class(model)) leds.splice(leds.indexOf('kemp'), 1);
+  if (is128kClass(model) || isTimex2068Class(model)) leds.push('chip');
   if (isPlus3(model)) leds.push('dsk');
   return leds;
 }
@@ -37,7 +40,7 @@ function spectrumStatusLeds(model: MachineModel): StatusLedId[] {
  *  SpecDrum and Currah µSpeech. spectrum.ts reads the same list in applySettings. */
 function spectrumSoundDevices(model: MachineModel): SoundDeviceInfo[] {
   const devices: SoundDeviceInfo[] = [{ id: 'beeper', label: 'Beeper', volumeSetting: 'beeper-volume' }];
-  if (is128kClass(model)) devices.push({ id: 'psg', label: 'AY-3-8912', volumeSetting: 'psg-volume' });
+  if (is128kClass(model) || isTimex2068Class(model)) devices.push({ id: 'psg', label: 'AY-3-8912', volumeSetting: 'psg-volume' });
   // The DAC may be pushed past the speaker: drum samples use only part of its range.
   devices.push({ id: 'specdrum', label: 'SpecDrum', volumeSetting: 'specdrum-volume', enabledSetting: 'specdrum', maxVolume: 200 });
   if (isUspeechCapable(model)) {
@@ -49,12 +52,13 @@ function spectrumSoundDevices(model: MachineModel): SoundDeviceInfo[] {
 /** The Save menu: snapshots, the tape recorded, screen dumps (plus the multicolour
  *  one where the hardware has an attribute per 8x1 line: the Timex and the Pentagon
  *  1024) and the RAM. .z80 holds at most 128K of RAM (and has no Scorpion paging),
- *  so the Pentagon 512/1024 and the Scorpion save only as .szx. */
+ *  so the Pentagon 512/1024, the Scorpion and the Timex 2068 save only as .szx. */
 function spectrumSaveMenu(model: MachineModel): MachineUiCapabilities['saveMenu'] {
   const screens: MachineUiCapabilities['saveMenu'] = isTimexClass(model) || model === 'pentagon1024'
     ? ['screenshot-png', 'screen-scr', 'screen-mlt']
     : ['screenshot-png', 'screen-scr'];
-  return ramBankCountFor(model) > 8
+  // The 2068's port 0xF4 (dock / EXROM paging) has no place in .z80 either.
+  return ramBankCountFor(model) > 8 || isTimex2068Class(model)
     ? ['snapshot-szx', 'tape-tap', ...screens, 'ram-bin']
     : ['snapshot-szx', 'snapshot-z80', 'tape-tap', ...screens, 'ram-bin'];
 }
@@ -71,16 +75,27 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     builtinDrives: 2,
     joystick: true,
     fixedJoystick: false,
+    // The 2068 has two Atari-style ports on the AY's I/O port instead of a Kempston
+    // interface: each player picks the port their stick is in (the Nth is the Nth player's).
+    ...(isTimex2068Class(model) ? {
+      joystickTypes: [
+        { id: TIMEX_JOY_LEFT, label: 'Left joystick port' },
+        { id: TIMEX_JOY_RIGHT, label: 'Right joystick port' },
+      ],
+      joystickFireButtons: 1 as const,
+    } : {}),
     mouseTypes: isTimexClass(model) ? [] : [
       { id: 'kempston', label: 'Kempston' },
       { id: 'amx', label: 'AMX' },
     ],
-    cartridge: isInterface2Capable(model),
+    // The Interface 2 slot on the 16K/48K, the dock connector on the 2068.
+    cartridge: isInterface2Capable(model) || isTimex2068Class(model),
     systemRomLabel: 'ROM',
     romPages: romPageSlotCount(model),
     beeper: true,
-    soundChip: is128kClass(model) ? 'AY-3-8912' : undefined,
-    psgControls: ['stereo', 'filter'],
+    soundChip: is128kClass(model) || isTimex2068Class(model) ? 'AY-3-8912' : undefined,
+    // The 2068 mixes its AY to one speaker: there is no stereo to place.
+    psgControls: isTimex2068Class(model) ? ['filter'] : ['stereo', 'filter'],
     soundDevices: spectrumSoundDevices(model),
     statusLeds: spectrumStatusLeds(model),
     keyboardBus: 'ula',
@@ -122,6 +137,9 @@ const ROM_SOURCES: Record<string, string[]> = {
   'zx48k':  ['sinclair/48.rom'],
   // Timex Computer 2048: a lightly modified 48K BASIC ROM, 16K.
   'tc2048': ['timex/tc2048.rom'],
+  // Timex 2068: the 16K HOME ROM then the 8K EXROM. Hosted as the TC2068 pair, which
+  // both TV standards use here (the TS2068's differs from it by no documented byte).
+  'ts2068': ['timex/tc2068-0.rom', 'timex/tc2068-1.rom'],
   'zx128k': ['sinclair/128-0.rom', 'sinclair/128-1.rom'],
   'zx128kplus2':   ['sinclair/plus2-0.rom', 'sinclair/plus2-1.rom'],
   'zx128kplus2a':  ['sinclair/plus3-41-0.rom', 'sinclair/plus3-41-1.rom', 'sinclair/plus3-41-2.rom', 'sinclair/plus3-41-3.rom'],
@@ -175,10 +193,10 @@ export function spectrumDescriptor(
 
 export const spectrumEntry: MachineEntry = {
   kind: 'spectrum',
-  models: ['zx16k', 'zx48k', 'tc2048', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'],
+  models: ['zx16k', 'zx48k', 'tc2048', 'ts2068', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'],
   descriptor: spectrumDescriptor,
-  create(model: MachineModel, display: IScreenRenderer | null) {
-    return new Spectrum(model as SpectrumModel, display);
+  create(model: MachineModel, display: IScreenRenderer | null, locale?: MachineLocale) {
+    return new Spectrum(model as SpectrumModel, display, locale);
   },
   romSources(model: MachineModel, locale?: MachineLocale) {
     const sm = model as SpectrumModel;
@@ -190,6 +208,8 @@ export const spectrumEntry: MachineEntry = {
    *  already matches the image size. Ported verbatim from the shell's applyROM. */
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
     const cur: SpectrumModel = isCpcModel(current) ? 'zx128k' : current as SpectrumModel;
+    // A 24K image is a 2068's HOME ROM and EXROM together.
+    if (data.length === 24576) return isTimex2068Class(cur) ? cur : 'ts2068';
     if (data.length >= 65536) return isPlus2AClass(cur) || isScorpionClass(cur) ? cur : 'zx128kplus2a';
     if (data.length >= 32768) return is128kClass(cur) ? cur : 'zx128k';
     // A 16K image is a 48K-class ROM: keep the Timex model already in use.

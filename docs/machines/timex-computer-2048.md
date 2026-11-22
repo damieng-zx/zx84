@@ -24,7 +24,7 @@ hi-res mode), its built-in Kempston joystick port and its port decoding.
 
 | Model | Year | RAM | ROM | Video | Sound | Storage | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Timex Computer 2048 (`tc2048`) | 1984 | 48 KB | 16 KB | 256×192 with 8×8, or 8×1 ("hi-colour") attributes; 512×192 monochrome | Beeper | Cassette | The other Timex Spectrums (TS2068, TC2068) are not emulated yet |
+| Timex Computer 2048 (`tc2048`) | 1984 | 48 KB | 16 KB | 256×192 with 8×8, or 8×1 ("hi-colour") attributes; 512×192 monochrome | Beeper | Cassette | The TS2068 and TC2068, which add an AY, joysticks, an EXROM and a dock, are on [their own page](timex-sinclair-2068.md) |
 
 ### ROM sets
 
@@ -146,7 +146,7 @@ shows these formats too: Timex hi-res and hi-colour screens, and the multicolour
 
 ## Not emulated
 
-- The horizontal MMU, dock and EX-ROM (port 0xF4) — the TC2048 has no dock; the 128K upgrades (TC2128, TC2144) and the TS2068/TC2068's AY, joysticks and 24K ROM are not emulated.
+- The horizontal MMU, dock and EX-ROM (port 0xF4) — the TC2048 has no dock (the [TS2068 and TC2068](timex-sinclair-2068.md) do, and emulate it); the 128K upgrades (TC2128, TC2144) are not emulated.
 - The Timex FDD disk system.
 
 ## Faithful quirks

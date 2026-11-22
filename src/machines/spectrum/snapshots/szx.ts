@@ -38,6 +38,9 @@ export interface SZXResult {
   /** SCLD chFF: the last byte written to the Timex port 0xFF (screen mode, hi-res
    *  colour, interrupt disable), or undefined when the file has no SCLD block. */
   timexDec?: number;
+  /** SCLD chF4: the last byte written to the Timex 2068's port 0xF4 (which 8K chunks
+   *  come from the dock or EXROM), or undefined when the file has no SCLD block. */
+  timexF4?: number;
 }
 
 /** Board state beyond the CPU and memory that an SZX records. */
@@ -47,6 +50,11 @@ export interface SZXBoard {
   /** Last byte written to the Timex port 0xFF; present only on a Timex, which
    *  adds an SCLD block to the file. */
   timexDec?: number;
+  /** Last byte written to the Timex 2068's port 0xF4, kept in the SCLD block. */
+  timexF4?: number;
+  /** A Timex 2068 in the NTSC standard (machine id 12, the TS2068) rather than PAL
+   *  (9, the TC2068). */
+  ntsc?: boolean;
   /** Issue 2 keyboard emulation (16K/48K only). */
   issue2: boolean;
 }
@@ -129,7 +137,7 @@ async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
 // ── Machine ID mapping ──────────────────────────────────────────────────
 
 /** SZX machine ID: 0=16K, 1=48K, 2=128K, 3=+2, 4=+2A/+2B, 5=+3, 6=+3e, 7=Pentagon 128,
- *  8=TC2048, 10=Scorpion ZS-256, 13=Pentagon 512, 14=Pentagon 1024 */
+ *  8=TC2048, 9=TC2068, 10=Scorpion ZS-256, 12=TS2068, 13=Pentagon 512, 14=Pentagon 1024 */
 const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
   'zx16k': 0,
   'zx48k': 1,
@@ -142,6 +150,7 @@ const MODEL_TO_MACHINE_ID: Record<SpectrumModel, number> = {
   pentagon1024: 14,
   scorpion256: 10,
   tc2048: 8,
+  ts2068: 12,   // the NTSC machine; the PAL one (the TC2068) is 9, see SZXBoard.ntsc
 };
 
 function machineIs128K(machineId: number): boolean {
@@ -217,8 +226,11 @@ export async function loadSZX(
         break;
 
       case 'SCLD':
-        // chF4 (the dock/EX-ROM paging port, unused on a TC2048), chFF, 6 reserved.
-        if (dwSize >= 2) result.timexDec = data[blockStart + 1];
+        // chF4 (the dock/EX-ROM paging port; always 0 on a TC2048), chFF, 6 reserved.
+        if (dwSize >= 2) {
+          result.timexF4 = data[blockStart];
+          result.timexDec = data[blockStart + 1];
+        }
         break;
 
       case 'KEYB':
@@ -507,7 +519,7 @@ function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, mode
   data[offset++] = 0x54; // 'T'
   data[offset++] = 1;    // major version
   data[offset++] = 4;    // minor version
-  data[offset++] = MODEL_TO_MACHINE_ID[model]; // machine ID
+  data[offset++] = model === 'ts2068' && !board?.ntsc ? 9 : MODEL_TO_MACHINE_ID[model]; // machine ID
   data[offset++] = 0;    // flags
 
   // ── Z80R block (CPU registers) ──────────────────────────────────────
@@ -568,7 +580,7 @@ function assembleSZX(cpu: Z80, memory: SpectrumMemory, borderColor: number, mode
   // ── SCLD block (Timex): chF4, chFF, 6 reserved bytes ────────────────
   if (board?.timexDec !== undefined) {
     offset = writeBlockHeader(data, offset, 'SCLD', 8);
-    data[offset++] = 0;                          // chF4
+    data[offset++] = (board.timexF4 ?? 0) & 0xFF; // chF4
     data[offset++] = board.timexDec & 0xFF;      // chFF
     offset += 6;                                 // chReserved (zeroed)
   }

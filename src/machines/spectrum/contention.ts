@@ -77,6 +77,31 @@ export const TIMING_TC2048: MachineTiming = {
   floatingBusAdjust: 0,
 };
 
+/** Timex Sinclair 2068 frame: 224 T-states/line x 262 lines (the US 60 Hz picture). */
+export const TSTATES_PER_FRAME_TS2068 = 58_688;
+
+/**
+ * Timex Sinclair 2068 (US, NTSC): the SCLD on the TC2048's 3.528 MHz clock and
+ * 224 T line, but a 262-line frame, 3,528,000 / 58,688 = 60.1 Hz. The Timex
+ * literature gives the rate (60 Hz) but not where in the frame the picture sits
+ * or the exact line count, so the lines are the NTSC standard's and the picture
+ * is placed with 16 lines of vertical retrace and 24 of top border (40 lines)
+ * ahead of the first pixel, which leaves 30 lines below it. A border larger than
+ * that (the "normal" 48-line border) is drawn out of the lines the frame has: its
+ * missing rows are painted at the frame's ends. The first pixel and the contention
+ * start keep the TC2048's 15 and 16 T lead over a line boundary. Estimated, not
+ * hardware-verified.
+ */
+export const TIMING_TS2068: MachineTiming = {
+  cpuClock: Z80_CLOCK_TC2048,
+  tStatesPerFrame: TSTATES_PER_FRAME_TS2068,   // 224 x 262
+  tStatesPerLine: 224,
+  contentionStart: 40 * 224 - 16,
+  displayOrigin: 40 * 224 - 15,
+  intLength: 32,
+  floatingBusAdjust: 0,
+};
+
 export const TIMING_128K: MachineTiming = {
   cpuClock: Z80_CLOCK_128K,
   tStatesPerFrame: TSTATES_PER_FRAME_128K,  // 228 × 311

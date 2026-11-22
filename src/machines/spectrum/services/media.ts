@@ -13,7 +13,7 @@
 
 import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
-import { isInterface1Capable, isInterface2Capable } from '@/machines/spectrum/models.ts';
+import { isInterface1Capable, isInterface2Capable, isTimex2068Class } from '@/machines/spectrum/models.ts';
 import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
 import { wavToPulseBlocks } from '@/media/tape/wav.ts';
@@ -63,6 +63,9 @@ export class SpectrumMediaService implements MediaService {
     if (s.variant.hasFDC || s.mgtPlusD.enabled) out.push({ ext: '.dsk', target: 'a' });
     if (isInterface1Capable(s.model)) out.push({ ext: '.mdr', target: 'mdv:0' }, { ext: '.mdv', target: 'mdv:0' });
     if (isInterface2Capable(s.model)) out.push({ ext: '.rom', target: 'cartridge' });
+    // A dock cartridge is a 2068 thing, but the extension is declared everywhere so a
+    // dropped file reaches mount(), which names what it needs.
+    out.push({ ext: '.dck', target: 'cartridge' });
     return out;
   }
 
@@ -83,6 +86,18 @@ export class SpectrumMediaService implements MediaService {
       const slot = this.roms.cartridge;
       if (!slot) return fail('Cartridges need a 16K/48K Spectrum');
       slot.insert(data, filename);
+      return { ok: true, target: 'cartridge', message: `Cartridge: ${filename}` };
+    }
+
+    // Timex 2068 dock cartridges.
+    if (/\.dck$/i.test(filename)) {
+      const slot = this.roms.cartridge;
+      if (!slot || !isTimex2068Class(s.model)) return fail('Dock cartridges need a Timex 2068');
+      try {
+        slot.insert(data, filename);
+      } catch (e) {
+        return fail(`${filename}: ${(e as Error).message}`);
+      }
       return { ok: true, target: 'cartridge', message: `Cartridge: ${filename}` };
     }
 

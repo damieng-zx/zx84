@@ -108,6 +108,25 @@ export function installMemoryHooks(s: Spectrum): void {
     if (s.memWatchpoints.length > 0 && s.memWatchHit === null) s.recordMemWatch(addr, val & 0xFF, 'write');
   };
 
+  // The Timex 2068's memory is swapped in 8K chunks (see timex-mmu.ts): whether a
+  // write lands depends on the chunk, not on whether the address is below 0x4000.
+  // Its own write path keeps that test off every other machine's.
+  const mmu = memory.timexMmu;
+  if (mmu !== null) {
+    const writable = mmu.writable;
+    cpu.write8 = (addr: number, val: number): void => {
+      addr &= 0xFFFF;
+      if (cpu.accurateTiming && slotContended[addr >>> 14] !== 0) {
+        cpu.tStates += contention.contentionDelay(cpu.tStates);
+      }
+      if (writable[addr >>> 13] === 0) return;   // ROM, or a dock chunk with nothing to write to
+      if (slotIsScreen[addr >>> 14] !== 0 && (addr & 0x3FFF) < vramFlushLen) s.flushBeam();
+      if (addr >= 0x5800 && addr < 0x5B00) s.activity.attrWrites++;
+      flat[addr] = val & 0xFF;
+      if (s.memWatchpoints.length > 0 && s.memWatchHit === null) s.recordMemWatch(addr, val & 0xFF, 'write');
+    };
+  }
+
   cpu.portIn = (port: number): number => {
     // The core invokes portIn 3T into the IORQ cycle (the late sample point);
     // contention probes must anchor at the cycle START, hence offset 3.
@@ -171,9 +190,13 @@ export function wirePortIO(s: Spectrum): void {
     return s.ula.readPort((port >> 8) & 0xFF);
   }
 
+  const mmu = s.memory.timexMmu;
+
   /** Timex SCLD: only its own ports answer, each decoded on the low eight address
-   *  bits - 0xFE (the ULA), 0xFF (screen mode, hi-res colour, interrupt disable)
-   *  and the SpecDrum's 0xDF. Nothing else on the board listens to an OUT. */
+   *  bits - 0xFE (the ULA), 0xFF (screen mode, hi-res colour, interrupt disable;
+   *  on a 2068 also the dock / EXROM select) and the SpecDrum's 0xDF. A 2068 adds
+   *  0xF4 (which 8K chunks come from the dock or EXROM) and the AY at 0xF5 / 0xF6.
+   *  Nothing else on the board listens to an OUT. */
   function timexOut(port: number, val: number): void {
     const low = port & 0xFF;
     if (low === 0xFE) {
@@ -185,6 +208,14 @@ export function wirePortIO(s: Spectrum): void {
       if (((timex.dec ^ val) & 0x3F) !== 0) s.flushBeam();
       timex.write(val);
       s.ula.setTimexVideo(val);
+      if (mmu !== null) mmu.select(mmu.f4, timex.exRom);
+    } else if (mmu !== null && low === 0xF4) {
+      mmu.select(val, s.timex!.exRom);
+    } else if (mmu !== null && low === 0xF5) {
+      s.ay.selectRegister(val);
+    } else if (mmu !== null && low === 0xF6) {
+      s.ay.writeRegister(s.ay.selectedReg, val);
+      s.activity.ayWrites++;
     } else if (s.specdrum.enabled && s.specdrum.matchPort(port)) {
       s.specdrum.writePort(val);
       s.activity.specdrumWrites++;
@@ -193,16 +224,34 @@ export function wirePortIO(s: Spectrum): void {
 
   /** Timex SCLD reads: 0xFE is the ULA with bits 5 and 7 always clear, 0xFF
    *  returns the last byte written to it, the Kempston joystick answers any
-   *  port with A5 low, and there is no floating bus - an unattached port is 0xFF. */
+   *  port with A5 low, and there is no floating bus - an unattached port is 0xFF.
+   *  A 2068 has no Kempston port: its joysticks and the AY answer at 0xF6, and 0xF4
+   *  returns the last byte written. */
   function timexIn(port: number): number {
     const low = port & 0xFF;
     if (low === 0xFE) return readUla(port) & 0x5F;
     if (low === 0xFF) return s.timex!.dec;
+    if (mmu !== null) {
+      if (low === 0xF4) return mmu.f4;
+      if (low === 0xF6) return readAyData(port);
+      return 0xFF;
+    }
     if ((port & 0x20) === 0) {
       s.activity.kempstonReads++;
       return s.joystick.state;
     }
     return 0xFF;
+  }
+
+  /** IN 0xF6: the AY register last selected. Register 14 is the AY spare I/O port,
+   *  which the 2068 wires to its two joystick ports: with the port set to input
+   *  (register 7 bit 6 clear) address lines A8 and A9 pick the left and right stick,
+   *  and a stick reads 0 on each direction or fire it holds. */
+  function readAyData(port: number): number {
+    if (s.ay.selectedReg === 14 && (s.ay.regs[7] & 0x40) === 0) {
+      return s.timexJoystick.read((port >> 8) & 3);
+    }
+    return s.ay.readRegister(s.ay.selectedReg);
   }
 
   s.cpu.portOutHandler = (port: number, val: number) => {

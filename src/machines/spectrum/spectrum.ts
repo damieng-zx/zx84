@@ -28,7 +28,7 @@ import { trapTapeLoad } from '@/machines/spectrum/tape-loader.ts';
 import { LoaderDetector } from '@/media/tape/loader-detector.ts';
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import { installMemoryHooks, wirePortIO } from '@/machines/spectrum/io.ts';
-import { KempstonJoystick } from '@/machines/spectrum/peripherals/joysticks.ts';
+import { KempstonJoystick, TimexJoystick } from '@/machines/spectrum/peripherals/joysticks.ts';
 import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
 import { AmxMouse } from '@/machines/spectrum/peripherals/amx-mouse.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
@@ -43,7 +43,7 @@ import { BetaDisk } from '@/machines/spectrum/peripherals/beta-disk.ts';
 import { CurrahUSpeech, USPEECH_TOGGLE_ADDR } from '@/machines/spectrum/peripherals/currah-uspeech.ts';
 import { DISPLAY_WIDTH, DISPLAY_HEIGHT } from '@/machines/spectrum/ula.ts';
 import { createVariant, type MachineVariant } from '@/machines/spectrum/variants/index.ts';
-import type { Machine, MachineKind, MachineHost, MachineDescriptor, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
+import type { Machine, MachineKind, MachineHost, MachineDescriptor, MachineLocale, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
 import { soundDeviceGains } from '@/machines/machine.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
 import { spectrumDescriptor } from '@/machines/spectrum/descriptor.ts';
@@ -72,7 +72,7 @@ const UNVERIFIED_DISPLAY_START: ReadonlySet<string> = new Set([
 ]);
 
 import type { SpectrumModel } from '@/models.ts';
-import { betaRomInSystemRom, hasBoardIssueOption, isPentagonClass, isPlus2AClass, isScorpionClass, isTimexClass } from '@/machines/spectrum/models.ts';
+import { betaRomInSystemRom, hasBoardIssueOption, isPentagonClass, isPlus2AClass, isScorpionClass, isTimex2068Class, isTimexClass, timex2068IsNtsc } from '@/machines/spectrum/models.ts';
 import { withTrdosMenuEntry } from '@/machines/spectrum/pentagon-menu.ts';
 import { ScorpionBoard } from '@/machines/spectrum/scorpion.ts';
 import { Scld } from '@/machines/spectrum/scld.ts';
@@ -186,6 +186,8 @@ export class Spectrum extends BaseMachine implements Machine {
 
   /** Kempston joystick peripheral */
   joystick = new KempstonJoystick();
+  /** The Timex 2068's two joystick ports, read through the AY (port 0xF6). */
+  timexJoystick = new TimexJoystick();
 
   /** Kempston mouse peripheral */
   kempstonMouse = new KempstonMouse();
@@ -369,10 +371,15 @@ export class Spectrum extends BaseMachine implements Machine {
   // The debug surface (breakpoints / port + memory watchpoints / onTrap /
   // onStatus / onFrame) is inherited from BaseMachine, shared with the CPC.
 
-  constructor(model: SpectrumModel, display?: IScreenRenderer | null) {
+  /** The locale the machine was built for: its ROM language, or on the Timex 2068
+   *  its TV standard ('us' is NTSC). */
+  readonly locale: MachineLocale;
+
+  constructor(model: SpectrumModel, display?: IScreenRenderer | null, locale: MachineLocale = 'uk') {
     super();
     this.model = model;
-    this.variant = createVariant(model);
+    this.locale = locale;
+    this.variant = createVariant(model, timex2068IsNtsc(locale));
 
     this.memory = new SpectrumMemory(model, {
       hasBanking: this.variant.hasBanking,
@@ -443,7 +450,7 @@ export class Spectrum extends BaseMachine implements Machine {
 
   attachHost(host: MachineHost): void { this.host = host; }
 
-  get descriptor(): MachineDescriptor { return spectrumDescriptor(this.model, 'uk', this.ula.xScale); }
+  get descriptor(): MachineDescriptor { return spectrumDescriptor(this.model, this.locale, this.ula.xScale); }
 
   /** Current frame-buffer geometry (shrinks with the border-size setting). */
   get frameWidth(): number { return this.ula.screenWidth; }
@@ -525,6 +532,8 @@ export class Spectrum extends BaseMachine implements Machine {
     this.scanlineAccuracy = view.get('scanline-accuracy', 'high') as 'high' | 'mid' | 'low';
     this.setBoardIssue2(view.get('spectrum-issue2', false));
     applyAySettings(this.ay, view);
+    // The 2068 sums its three AY channels to one speaker.
+    if (isTimex2068Class(this.model)) this.ay.setStereoMode('MONO');
     this.joystick.enabled = view.get<string>('joy-p1', 'kempston') === 'kempston'
       || view.get<string>('joy-p2', 'sinclair2') === 'kempston';
     // Live-disable only: enabling needs a ROM load, which prepare() owns.
@@ -709,6 +718,7 @@ export class Spectrum extends BaseMachine implements Machine {
       this.interface2.applyROM(this.memory);
     }
     this.joystick.reset();
+    this.timexJoystick.reset();
     this.kempstonMouse.reset();
     this.amxMouse.reset();
     this.specdrum.reset();

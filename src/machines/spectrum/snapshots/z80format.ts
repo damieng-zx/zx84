@@ -198,6 +198,7 @@ function is128KHardware(hwMode: number, version: number): boolean {
 /** Map hardware mode + "modify hardware" flag to an emulated model. */
 function sourceModelOf(hwMode: number, version: number, modify: boolean): SpectrumModel | null {
   if (hwMode === 14) return 'tc2048';
+  if (hwMode === 15 || hwMode === 128) return 'ts2068';   // TC2068 (PAL), TS2068 (NTSC)
   if (hwMode === 7 || hwMode === 8) return modify ? 'zx128kplus2a' : 'zx128kplus3';
   if (hwMode === 13) return 'zx128kplus2a';
   if (hwMode === 12) return 'zx128kplus2';
@@ -411,7 +412,8 @@ export function loadZ80(
 
     memory.load48KRAM(ram);
     // A TC2048 file keeps its last OUT to port 0xFF in byte 36.
-    const timexDec = hwMode === 14 ? data[extBase + 4] : undefined;
+    // (The 2068's port 0xF4 is not recorded in the format, so it comes back as 0: HOME.)
+    const timexDec = hwMode === 14 || hwMode === 15 || hwMode === 128 ? data[extBase + 4] : undefined;
     return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg, frameTStates, sourceModel, issue2, timexDec };
   }
 }

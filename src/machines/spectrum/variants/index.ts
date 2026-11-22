@@ -10,11 +10,12 @@ import { createFerranti128K } from './spectrum-ferranti.ts';
 import { createAmstrad } from './spectrum-amstrad.ts';
 import { createPentagon } from './spectrum-pentagon.ts';
 import { spectrumScorpion } from './spectrum-scorpion.ts';
-import { spectrumTc2048 } from './spectrum-timex.ts';
+import { spectrumTc2048, spectrumTs2068Ntsc, spectrumTs2068Pal } from './spectrum-timex.ts';
 
 export type { MachineVariant } from './machine-variant.ts';
 
-export function createVariant(model: SpectrumModel): MachineVariant {
+/** `ntsc` picks the TV standard of a model sold in both (the Timex 2068). */
+export function createVariant(model: SpectrumModel, ntsc = false): MachineVariant {
   switch (model) {
     case 'zx16k':  return spectrum16K;
     case 'zx48k':  return spectrum48K;
@@ -27,5 +28,6 @@ export function createVariant(model: SpectrumModel): MachineVariant {
     case 'pentagon1024': return createPentagon('pentagon1024');
     case 'scorpion256': return spectrumScorpion;
     case 'tc2048': return spectrumTc2048;
+    case 'ts2068': return ntsc ? spectrumTs2068Ntsc : spectrumTs2068Pal;
   }
 }
