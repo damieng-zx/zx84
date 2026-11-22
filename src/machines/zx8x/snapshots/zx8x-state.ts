@@ -30,6 +30,7 @@
  */
 
 import type { NativeStateSpec } from '@/machines/shared/native-state.ts';
+import { ZX8X_MODEL_NAMES, type Zx8xModel } from '../models.ts';
 
 export const ZX8X_STATE: NativeStateSpec = {
   ext: '.zx8xstate',
@@ -37,5 +38,5 @@ export const ZX8X_STATE: NativeStateSpec = {
   version: 1,
   machineName: 'ZX80/ZX81',
   maxBody: 1 << 20,
-  modelName: model => (model === 'zx80' ? 'ZX80' : model === 'zx81' ? 'ZX81' : null),
+  modelName: model => (Object.prototype.hasOwnProperty.call(ZX8X_MODEL_NAMES, model) ? ZX8X_MODEL_NAMES[model as Zx8xModel] : null),
 };

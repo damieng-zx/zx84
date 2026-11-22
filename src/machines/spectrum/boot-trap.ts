@@ -12,7 +12,7 @@
  */
 
 import type { SpectrumModel } from './models.ts';
-import { isPentagonClass, isScorpionClass } from './models.ts';
+import { isPentagonClass, isScorpionClass, isTimex2068Class } from './models.ts';
 
 /** PUSH HL; LD HL,0x5C3B; BIT 5,(HL); JR Z,-4 — the +2A/+3 menu key-wait. */
 const PLUS3_MENU_WAIT = [0xE5, 0x21, 0x3B, 0x5C, 0xCB, 0x6E, 0x28, 0xFC];
@@ -57,5 +57,8 @@ export function bootWaitPc(model: SpectrumModel, rom0: Uint8Array): number {
   }
   // Sinclair 128K/+2 menu wait.
   if (model === 'zx128k' || model === 'zx128kplus2' || isPentagonClass(model)) return 0x0E65;
+  // The 2068's ROM keeps the editor's WAIT-KEY loop (CALL KEY-INPUT; RET C; JR Z)
+  // but not at the 48K's address.
+  if (isTimex2068Class(model)) return 0x11D9;
   return 0x15DE;                                           // 48K editor WAIT-KEY
 }

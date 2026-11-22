@@ -35,7 +35,7 @@ export interface Z80DebugHost {
   traceSession(): MachineTraceMode | null;
   ocrScreenForMcp(mode?: string): string;
   resolveMemoryRegion?(value: string): { data: Uint8Array; baseAddr: number } | null;
-  screenExportBytes?(): Uint8Array | null;
+  screenExportBytes?(format?: 'scr' | 'mlt'): Uint8Array | null;
   ramExportBytes?(): { data: Uint8Array; filename: string } | null;
   printerExportBytes?(): { data: Uint8Array; filename: string } | null;
 }
@@ -382,7 +382,7 @@ export class Z80DebugService implements DebugService {
     return this.m.resolveMemoryRegion?.(value) ?? null;
   }
 
-  screenExport(): Uint8Array | null { return this.m.screenExportBytes?.() ?? null; }
+  screenExport(format?: 'scr' | 'mlt'): Uint8Array | null { return this.m.screenExportBytes?.(format) ?? null; }
   ramExport(): { data: Uint8Array; filename: string } | null { return this.m.ramExportBytes?.() ?? null; }
   printerExport(): { data: Uint8Array; filename: string } | null { return this.m.printerExportBytes?.() ?? null; }
 

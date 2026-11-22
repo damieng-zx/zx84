@@ -12,11 +12,15 @@
 import type { MachineHost, SnapshotApplyResult, SnapshotService } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { is128kClass, isPlus2AClass } from '@/models.ts';
+import { isTimex2068Class, timex2068IsNtsc } from '@/machines/spectrum/models.ts';
 import { loadSNA } from '@/machines/spectrum/snapshots/sna.ts';
 import { loadZ80, saveZ80 } from '@/machines/spectrum/snapshots/z80format.ts';
 import { loadSZX, saveSZX, saveSZXSync, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
 import { loadSP } from '@/machines/spectrum/snapshots/sp.ts';
 import { hasBoardIssueOption, type SpectrumModel } from '@/machines/spectrum/models.ts';
+
+/** What a Timex snapshot's machine is called in the prompt that offers to switch to it. */
+const TIMEX_NAMES: Partial<Record<SpectrumModel, string>> = { tc2048: 'TC2048', ts2068: 'Timex 2068' };
 
 export class SpectrumSnapshotService implements SnapshotService {
   constructor(private readonly s: Spectrum, private readonly host: () => MachineHost | null) {}
@@ -36,6 +40,45 @@ export class SpectrumSnapshotService implements SnapshotService {
     const host = this.host();
     if (!host) return false;
     return host.requestModel('zx128k', reason);
+  }
+
+  /** A Timex snapshot belongs on the Timex it came from (its hi-res screens mean
+   *  nothing to a 48K, and its ROM is not another Timex family's): ask the host for
+   *  one. False (declined / no host) loads it as it is. `target` is the model the
+   *  file names; a 2068 file (TS2068 or TC2068) is happy on a 2068 in either TV
+   *  standard, a TC2048 file only on a TC2048. */
+  private async switchToTimex(target: SpectrumModel, reason: string): Promise<boolean> {
+    const host = this.host();
+    if (!host) return false;
+    return host.requestModel(target, reason);
+  }
+
+  /** Whether a snapshot of `target` needs the machine changed to run. */
+  private needsTimexSwitch(target: SpectrumModel | null): target is SpectrumModel {
+    if (target === null) return false;
+    const model = this.s.model;
+    return isTimex2068Class(target) ? !isTimex2068Class(model) : model !== target;
+  }
+
+  /** The Timex model an SZX machine id names, or null for any other machine. */
+  private static timexModelOfSzx(machineId: number | undefined): SpectrumModel | null {
+    return machineId === 8 ? 'tc2048' : machineId === 9 || machineId === 12 ? 'ts2068' : null;
+  }
+
+  /** Put the Timex screen mode a snapshot recorded back on port 0xFF, and on a 2068
+   *  the dock / EXROM chunks back on ports 0xF4 and 0xFF bit 7. The cartridge itself
+   *  is not in a snapshot, so a DOCK chunk is only paged in while one is fitted:
+   *  swapping an empty dock over RAM would blank the program. */
+  private applyTimexDec(dec: number | undefined, f4?: number): void {
+    const s = this.s;
+    if (s.timex === null || dec === undefined) return;
+    s.timex.write(dec);
+    s.ula.setTimexVideo(dec);
+    const mmu = s.memory.timexMmu;
+    if (mmu !== null) {
+      const dockEmpty = !s.timex.exRom && mmu.cart === null;
+      mmu.select(dockEmpty ? 0 : (f4 ?? 0), s.timex.exRom);
+    }
   }
 
   /**
@@ -77,6 +120,11 @@ export class SpectrumSnapshotService implements SnapshotService {
         s.stop();
         s.reset();
         const result = loadZ80(data, s.cpu, s.memory);
+        if (this.needsTimexSwitch(result.sourceModel ?? null)) {
+          if (await this.switchToTimex(result.sourceModel!, `${TIMEX_NAMES[result.sourceModel!]} .z80: ${filename}`)) {
+            return { ok: true, needsReplay: true, message: '' };
+          }
+        }
         if (result.is128K && !is128kClass(model)) {
           if (await this.upgradeTo128k(`128K .z80: ${filename}`)) {
             return { ok: true, needsReplay: true, message: '' };
@@ -86,6 +134,7 @@ export class SpectrumSnapshotService implements SnapshotService {
         }
         if (!result.is128K && is128kClass(model)) s.memory.selectSnapshot48KRom();
         s.ula.borderColor = result.borderColor;
+        this.applyTimexDec(result.timexDec);
         if (!result.is128K) this.applyBoardIssue(result.issue2);
         if (result.ayRegs) {
           s.ay.setRegisters(result.ayRegs);
@@ -100,6 +149,12 @@ export class SpectrumSnapshotService implements SnapshotService {
         s.stop();
         s.reset();
         const result = await loadSZX(data, s.cpu, s.memory);
+        const szxTimex = SpectrumSnapshotService.timexModelOfSzx(result.machineId);
+        if (this.needsTimexSwitch(szxTimex)) {
+          if (await this.switchToTimex(szxTimex, `${TIMEX_NAMES[szxTimex]} .szx: ${filename}`)) {
+            return { ok: true, needsReplay: true, message: '' };
+          }
+        }
         if (result.is128K && !is128kClass(model)) {
           if (await this.upgradeTo128k(`128K .szx: ${filename}`)) {
             return { ok: true, needsReplay: true, message: '' };
@@ -112,6 +167,7 @@ export class SpectrumSnapshotService implements SnapshotService {
         if (!result.is128K && is128kClass(model)) s.memory.selectSnapshot48KRom();
         if (result.portFE !== undefined) s.ula.writePort(result.portFE);
         s.ula.borderColor = result.borderColor;
+        this.applyTimexDec(result.timexDec, result.timexF4);
         if (!result.is128K) this.applyBoardIssue(result.issue2);
         if (result.ayRegs) {
           s.ay.setRegisters(result.ayRegs);
@@ -170,11 +226,13 @@ export class SpectrumSnapshotService implements SnapshotService {
     const s = this.s;
     if (ext === 'szx' || ext === '.szx') {
       return saveSZX(s.cpu, s.memory, s.ula.borderColor, s.model, this.currentFrameStart(), s.ay.getRegisters(), s.ay.selectedReg,
-        { portFE: s.ula.lastOut, issue2: s.boardIssue2 });
+        { portFE: s.ula.lastOut, issue2: s.boardIssue2, timexDec: s.timex?.dec, timexF4: s.memory.timexMmu?.f4, ntsc: timex2068IsNtsc(s.locale) });
     }
     if (ext === 'z80' || ext === '.z80') {
+      // The format has no place for the 2068's port 0xF4 or its dock: SZX is its snapshot.
+      if (isTimex2068Class(s.model)) throw new Error('A Timex 2068 saves snapshots as .szx');
       return saveZ80(s.cpu, s.memory, s.ula.borderColor, s.variant.hasBanking, s.ay.getRegisters(), s.ay.selectedReg,
-        s.cpu.tStates - this.currentFrameStart(), s.model as SpectrumModel, s.boardIssue2);
+        s.cpu.tStates - this.currentFrameStart(), s.model as SpectrumModel, s.boardIssue2, s.timex?.dec);
     }
     throw new Error(`Unsupported snapshot save format: ${ext}`);
   }
@@ -185,7 +243,7 @@ export class SpectrumSnapshotService implements SnapshotService {
     return saveSZXSync(
       s.cpu, s.memory, s.ula.borderColor, s.model as SpectrumModel,
       this.currentFrameStart(), s.ay.getRegisters(), s.ay.selectedReg,
-      { portFE: s.ula.lastOut, issue2: s.boardIssue2 },
+      { portFE: s.ula.lastOut, issue2: s.boardIssue2, timexDec: s.timex?.dec, timexF4: s.memory.timexMmu?.f4, ntsc: timex2068IsNtsc(s.locale) },
     );
   }
 
@@ -200,6 +258,7 @@ export class SpectrumSnapshotService implements SnapshotService {
     applySZXPaging(s.memory, s.variant.hasSpecialPaging, result);
     if (result.portFE !== undefined) s.ula.writePort(result.portFE);
     s.ula.borderColor = result.borderColor;
+    this.applyTimexDec(result.timexDec, result.timexF4);
     if (!result.is128K) this.applyBoardIssue(result.issue2);
     if (result.ayRegs) {
       s.ay.setRegisters(result.ayRegs);

@@ -337,14 +337,17 @@ export async function saveSnapshot(format: string = 'szx'): Promise<void> {
   setStatus(`Saved ${filename}`);
 }
 
-export function saveScreenshot(format: 'png' | 'scr'): void {
+export function saveScreenshot(format: 'png' | 'scr' | 'mlt'): void {
   if (!machine) { setStatus('No machine running'); return; }
 
-  if (format === 'scr') {
-    const screenData = machine.services.debug.screenExport();
-    if (!screenData) { setStatus('.scr not supported for this machine'); return; }
-    downloadFile(screenData, 'screen.scr');
-    setStatus('Saved screen.scr');
+  if (format === 'scr' || format === 'mlt') {
+    const screenData = machine.services.debug.screenExport(format);
+    if (!screenData) {
+      setStatus(format === 'mlt' ? 'No .mlt for the screen mode in use (hi-res has no attributes)' : '.scr not supported for this machine');
+      return;
+    }
+    downloadFile(screenData, `screen.${format}`);
+    setStatus(`Saved screen.${format}`);
   } else {
     if (!machine.display) { setStatus('No display available'); return; }
     const canvas = machine.display['canvas'] as HTMLCanvasElement;

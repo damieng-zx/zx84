@@ -383,6 +383,8 @@ export type SaveMenuItem =
   | 'snapshot-c128state'
   | 'screenshot-png'
   | 'screen-scr'
+  /** The multicolour screen (`.mlt`): offered where the hardware can show an attribute per 8x1 line. */
+  | 'screen-mlt'
   | 'ram-bin'
   /** What the machine has sent its built-in printer, as text (`printerExport`). */
   | 'printer-txt';
@@ -1008,8 +1010,9 @@ export interface DebugService {
    *  live byte view + base address, or null when unavailable. */
   resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null;
   /** Raw screen-memory dump for the `.scr` export (machine-defined layout:
-   *  Spectrum bank 5, CPC CRTC quadrant, TMS9918A VRAM), or null. */
-  screenExport(): Uint8Array | null;
+   *  Spectrum bank 5, CPC CRTC quadrant, TMS9918A VRAM), or null. `mlt` asks for
+   *  the multicolour format (the Spectrum family only); null where there is none. */
+  screenExport(format?: 'scr' | 'mlt'): Uint8Array | null;
   /** RAM dump + suggested filename for the RAM export, or null. */
   ramExport(): { data: Uint8Array; filename: string } | null;
   /** What the machine has sent its printer, as a file + suggested filename

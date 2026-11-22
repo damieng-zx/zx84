@@ -18,7 +18,8 @@
  */
 
 import type { SpectrumModel } from '@/models.ts';
-import { pagingScheme, ramBankCountFor, type PagingScheme } from '@/machines/spectrum/models.ts';
+import { isTimex2068Class, pagingScheme, ramBankCountFor, type PagingScheme } from '@/machines/spectrum/models.ts';
+import { CHUNK_SIZE, TimexMmu } from '@/machines/spectrum/timex-mmu.ts';
 import type { IMachineMemory } from '@/machines/machine.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 
@@ -95,6 +96,10 @@ export class SpectrumMemory implements IMachineMemory {
    *  can carry it. */
   cpuTurbo = false;
 
+  /** The Timex 2068's horizontal mapper (ports 0xF4 / 0xFF bit 7): 8K chunks of the
+   *  address space swapped for the dock or the EXROM. Null on every other model. */
+  readonly timexMmu: TimexMmu | null;
+
   /** How 7FFD (and, on the Scorpion, 1FFD) form the RAM and ROM page numbers. */
   readonly scheme: PagingScheme;
 
@@ -132,6 +137,7 @@ export class SpectrumMemory implements IMachineMemory {
     this.is128K = opts?.hasBanking ?? (model !== 'zx48k' && model !== 'zx16k');
     this.is16K = opts?.is16K ?? (model === 'zx16k');
     this.scheme = pagingScheme(model);
+    this.timexMmu = isTimex2068Class(model) ? new TimexMmu(this.flat) : null;
 
     // Create the RAM banks (cold storage)
     this._ramBanks = [];
@@ -202,6 +208,8 @@ export class SpectrumMemory implements IMachineMemory {
    */
   isBasicRomActive(): boolean {
     if (this.specialPaging || this.externalRomPaged || this.ramAtZero) return false;
+    // The 2068's HOME ROM is not the 48K's: its tape routines moved into the EXROM.
+    if (this.timexMmu !== null) return false;
     if (!this.is128K) return true;
     return this.currentROM === this.basicRomPage;
   }
@@ -350,6 +358,16 @@ export class SpectrumMemory implements IMachineMemory {
    *  without going through bankSwitch (e.g. after loadROM, special-paging
    *  exit cleanup). Safe to call mid-execution — live writes are preserved. */
   private _resyncAllSlots(): void {
+    // A swapped-in dock/EXROM chunk must not be mistaken for RAM and flushed
+    // into a bank: hand the HOME bytes back, resync, then swap the chunks in again.
+    const mmu = this.timexMmu;
+    if (mmu === null) { this._resyncAllSlotsRaw(); return; }
+    mmu.release();
+    this._resyncAllSlotsRaw();
+    mmu.engage();
+  }
+
+  private _resyncAllSlotsRaw(): void {
     if (this.specialPaging) {
       const banks = SPECIAL_MODES[(this.port1FFD >> 1) & 3];
       if (!this.externalRomPaged) this._switchRam(0, banks[0]);
@@ -388,6 +406,9 @@ export class SpectrumMemory implements IMachineMemory {
   // ── Lifecycle ─────────────────────────────────────────────────────────
 
   reset(): void {
+    // Power-on: nothing swapped in. Done first, before the flat array is wiped, so
+    // the mapper does not hand stale bytes back over the fresh ones.
+    this.timexMmu?.resetState();
     for (const bank of this._ramBanks) bank.fill(0);
     this.flat.fill(0);
     this.port7FFD = 0;
@@ -412,6 +433,12 @@ export class SpectrumMemory implements IMachineMemory {
    * Preserves live RAM contents — only slot 0 is rewritten (if it maps ROM).
    */
   loadROM(data: Uint8Array): void {
+    const mmu = this.timexMmu;
+    // A 2068's ROM image is the 16K HOME ROM followed by the 8K EXROM.
+    if (mmu !== null) {
+      mmu.release();
+      if (data.length >= BANK_SIZE + CHUNK_SIZE) mmu.exromImage.set(data.subarray(BANK_SIZE, BANK_SIZE + CHUNK_SIZE));
+    }
     if (data.length >= 65536 && this.romPages.length === 4) {
       for (let i = 0; i < 4; i++) {
         this.romPages[i].set(data.subarray(i * BANK_SIZE, (i + 1) * BANK_SIZE));
@@ -431,6 +458,7 @@ export class SpectrumMemory implements IMachineMemory {
       const rom = this.is128K ? this.romPages[this.currentROM] : this.romPages[1];
       this.flat.set(rom.subarray(0, BANK_SIZE), 0);
     }
+    mmu?.engage();
     if (this.onSlotsChanged !== null) this.onSlotsChanged();
   }
 
@@ -705,9 +733,19 @@ export class SpectrumMemory implements IMachineMemory {
     // Write to every slot that maps this bank — handles aliasing correctly
     // (e.g. currentBank=5 puts bank 5 in slot 1 and slot 3, both regions
     // need to reflect the new data).
+    const mmu = this.timexMmu;
     for (let s = 0; s < 4; s++) {
-      if (this._slotBank[s] === n) {
+      if (this._slotBank[s] !== n) continue;
+      if (mmu === null || (mmu.engagedMask >> (s * 2) & 3) === 0) {
         this.flat.set(slice, s << 14);
+        continue;
+      }
+      // A swapped-in chunk shows the dock or EXROM: the bank's bytes go behind it.
+      for (let half = 0; half < 2; half++) {
+        const chunk = s * 2 + half;
+        const part = slice.subarray(half * CHUNK_SIZE, (half + 1) * CHUNK_SIZE);
+        if (mmu.isEngaged(chunk)) mmu.shadowChunk(chunk).set(part);
+        else this.flat.set(part, chunk * CHUNK_SIZE);
       }
     }
   }
@@ -721,10 +759,25 @@ export class SpectrumMemory implements IMachineMemory {
   getRamBank(n: number): Uint8Array {
     for (let s = 0; s < 4; s++) {
       if (this._slotBank[s] === n) {
+        if (this.timexMmu !== null && (this.timexMmu.engagedMask >> (s * 2) & 3) !== 0) return this._homeBank(n, s);
         return this.flat.subarray(s << 14, (s + 1) << 14);
       }
     }
     return this._ramBanks[n];
+  }
+
+  /** RAM bank `n` as it is behind a dock/EXROM chunk swapped over part of `slot`: the
+   *  live bytes where HOME shows, the chunk's displaced bytes where it does not. A
+   *  copy (the cold store), so it is current only until the next write to RAM. */
+  private _homeBank(n: number, slot: number): Uint8Array {
+    const mmu = this.timexMmu!;
+    const bank = this._ramBanks[n];
+    bank.set(this.flat.subarray(slot << 14, (slot + 1) << 14));
+    for (let half = 0; half < 2; half++) {
+      const chunk = slot * 2 + half;
+      if (mmu.isEngaged(chunk)) bank.set(mmu.shadowChunk(chunk), half * CHUNK_SIZE);
+    }
+    return bank;
   }
 
   /** 16K RAM banks fitted: eight on every Sinclair model (a 48K machine simply

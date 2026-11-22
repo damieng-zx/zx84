@@ -88,7 +88,7 @@ export function clearGenreFilter(): void {
 // Each set is ORed internally; the browser combines non-empty sets with AND.
 
 const ALL_FORMATS: LibraryFormat[] = ['tape', 'plus3-disk', 'mgt-disk', 'beta-disk', 'snapshot', 'rom', 'microdrive'];
-const ALL_MACHINES: LibraryMachine[] = ['16', '48', '128', '+3', 'pentagon', 'scorpion'];
+const ALL_MACHINES: LibraryMachine[] = ['16', '48', '128', '+3', 'pentagon', 'scorpion', 'tc2048'];
 
 const FORMAT_FILTER_KEY = 'zx84-library-media-formats';
 const MACHINE_FILTER_KEY = 'zx84-library-machines';

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { ZX81_ROWS, ZX80_ROWS, SHIFT, rowsForModel } from '@/machines/zx8x/ui/keyboard/legends.ts';
+import { ZX81_ROWS, ZX80_ROWS, TS1500_ROWS, SHIFT, rowsForModel } from '@/machines/zx8x/ui/keyboard/legends.ts';
 
 const allCells = (): string[] => {
   const cells: string[] = [];
@@ -25,6 +25,7 @@ const cellsOf = (rows: { pos: readonly [number, number] }[][]): string[] =>
 describe.each([
   ['ZX81', ZX81_ROWS],
   ['ZX80', ZX80_ROWS],
+  ['TS1500', TS1500_ROWS],
 ])('%s on-screen layout', (_name, rows) => {
   it('covers all 40 matrix cells exactly once', () => {
     expect(cellsOf(rows)).toEqual(allCells());
@@ -97,13 +98,62 @@ describe('ZX81 legends pin the real keyboard', () => {
   });
 });
 
+// What the Timex Sinclair 1500's own keycaps print, read key by key from a
+// photograph of the machine (not from the implementation): the shifted symbol or
+// word at the foot of the cap, in the order of the four key rows.
+const TS1500_SHIFTED: Record<string, string> = {
+  Q: '""', W: 'OR', E: 'STEP', R: '<=', T: '<>', Y: '>=', U: '$', I: '(', O: ')', P: '"',
+  A: 'STOP', S: 'LPRINT', D: 'SLOW', F: 'FAST', G: 'LLIST', H: '**', J: '−', K: '+', L: '=',
+  Z: ':', X: ';', C: '?', V: '/', B: '*', N: '<', M: '>', '.': ',',
+};
+
+describe('TS1500 legends pin the real keyboard', () => {
+  const byMain = new Map(TS1500_ROWS.flat().map((k) => [k.main, k]));
+
+  it('prints the ZX81 K-mode keyword above and FUNCTION word below every letter key', () => {
+    for (const [glyph, word] of Object.entries(ZX81_KEYWORDS)) expect(byMain.get(glyph)?.keyword, glyph).toBe(word);
+    for (const [glyph, word] of Object.entries(ZX81_FUNCS)) expect(byMain.get(glyph)?.func, glyph).toBe(word);
+    expect(byMain.get('V')?.func).toBeUndefined();
+  });
+
+  it('prints the shifted symbol or word on every key that has one', () => {
+    for (const [glyph, text] of Object.entries(TS1500_SHIFTED)) expect(byMain.get(glyph)?.shift, glyph).toBe(text);
+  });
+
+  it('prints EDIT, AND, THEN, TO and the cursor arrows on 1-8, GRAPHICS on 9 and DELETE (not RUBOUT) on 0', () => {
+    expect(['1', '2', '3', '4'].map((d) => byMain.get(d)?.capFn)).toEqual(['EDIT', 'AND', 'THEN', 'TO']);
+    expect(['5', '6', '7', '8'].map((d) => byMain.get(d)?.capFn)).toEqual(['←', '↓', '↑', '→']);
+    expect(byMain.get('9')?.capFn).toBe('GRAPHICS');
+    expect(byMain.get('0')?.capFn).toBe('DELETE');
+  });
+
+  it('has one ENTER / FUNCTION key where the ZX81 has NEW LINE, on the same matrix cell, and BREAK over SPACE', () => {
+    const enter = TS1500_ROWS[2][9];
+    expect(enter.main).toBe('ENTER\nFUNCTION');
+    expect(enter.capFn).toBeUndefined();
+    expect(enter.pos).toEqual(ZX81_ROWS[2][9].pos);
+    expect(byMain.get('SPACE')?.keyword).toBe('BREAK');
+    expect(byMain.get('SPACE')?.shift).toBe('£');
+  });
+
+  it('puts every key on the same matrix cell as the ZX81, in the same place in its row', () => {
+    TS1500_ROWS.forEach((row, r) => row.forEach((k, c) => expect(k.pos, `row ${r} key ${c}`).toEqual(ZX81_ROWS[r][c].pos)));
+  });
+
+  it('leaves the number keys without a K-mode keyword', () => {
+    for (const d of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']) expect(byMain.get(d)?.keyword).toBeUndefined();
+  });
+});
+
 describe('legends module', () => {
   it('SHIFT is the [0,0] modifier cell', () => {
     expect(SHIFT).toEqual([0, 0]);
   });
 
-  it('rowsForModel selects the per-model table', () => {
+  it('rowsForModel selects the per-model table: the TS1500 has its own, the TS1000 the ZX81\'s', () => {
     expect(rowsForModel('zx81')).toBe(ZX81_ROWS);
     expect(rowsForModel('zx80')).toBe(ZX80_ROWS);
+    expect(rowsForModel('ts1500')).toBe(TS1500_ROWS);
+    expect(rowsForModel('ts1000')).toBe(ZX81_ROWS);
   });
 });

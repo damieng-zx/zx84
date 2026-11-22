@@ -157,6 +157,45 @@ describe('ZX80/ZX81 .zx8xstate', () => {
     }
   });
 
+  it('resumes exactly on the Timex Sinclair 1000 and 1500 (synthetic ROM, NMI generator and /INT running)', async () => {
+    for (const model of ['ts1000', 'ts1500'] as const) {
+      await expectExactResume({
+        make: () => machine(model, syntheticRom()), ext: '.zx8xstate', before: 31, after: 17, scramble,
+      });
+    }
+  });
+
+  it('refuses a TS1000 state saved with the 16K pack when none is fitted, counting its own 2K', async () => {
+    const src = machine('ts1000', syntheticRom(), { 'zx8x-16k-ram': true });
+    const dst = machine('ts1000', syntheticRom());
+    try {
+      for (let f = 0; f < 4; f++) src.tick();
+      for (let f = 0; f < 6; f++) dst.tick();
+      const before = observe(dst);
+      const result = await dst.services.snapshots.apply(await src.services.snapshots.save('.zx8xstate'), 'x.zx8xstate');
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/16K of RAM.*2K.*fit the 16K RAM pack/);
+      expect(observe(dst)).toEqual(before);
+    } finally {
+      src.destroy();
+      dst.destroy();
+    }
+  });
+
+  it('a TS1000 state offered to a ZX81 asks for the Timex Sinclair 1000, or is refused headless', async () => {
+    const src = machine('ts1000', syntheticRom());
+    const dst = machine('zx81', syntheticRom());
+    try {
+      src.tick();
+      const result = await dst.services.media.mount(await src.services.snapshots.save('.zx8xstate'), 'x.zx8xstate');
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/for the Timex Sinclair 1000/);
+    } finally {
+      src.destroy();
+      dst.destroy();
+    }
+  });
+
   it('a ZX80 state offered to a ZX81 asks for the ZX80, or is refused headless', async () => {
     const src = machine('zx80', syntheticRom());
     const dst = machine('zx81', syntheticRom());

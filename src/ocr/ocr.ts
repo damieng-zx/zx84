@@ -12,10 +12,15 @@ export interface OcrConfig {
   xOffset?: number;
   /** Pixel y-offset of grid origin (default 0). */
   yOffset?: number;
+  /** The pixels are a linear hi-res bitmap (64 bytes a row, 512 pixels, no
+   *  attribute file) rather than the Spectrum's interleaved 32-byte-row screen. */
+  linear?: boolean;
 }
 
-/** Spectrum cell-grid presets (the heuristic detector chooses among these). */
-export type SpectrumOcrGrid = '32x24' | '51x24' | '64x24';
+/** Spectrum cell-grid presets (the heuristic detector chooses among these). The
+ *  `h` grids are for the Timex 512-pixel hi-res screen: 64 columns of 8 pixels,
+ *  85 of 6, 128 of 4. */
+export type SpectrumOcrGrid = '32x24' | '51x24' | '64x24' | '64x24h' | '85x24h' | '128x24h';
 
 /** CPC text grids — one per screen mode (mode 0/1/2 → 20/40/80 columns). */
 export type CpcOcrGrid = '20x25' | '40x25' | '80x25';

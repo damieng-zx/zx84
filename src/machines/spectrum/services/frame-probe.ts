@@ -116,9 +116,12 @@ class SpectrumTranscribeDriver implements TranscribeDriver {
     // Blank matched character cells in the framebuffer and re-upload, so the
     // crisp overlay glyphs replace the bitmap underneath.
     if (result.mask.length > 0) {
+      // Hi-res cells are counted in hi-res pixels, two to a logical one; the ULA
+      // blanks (and picks the paper for) the picture on show, which is the screen bank.
+      const hires = s.ula.isHiRes;
       s.ula.blankCells(
-        s.memory.screenBank, result.mask, 0x4000,
-        result.cellWidth, result.cellHeight, result.cols, result.rows,
+        s.textScreen, result.mask, 0x4000,
+        hires ? result.cellWidth / 2 : result.cellWidth, result.cellHeight, result.cols, result.rows,
       );
       if (s.display) s.display.updateTexture(s.ula.pixels);
     }

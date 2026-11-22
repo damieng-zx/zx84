@@ -27,6 +27,7 @@
 import type { CswBlock, TapeBlock } from '@/media/tape/tap.ts';
 import { TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { zx81NameToAscii } from './tape-shelf.ts';
+import type { Zx8xModel } from './models.ts';
 
 export const ZX8X_PULSE_HIGH = 530;
 export const ZX8X_PULSE_LOW = 520;
@@ -51,7 +52,8 @@ const ZX80_BASE = 0x4000;
 const ZX81_E_LINE = 0x4014;
 const ZX80_E_LINE = 0x400a;
 
-export type Zx8xTapeModel = 'zx80' | 'zx81';
+/** Every model: the ZX80 has its own tape format, all the rest use the ZX81's. */
+export type Zx8xTapeModel = Zx8xModel;
 
 /** A program as it travels on tape. */
 export interface Zx8xTapeProgram {
@@ -133,7 +135,7 @@ export function zx8xProgramBlocks(model: Zx8xTapeModel, nameCodes: Uint8Array | 
 function programLabel(model: Zx8xTapeModel, name: string, size: number): Pick<CswBlock, 'role' | 'label' | 'detail'> {
   return {
     role: 'data',
-    label: model === 'zx81' ? `LOAD "${name}"` : 'LOAD',
+    label: model !== 'zx80' ? `LOAD "${name}"` : 'LOAD',
     detail: `Program · ${size} bytes`,
   };
 }
@@ -201,7 +203,7 @@ class Zx8xEdgeDecoder {
 export function parseZx8xTapeFile(model: Zx8xTapeModel, bytes: Uint8Array): Zx8xTapeProgram | null {
   let name = '';
   let data = bytes;
-  if (model === 'zx81') {
+  if (model !== 'zx80') {
     const limit = Math.min(bytes.length, 128);
     let end = -1;
     for (let i = 0; i < limit; i++) if (bytes[i] & 0x80) { end = i; break; }
@@ -209,8 +211,8 @@ export function parseZx8xTapeFile(model: Zx8xTapeModel, bytes: Uint8Array): Zx8x
     name = zx81NameToAscii(bytes.subarray(0, end + 1)).trim();
     data = bytes.subarray(end + 1);
   }
-  const base = model === 'zx81' ? ZX81_BASE : ZX80_BASE;
-  const at = (model === 'zx81' ? ZX81_E_LINE : ZX80_E_LINE) - base;
+  const base = model !== 'zx80' ? ZX81_BASE : ZX80_BASE;
+  const at = (model !== 'zx80' ? ZX81_E_LINE : ZX80_E_LINE) - base;
   if (data.length < at + 2) return null;
   const length = (data[at] | (data[at + 1] << 8)) - base;
   if (length < at + 2 || length > data.length) return null;

@@ -34,6 +34,30 @@ describe('ZX80/ZX81 BASIC viewers', () => {
   });
 });
 
+describe.each(['ts1000', 'ts1500'] as const)('%s runs the ZX81 viewers', (model) => {
+  it('detokenizes a program line and reads a number variable as the ZX81 does', () => {
+    const mem = new Uint8Array(0x10000);
+    const body = [0xf5, 0x0b, 0x2d, 0x2e, 0x0b, 0x76]; // PRINT "HI"
+    mem.set([0x00, 0x14, body.length, 0, ...body], 0x407d);
+    write16(mem, 0x400c, 0x4087);
+    write16(mem, 0x4010, 0x4200);
+    write16(mem, 0x4014, 0x4207);
+    mem.set([0x66, 0, 0, 99, 0, 0, 0x80], 0x4200); // A=99, end marker
+
+    expect(parseZx8xBasicProgram(mem, model)).toEqual([{ lineNumber: 20, text: 'PRINT "HI"' }]);
+    expect(parseZx8xBasicVariables(mem, model)).toEqual([{ name: 'A', kind: 'number', value: '99' }]);
+  });
+
+  it('reads the ZX81 display file as 32x24 text and not the ZX80 character set', () => {
+    const mem = new Uint8Array(0x10000);
+    write16(mem, 0x400c, 0x4200);
+    mem.set([0x76, 0x2d, 0x2e, 0x76, 0x76], 0x4200);
+    const screenText = new Zx8xScreenText();
+    expect(screenText.ocr(mem, model)).toBe('HI');
+    expect(screenText.ocrStyled(mem, model).mask.slice(0, 3)).toEqual([true, true, false]);
+  });
+});
+
 describe('ZX80/ZX81 text viewer', () => {
   it('extracts the active 32x24 display file directly', () => {
     const mem = new Uint8Array(0x10000);
@@ -45,5 +69,21 @@ describe('ZX80/ZX81 text viewer', () => {
     const styled = screenText.ocrStyled(mem, 'zx81');
     expect(styled.grid).toBe('32x24');
     expect(styled.mask.slice(0, 3)).toEqual([true, true, false]);
+  });
+
+  it('keeps rows in step when a row fills all 32 columns and its terminator follows', () => {
+    // A 16K machine's display file is expanded: every row is its full width
+    // followed by the 0x76 that ends it, and a full row's terminator must not
+    // be read as the next (empty) row.
+    const mem = new Uint8Array(0x10000);
+    write16(mem, 0x400c, 0x4200);
+    const full = new Array<number>(32).fill(0x26);              // 32 x 'A'
+    mem.set([0x76, ...full, 0x76, 0x2d, 0x2e, 0x76, 0x76], 0x4200);
+    const screenText = new Zx8xScreenText();
+
+    expect(screenText.ocr(mem, 'zx81')).toBe(`${'A'.repeat(32)}
+HI`);
+    expect(screenText.ocr(mem, 'ts1500')).toBe(`${'A'.repeat(32)}
+HI`);
   });
 });

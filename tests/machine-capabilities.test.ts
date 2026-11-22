@@ -178,6 +178,9 @@ describe('machine capabilities', () => {
           } else if (item === 'screen-scr') {
             expect(machine.services.debug.screenExport(), 'screen-scr needs screenExport')
               .not.toBeNull();
+          } else if (item === 'screen-mlt') {
+            expect(machine.services.debug.screenExport('mlt'), 'screen-mlt needs screenExport(\'mlt\')')
+              .not.toBeNull();
           } else if (item === 'ram-bin') {
             expect(machine.services.debug.ramExport(), 'ram-bin needs ramExport')
               .not.toBeNull();
