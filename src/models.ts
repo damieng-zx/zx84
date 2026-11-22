@@ -24,6 +24,7 @@ export type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 export type { PcwModel } from '@/machines/pcw/models.ts';
 export type { BbcModel } from '@/machines/bbc/models.ts';
 export type { ElectronModel } from '@/machines/electron/models.ts';
+export type { AcornSystemModel } from '@/machines/acorn-system/models.ts';
 export type { Apple2Model } from '@/machines/apple2/models.ts';
 export type { EnterpriseModel } from '@/machines/enterprise/models.ts';
 export type { AtariModel } from '@/machines/atari/models.ts';
@@ -63,6 +64,7 @@ export { isJupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 export { isPcwModel } from '@/machines/pcw/models.ts';
 export { isBbcModel } from '@/machines/bbc/models.ts';
 export { isElectronModel } from '@/machines/electron/models.ts';
+export { isAcornSystemModel } from '@/machines/acorn-system/models.ts';
 export { isApple2Model } from '@/machines/apple2/models.ts';
 export { isEnterpriseModel } from '@/machines/enterprise/models.ts';
 export { isAtariModel } from '@/machines/atari/models.ts';
@@ -153,6 +155,7 @@ import type { JupiterAceModel } from '@/machines/jupiter-ace/models.ts';
 import type { PcwModel } from '@/machines/pcw/models.ts';
 import type { BbcModel } from '@/machines/bbc/models.ts';
 import type { ElectronModel } from '@/machines/electron/models.ts';
+import type { AcornSystemModel } from '@/machines/acorn-system/models.ts';
 import type { Apple2Model } from '@/machines/apple2/models.ts';
 import type { Apple1Model } from '@/machines/apple1/models.ts';
 import type { EnterpriseModel } from '@/machines/enterprise/models.ts';
@@ -175,6 +178,7 @@ export type MachineModel =
   | PcwModel
   | BbcModel
   | ElectronModel
+  | AcornSystemModel
   | Apple2Model
   | Apple1Model
   | EnterpriseModel
