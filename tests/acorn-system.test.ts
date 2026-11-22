@@ -119,11 +119,11 @@ describe('Acorn System 2 keyboard', () => {
   it('holds the ASCII code on port B with bit 7 low while a key is down', () => {
     const machine = new AcornSystemMachine('acorn-system2', null);
     try {
-      expect(machine.pia.portBInput).toBe(0xFF);
+      expect(machine.memory.readByte(0x0E21)).toBe(0xFF);
       expect(machine.services.input.keyDown(key('KeyA', 'a'))).toBe(true);
-      expect(machine.pia.portBInput).toBe(0x61);
+      expect(machine.memory.readByte(0x0E21)).toBe(0x61);
       machine.services.input.keyUp(key('KeyA', 'a'));
-      expect(machine.pia.portBInput).toBe(0xFF);
+      expect(machine.memory.readByte(0x0E21)).toBe(0xFF);
     } finally {
       machine.destroy();
     }
@@ -133,10 +133,22 @@ describe('Acorn System 2 keyboard', () => {
     const machine = new AcornSystemMachine('acorn-system2', null);
     try {
       machine.services.input.keyDown(key('KeyC', 'c', { ctrl: true }));
-      expect(machine.pia.portBInput).toBe(0x03);
+      expect(machine.memory.readByte(0x0E21)).toBe(0x03);
       machine.services.input.keyUp(key('KeyC', 'c', { ctrl: true }));
       machine.services.input.keyDown(key('Enter', 'Enter'));
-      expect(machine.pia.portBInput).toBe(0x0D);
+      expect(machine.memory.readByte(0x0E21)).toBe(0x0D);
+    } finally {
+      machine.destroy();
+    }
+  });
+
+  it('puts the same key line on the System 5 card\'s 6522 port A', () => {
+    const machine = new AcornSystemMachine('acorn-system5', null);
+    try {
+      // The 6502A card's VIA answers at &0E20; ORA at +1 is the keyboard.
+      expect(machine.memory.readByte(0x0E21)).toBe(0xFF);
+      machine.services.input.keyDown(key('KeyB', 'b'));
+      expect(machine.memory.readByte(0x0E21)).toBe(0x62);
     } finally {
       machine.destroy();
     }
@@ -212,11 +224,11 @@ describe('System BASIC program listing', () => {
     }
   });
 
-  it('reports nothing when BASIC is not fitted', () => {
+  it('reports nothing while the BASIC workspace is uninitialised', () => {
     const m = new AcornSystemMachine('acorn-system2', null);
     try {
-      writeTextArea(m, [[10, ' A=1']]);
       expect(systemBasicListing(m.memory)).toEqual([]);
+      expect(systemBasicVariables(m.memory)).toEqual([]);
     } finally {
       m.destroy();
     }
@@ -240,6 +252,10 @@ describe('System BASIC variables', () => {
     const m = new AcornSystemMachine('acorn-system2', null);
     try {
       m.loadBasic(new Uint8Array(0x1000));
+      // Initialise the text area (PAGE &3000, TOP &3001) as BASIC does at NEW.
+      m.memory.writeByte(0x12, 0x30);
+      m.memory.writeByte(0x0D, 0x01);
+      m.memory.writeByte(0x0E, 0x30);
       // A = 42
       m.memory.writeByte(0x0322, 42);
       // B = -1 (all four bytes set)
@@ -258,6 +274,10 @@ describe('System BASIC variables', () => {
     const m = new AcornSystemMachine('acorn-system2', null);
     try {
       m.loadBasic(new Uint8Array(0x1000));
+      // Initialise the text area (PAGE &3000, TOP &3001) as BASIC does at NEW.
+      m.memory.writeByte(0x12, 0x30);
+      m.memory.writeByte(0x0D, 0x01);
+      m.memory.writeByte(0x0E, 0x30);
       m.memory.writeByte(0x15, 1);              // forcnt = 1
       m.memory.writeByte(0x0240, 9);            // FOR variable I (9th letter)
       m.memory.writeByte(0x0322 + 8, 2);        // I = 2
@@ -364,6 +384,54 @@ describe('Acorn System 3 disc controller', () => {
     try {
       const mounted = await m.services.media.mount(new Uint8Array(2560 * 40), 'x.ssd');
       expect(mounted.ok).toBe(false);
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
+describe('Acorn System 5', () => {
+  it('fits the 6502A card, the 80x25 VDU and 48K of dynamic RAM', () => {
+    const m = new AcornSystemMachine('acorn-system5', null);
+    try {
+      expect(m.cpuClockHz).toBe(2_000_000);
+      // 312 lines of 128 cycles at 2 MHz.
+      expect(m.tStatesPerFrame).toBe(39_936);
+      // 80 columns of 8 dots by 25 rows of 10 lines, inside the border.
+      expect(m.descriptor.screen.activeWidth).toBe(640);
+      expect(m.descriptor.screen.activeHeight).toBe(250);
+      expect(m.frameWidth).toBe(672);
+      expect(m.frameHeight).toBe(266);
+      expect(m.descriptor.ui.colorMap).toBe('mono');
+      expect(m.descriptor.ui.builtinDisk).toBe(true);
+      // 32K at &2000 plus 16K at &A000.
+      expect(m.memory.ramBankCount).toBe(12);
+      m.memory.writeByte(0x2000, 0x11);
+      m.memory.writeByte(0xDFFF, 0x22);
+      expect(m.memory.peekByte(0x2000)).toBe(0x11);
+      expect(m.memory.peekByte(0xDFFF)).toBe(0x22);
+      expect(m.memory.peekByte(0xE000)).toBe(0x00);
+      // The 80x25 card's windows: screen RAM at &1000, CRTC at &1840.
+      m.memory.writeByte(0x1000, 0x41);
+      expect(m.memory.peekByte(0x1000)).toBe(0x41);
+      m.memory.writeByte(0x1840, 0x0C);          // select R12
+      m.memory.writeByte(0x1841, 0x30);          // screen base &3000 (MA)
+      expect(m.crtc.displayStart).toBe(0x3000);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('draws the character-generator glyphs', () => {
+    const m = new AcornSystemMachine('acorn-system5', null);
+    try {
+      const font = new Uint8Array(2048);
+      font[0x41 * 8] = 0xFF;                     // glyph 'A', first row all dots
+      m.loadFont(font);
+      m.memory.writeByte(0x1000, 0x41);
+      m.tick();
+      const px = new Uint32Array(m.pixels.buffer);
+      expect(px.some(p => p === 0xFFFFFFFF)).toBe(true);
     } finally {
       m.destroy();
     }

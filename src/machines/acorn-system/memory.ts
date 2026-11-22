@@ -1,58 +1,73 @@
-/**
- * Acorn System 2 memory map.
+﻿/**
+ * Acorn System memory map, as a set of cards rather than one fixed picture.
  *
- *   0x0000-0x03FF  1K static RAM on the CPU card (zero page, stack, workspace)
- *   0x0400-0x07FF  the teletext card's 1K character RAM
- *   0x0800-0x08FF  MC6845 CRTC: +0 register select, +1 data
- *   0x0900-0x09FF  second INS8154 socket on the CPU card (empty unless fitted)
- *   0x0A00-0x0AFF  the 8271 floppy controller card (System 3 only): command/status,
- *                  parameter/result, reset, and the data port at +4
- *   0x0C00-0x0CFF  Versatile Interface Board (6522 / 6850 / 8255) — not fitted
- *   0x0E00-0x0EFF  the CPU card's INS8154: keyboard on port B, cassette on port A,
- *                  its 128-byte RAM at 0x0E80-0x0EFF
- *   0x2000-0x3FFF  8K RAM on the 8K RAM + 8K ROM card
- *   0xC000-0xCFFF  the resident 4K BASIC (ROM on that card)
- *   0xD000-0xDFFF  the floating-point extension (not fitted)
- *   0xF800-0xFFFF  the 2K COS/kernel ROM
+ *   1K or 2K static RAM on the CPU card, from &0000
+ *   the VDU card's character RAM: 1K at &0400 (teletext) or 2K at &1000 (80x25)
+ *   the CRTC: &0800 (teletext) or &1840 (80x25)
+ *   the 8271 at &0A00 when that card is fitted (System 3/4/5)
+ *   the VIB at &0C00 (never fitted here)
+ *   the CPU card's keyboard chip at &0E00: an INS8154 (System 1-4) or a 6522
+ *     (System 5), both answering at &0E21 for the keyboard
+ *   RAM cards: 8K at &2000 (and &4000 on a System 4), or 32K at &2000
+ *   the resident 4K BASIC at &C000 when the 8K RAM + 8K ROM card has it
+ *   the system ROM at the top: the COS at &F800 or a 4K DOS/kernel at &F000
  *
- * Everything else reads as the floating bus, 0xFF. The 8154's own addressing is
- * the chip's business (see `cores/ins8154.ts`): this map just hands it the low
- * address byte.
+ * Addresses nothing claims read as the floating bus. That is 0x00 here, which
+ * is what the system software expects: the kernel's printer path reads the
+ * absent VIB's control register and exits when it reads 0, and the disc
+ * routines poll an absent 8271's status for "not busy" as bit 7 clear.
  */
 
 import type { IMachineMemory } from '@/machines/machine.ts';
-import {
-  ACORN_SYSTEM_BASIC_BASE, ACORN_SYSTEM_BASIC_SIZE, ACORN_SYSTEM_CARD_RAM_BASE,
-  ACORN_SYSTEM_CARD_RAM_SIZE, ACORN_SYSTEM_CRTC_BASE, ACORN_SYSTEM_FDC_BASE,
-  ACORN_SYSTEM_OPEN_BUS, ACORN_SYSTEM_PIA_BASE, ACORN_SYSTEM_RAM_SIZE,
-  ACORN_SYSTEM_ROM_BASE, ACORN_SYSTEM_ROM_TOP, ACORN_SYSTEM_VRAM_BASE,
-  ACORN_SYSTEM_VRAM_SIZE,
-} from './constants.ts';
+import type { RamCard } from './models.ts';
+
+/** Where each card sits on this machine's backplane. */
+export interface AcornSystemLayout {
+  readonly mainRamSize: number;
+  readonly vramBase: number;
+  readonly vramSize: number;
+  readonly crtcBase: number;
+  readonly fdcBase: number;
+  readonly piaBase: number;
+  readonly ramCards: readonly RamCard[];
+  readonly basicBase: number;
+  readonly basicSize: number;
+}
+
+export const ACORN_SYSTEM_OPEN_BUS = 0x00;
+/** The ROM occupies the top 4K of the map; a 2K image starts at 0xF800. */
+export const ACORN_SYSTEM_ROM_BASE = 0xF000;
+export const ACORN_SYSTEM_ROM_TOP = 0x10000;
 
 export class AcornSystemMemory implements IMachineMemory {
-  /** The CPU card's 1K at 0x0000. */
-  readonly mainRam = new Uint8Array(ACORN_SYSTEM_RAM_SIZE);
-  /** The 8K card's RAM at 0x2000 (two 4K banks). */
-  readonly cardRam = new Uint8Array(ACORN_SYSTEM_CARD_RAM_SIZE);
-  /** The teletext card's 1K character RAM, addressed by the CRTC's MA. */
-  readonly videoRam = new Uint8Array(ACORN_SYSTEM_VRAM_SIZE);
-  /** The 4K BASIC PROM on the 8K RAM + 8K ROM card. */
-  readonly basicRom = new Uint8Array(ACORN_SYSTEM_BASIC_SIZE);
+  readonly mainRam: Uint8Array;
+  /** The VDU card's character RAM, addressed by the CRTC's MA. */
+  readonly videoRam: Uint8Array;
+  /** The RAM cards' storage, in the layout's order. */
+  readonly cardRam: Uint8Array[];
+  /** The resident 4K BASIC PROM, when the memory card carries one. */
+  readonly basicRom = new Uint8Array(0x1000);
   /** The system ROM as the top 4K of the address space (0xF000-0xFFFF). */
   readonly rom = new Uint8Array(0x1000);
   romLength = 0;
   basicFitted = false;
 
+  constructor(private readonly layout: AcornSystemLayout) {
+    this.mainRam = new Uint8Array(layout.mainRamSize);
+    this.videoRam = new Uint8Array(layout.vramSize);
+    this.cardRam = layout.ramCards.map(card => new Uint8Array(card.size));
+  }
+
   /** CRTC register select (+0) and data (+1). */
   crtcRead: (reg: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
   crtcWrite: (reg: number, value: number) => void = () => {};
   crtcPeek: (reg: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
-  /** The 8271 floppy controller card (System 3 only), addressed by the low byte. */
+  /** The 8271 card (System 3/4/5), addressed by the low byte. */
   fdcFitted = false;
   fdcRead: (offset: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
   fdcWrite: (offset: number, value: number) => void = () => {};
   fdcPeek: (offset: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
-  /** The CPU card's INS8154, addressed by the low byte of 0x0E00-0x0EFF. */
+  /** The CPU card's keyboard chip, addressed by the low byte. */
   piaRead: (offset: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
   piaWrite: (offset: number, value: number) => void = () => {};
   piaPeek: (offset: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
@@ -66,74 +81,71 @@ export class AcornSystemMemory implements IMachineMemory {
     return this.rom[addr - ACORN_SYSTEM_ROM_BASE];
   }
 
-  get ramBankCount(): number { return ACORN_SYSTEM_CARD_RAM_SIZE / 0x1000; }
+  /** Which RAM card covers `addr`, and its offset, or -1. */
+  private cardAt(addr: number): number {
+    const cards = this.layout.ramCards;
+    for (let i = 0; i < cards.length; i++) {
+      if (addr >= cards[i].base && addr < cards[i].base + cards[i].size) return i;
+    }
+    return -1;
+  }
+
+  get ramBankCount(): number {
+    return this.layout.ramCards.reduce((n, c) => n + (c.size >> 12), 0);
+  }
 
   getRamBank(n: number): Uint8Array {
     const count = this.ramBankCount;
-    const bank = ((n % count) + count) % count;
-    return this.cardRam.subarray(bank * 0x1000, (bank + 1) * 0x1000);
+    let bank = ((n % count) + count) % count;
+    for (let i = 0; i < this.cardRam.length; i++) {
+      const banks = this.layout.ramCards[i].size >> 12;
+      if (bank < banks) return this.cardRam[i].subarray(bank * 0x1000, (bank + 1) * 0x1000);
+      bank -= banks;
+    }
+    return this.cardRam[0].subarray(0, 0x1000);
   }
 
-  readByte(addr: number): number {
-    addr &= 0xFFFF;
-    if (addr < ACORN_SYSTEM_VRAM_BASE) return this.mainRam[addr];
-    if (addr < ACORN_SYSTEM_CRTC_BASE) return this.videoRam[addr - ACORN_SYSTEM_VRAM_BASE];
-    if (addr < ACORN_SYSTEM_CRTC_BASE + 0x100) return this.crtcRead(addr & 1);
-    if (addr >= ACORN_SYSTEM_FDC_BASE && addr < ACORN_SYSTEM_FDC_BASE + 0x100) {
-      return this.fdcFitted ? this.fdcRead(addr & 0xFF) : ACORN_SYSTEM_OPEN_BUS;
+  private ioByte(addr: number, peek: boolean): number {
+    const { crtcBase, fdcBase, piaBase, basicBase, basicSize, vramBase, vramSize } = this.layout;
+    if (addr < this.mainRam.length) return this.mainRam[addr];
+    if (addr >= vramBase && addr < vramBase + vramSize) return this.videoRam[addr - vramBase];
+    if (addr >= crtcBase && addr < crtcBase + 0x100) {
+      return peek ? this.crtcPeek(addr & 1) : this.crtcRead(addr & 1);
     }
-    if (addr >= ACORN_SYSTEM_PIA_BASE && addr < ACORN_SYSTEM_PIA_BASE + 0x100) {
-      return this.piaRead(addr & 0xFF);
+    if (addr >= fdcBase && addr < fdcBase + 0x100) {
+      return this.fdcFitted
+        ? (peek ? this.fdcPeek(addr & 0xFF) : this.fdcRead(addr & 0xFF))
+        : ACORN_SYSTEM_OPEN_BUS;
     }
-    if (addr >= ACORN_SYSTEM_CARD_RAM_BASE && addr < ACORN_SYSTEM_CARD_RAM_BASE + ACORN_SYSTEM_CARD_RAM_SIZE) {
-      return this.cardRam[addr - ACORN_SYSTEM_CARD_RAM_BASE];
+    if (addr >= piaBase && addr < piaBase + 0x100) {
+      return peek ? this.piaPeek(addr & 0xFF) : this.piaRead(addr & 0xFF);
     }
-    if (addr >= ACORN_SYSTEM_BASIC_BASE && addr < ACORN_SYSTEM_BASIC_BASE + ACORN_SYSTEM_BASIC_SIZE) {
-      return this.basicFitted ? this.basicRom[addr - ACORN_SYSTEM_BASIC_BASE] : ACORN_SYSTEM_OPEN_BUS;
+    const card = this.cardAt(addr);
+    if (card >= 0) return this.cardRam[card][addr - this.layout.ramCards[card].base];
+    if (basicSize > 0 && addr >= basicBase && addr < basicBase + basicSize) {
+      return this.basicFitted ? this.basicRom[addr - basicBase] : ACORN_SYSTEM_OPEN_BUS;
     }
     if (addr >= ACORN_SYSTEM_ROM_BASE) return this.romByte(addr);
     return ACORN_SYSTEM_OPEN_BUS;
   }
 
-  /** Side-effect-free read for the debugger and the address-space snapshot. */
-  peekByte(addr: number): number {
-    addr &= 0xFFFF;
-    if (addr < ACORN_SYSTEM_VRAM_BASE) return this.mainRam[addr];
-    if (addr < ACORN_SYSTEM_CRTC_BASE) return this.videoRam[addr - ACORN_SYSTEM_VRAM_BASE];
-    if (addr < ACORN_SYSTEM_CRTC_BASE + 0x100) return this.crtcPeek(addr & 1);
-    if (addr >= ACORN_SYSTEM_FDC_BASE && addr < ACORN_SYSTEM_FDC_BASE + 0x100) {
-      return this.fdcFitted ? this.fdcPeek(addr & 0xFF) : ACORN_SYSTEM_OPEN_BUS;
-    }
-    if (addr >= ACORN_SYSTEM_PIA_BASE && addr < ACORN_SYSTEM_PIA_BASE + 0x100) {
-      return this.piaPeek(addr & 0xFF);
-    }
-    if (addr >= ACORN_SYSTEM_CARD_RAM_BASE && addr < ACORN_SYSTEM_CARD_RAM_BASE + ACORN_SYSTEM_CARD_RAM_SIZE) {
-      return this.cardRam[addr - ACORN_SYSTEM_CARD_RAM_BASE];
-    }
-    if (addr >= ACORN_SYSTEM_BASIC_BASE && addr < ACORN_SYSTEM_BASIC_BASE + ACORN_SYSTEM_BASIC_SIZE) {
-      return this.basicFitted ? this.basicRom[addr - ACORN_SYSTEM_BASIC_BASE] : ACORN_SYSTEM_OPEN_BUS;
-    }
-    if (addr >= ACORN_SYSTEM_ROM_BASE) return this.romByte(addr);
-    return ACORN_SYSTEM_OPEN_BUS;
-  }
+  readByte(addr: number): number { return this.ioByte(addr & 0xFFFF, false); }
+  peekByte(addr: number): number { return this.ioByte(addr & 0xFFFF, true); }
 
   writeByte(addr: number, value: number): void {
     addr &= 0xFFFF;
     const v = value & 0xFF;
-    if (addr < ACORN_SYSTEM_VRAM_BASE) { this.mainRam[addr] = v; return; }
-    if (addr < ACORN_SYSTEM_CRTC_BASE) { this.videoRam[addr - ACORN_SYSTEM_VRAM_BASE] = v; return; }
-    if (addr < ACORN_SYSTEM_CRTC_BASE + 0x100) { this.crtcWrite(addr & 1, v); return; }
-    if (addr >= ACORN_SYSTEM_FDC_BASE && addr < ACORN_SYSTEM_FDC_BASE + 0x100) {
+    const { crtcBase, fdcBase, piaBase, vramBase, vramSize } = this.layout;
+    if (addr < this.mainRam.length) { this.mainRam[addr] = v; return; }
+    if (addr >= vramBase && addr < vramBase + vramSize) { this.videoRam[addr - vramBase] = v; return; }
+    if (addr >= crtcBase && addr < crtcBase + 0x100) { this.crtcWrite(addr & 1, v); return; }
+    if (addr >= fdcBase && addr < fdcBase + 0x100) {
       if (this.fdcFitted) this.fdcWrite(addr & 0xFF, v);
       return;
     }
-    if (addr >= ACORN_SYSTEM_PIA_BASE && addr < ACORN_SYSTEM_PIA_BASE + 0x100) {
-      this.piaWrite(addr & 0xFF, v);
-      return;
-    }
-    if (addr >= ACORN_SYSTEM_CARD_RAM_BASE && addr < ACORN_SYSTEM_CARD_RAM_BASE + ACORN_SYSTEM_CARD_RAM_SIZE) {
-      this.cardRam[addr - ACORN_SYSTEM_CARD_RAM_BASE] = v;
-    }
+    if (addr >= piaBase && addr < piaBase + 0x100) { this.piaWrite(addr & 0xFF, v); return; }
+    const card = this.cardAt(addr);
+    if (card >= 0) this.cardRam[card][addr - this.layout.ramCards[card].base] = v;
     // ROM writes are ignored, as on the real cards.
   }
 
@@ -149,8 +161,8 @@ export class AcornSystemMemory implements IMachineMemory {
 
   /**
    * Install the system ROM. A 2K image lands at 0xF800 (the COS), a 4K one at
-   * 0xF000 (a System 3 DOS/kernel) — the same rule the hardware's address
-   * decoding gives, since the ROM occupies the top of the map.
+   * 0xF000 (a DOS/kernel) — the same rule the hardware's address decoding
+   * gives, since the ROM occupies the top of the map.
    */
   loadRom(data: Uint8Array): void {
     const len = Math.min(data.length, this.rom.length);
@@ -159,10 +171,10 @@ export class AcornSystemMemory implements IMachineMemory {
     this.romLength = len;
   }
 
-  /** Install the 4K integer BASIC PROM at 0xC000. */
+  /** Install the 4K integer BASIC PROM at &C000. */
   loadBasic(data: Uint8Array): void {
     this.basicRom.fill(0);
-    this.basicRom.set(data.subarray(0, ACORN_SYSTEM_BASIC_SIZE));
+    this.basicRom.set(data.subarray(0, this.basicRom.length));
     this.basicFitted = data.length > 0;
   }
 

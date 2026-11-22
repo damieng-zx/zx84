@@ -13,12 +13,7 @@ import type { MachineModel } from '@/models.ts';
 import { ACORN_TAPE_EXTENSIONS } from '@/machines/shared/acorn-tape-service.ts';
 import { acornSystemModelInfo, type AcornSystemModel } from './models.ts';
 import { AcornSystemMachine } from './machine.ts';
-import {
-  ACORN_SYSTEM_ACTIVE_HEIGHT, ACORN_SYSTEM_ACTIVE_WIDTH, ACORN_SYSTEM_BORDER_LEFT,
-  ACORN_SYSTEM_BORDER_TOP, ACORN_SYSTEM_PIXEL_ASPECT_X, ACORN_SYSTEM_SCREEN_HEIGHT,
-  ACORN_SYSTEM_SCREEN_WIDTH,
-} from './constants.ts';
-
+import { acornSystemVdu } from './constants.ts';
 const SYSTEM_UI: MachineUiCapabilities = {
   hiddenPanes: [
     'microdrive-panel', 'mouse-panel', 'sysvar-panel', 'font-panel', 'banks-panel',
@@ -27,7 +22,8 @@ const SYSTEM_UI: MachineUiCapabilities = {
   trace: true,
   traceModes: ['full', 'portio'],
   // The teletext card's eight SAA5050 colours: the BBC's palette family, and
-  // the machine honours 'bbc-color-map' (PAL or measured levels).
+  // the machine honours 'bbc-color-map' (PAL or measured levels). The 80x25
+  // card is monochrome and ignores the choice.
   colorMap: 'bbc',
   accuracy: false,
   builtinDisk: false,
@@ -56,54 +52,61 @@ const SYSTEM_UI: MachineUiCapabilities = {
   memoryMappedIo: true,
 };
 
-/** A System 3 fits the 8271 card, so the Drive pane and its DISK LED apply. */
-const SYSTEM3_UI: MachineUiCapabilities = {
+/** The disc models fit the 8271 card, so the Drive pane and its DISK LED apply. */
+const DISK_UI: MachineUiCapabilities = {
   ...SYSTEM_UI,
   builtinDisk: true,
   statusLeds: ['kbd', 'text', 'dsk'],
 };
+
+/** The 80x25 card is monochrome, so the Colour map choice does not apply. */
+function uiFor(info: ReturnType<typeof acornSystemModelInfo>): MachineUiCapabilities {
+  const base = info.disk ? DISK_UI : SYSTEM_UI;
+  return info.vdu === 'mono80' ? { ...base, colorMap: 'mono' } : base;
+}
 
 export function acornSystemDescriptor(
   model: MachineModel,
   locale: MachineLocale = 'uk',
 ): MachineDescriptor {
   const info = acornSystemModelInfo(model);
+  const vdu = acornSystemVdu(info.vdu);
   return {
     kind: 'acorn-system',
     model,
     locale,
     cpuFamily: 'm6502',
     screen: {
-      width: ACORN_SYSTEM_SCREEN_WIDTH,
-      height: ACORN_SYSTEM_SCREEN_HEIGHT,
-      pixelAspectX: ACORN_SYSTEM_PIXEL_ASPECT_X,
-      activeWidth: ACORN_SYSTEM_ACTIVE_WIDTH,
-      activeHeight: ACORN_SYSTEM_ACTIVE_HEIGHT,
-      borderLeft: ACORN_SYSTEM_BORDER_LEFT,
-      borderTop: ACORN_SYSTEM_BORDER_TOP,
+      width: vdu.width,
+      height: vdu.height,
+      pixelAspectX: vdu.pixelAspectX,
+      activeWidth: vdu.activeWidth,
+      activeHeight: vdu.activeHeight,
+      borderLeft: vdu.borderLeft,
+      borderTop: vdu.borderTop,
     },
-    ui: { ...(info.disk ? SYSTEM3_UI : SYSTEM_UI), systemRomLabel: info.romLabel },
+    ui: { ...uiFor(info), systemRomLabel: info.romLabel },
   };
 }
 
 export const acornSystemEntry: MachineEntry = {
   kind: 'acorn-system',
-  models: ['acorn-system2', 'acorn-system3'],
+  models: ['acorn-system2', 'acorn-system3', 'acorn-system4', 'acorn-system5'],
   descriptor: acornSystemDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new AcornSystemMachine(model as AcornSystemModel, display);
   },
-  // The COS (2K) or the DOS/kernel (4K) is the system ROM; the resident BASIC
-  // is fetched separately by the machine's prepare() hook, since it lives on
-  // the memory card.
+  // The COS (2K) or the DOS/kernel (4K) is the system ROM. The other cards'
+  // firmware (BASIC, the 80x25 character generator) is fetched by the machine's
+  // prepare() hook, since those live on their own cards.
   romSources(model: MachineModel) {
     return [acornSystemModelInfo(model).romSource];
   },
   /**
-   * A raw drop is recognised by shape: 2K is the COS/kernel at &F800, 4K is
-   * the System DOS/kernel at &F000. The shape decides the model too, so a DOS
-   * lands on a System 3 (with the controller it expects) and a COS on a
-   * System 2.
+   * A raw drop is recognised by shape: 2K is the COS/kernel at &F800, 4K is a
+   * System DOS/kernel at &F000. A DOS lands on a System 3, the 40-column disc
+   * machine; the 80-column DOS is the same size, so it is chosen by picking the
+   * System 5 rather than by dropping the ROM.
    */
   detectModelForRom(data: Uint8Array): MachineModel | null {
     if (data.length === 0x800) return 'acorn-system2';

@@ -51,21 +51,29 @@ function readLong(mem: AcornSystemMemory, base: number, index: number): number {
   return (b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)) | 0;
 }
 
+/** A sane BASIC text-area window, or null when the workspace is not set up. */
+function workspace(mem: AcornSystemMemory): { bottom: number; top: number } | null {
+  const bottom = mem.peekByte(TXTPAG) << 8;
+  const top = mem.peekByte(TOP) | (mem.peekByte(TOP + 1) << 8);
+  // PAGE is a page number, so it can never be 0 in a running BASIC, and TOP is
+  // in the machine's RAM below the ROM.
+  if (bottom < 0x2000 || bottom >= 0xC000) return null;
+  if (top <= bottom || top > 0xC000) return null;
+  if (top - bottom > 0x4000) return null;
+  return { bottom, top };
+}
+
 /**
- * The stored program, or an empty list when BASIC is not fitted or the text
- * area does not hold a well-formed line sequence (garbage RAM, a program being
+ * The stored program, or an empty list when the workspace does not hold a
+ * well-formed line sequence (BASIC not running, garbage RAM, a program being
  * typed). Every walk is bounded by TOP, so a corrupt pointer cannot loop.
  */
 export function systemBasicListing(mem: AcornSystemMemory): BasicListingLine[] {
-  if (!mem.basicFitted) return [];
-  const bottom = mem.peekByte(TXTPAG) << 8;
-  const top = mem.peekByte(TOP) | (mem.peekByte(TOP + 1) << 8);
-  if (bottom < 0x2000 || bottom >= 0xC000) return [];
-  if (top <= bottom || top > 0xC000) return [];
-  if (top - bottom > 0x4000) return [];
-
+  const area = workspace(mem);
+  if (area === null) return [];
+  const { top } = area;
   const lines: BasicListingLine[] = [];
-  let p = bottom;
+  let p = area.bottom;
   while (p < top) {
     // The text area ends with the &FF end-of-program marker, which TOP points past.
     if (mem.peekByte(p) === 0xFF) break;
@@ -94,7 +102,7 @@ export function systemBasicListing(mem: AcornSystemMemory): BasicListingLine[] {
  * is still listed — hiding it would misreport the machine.
  */
 export function systemBasicVariables(mem: AcornSystemMemory): BasicVariable[] {
-  if (!mem.basicFitted) return [];
+  if (workspace(mem) === null) return [];
   const out: BasicVariable[] = [];
   const inLoop = new Set<number>();
 

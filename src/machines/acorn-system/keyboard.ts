@@ -1,21 +1,21 @@
 /**
- * Acorn parallel ASCII keyboard, as the CPU card's INS8154 sees it.
+ * Acorn parallel ASCII keyboard, as the CPU card's port sees it.
  *
- * The keyboard is a separate Eurocard (or an Acorn ASCII keyboard on a ribbon)
- * that puts a 7-bit ASCII code on port B with bit 7 pulled low while a key is
- * down. The COS polls the port: `BIT &0E21` until bit 7 is clear means "wait
+ * The keyboard is a separate Eurocard (or a ribboned Acorn ASCII keyboard)
+ * that puts a 7-bit ASCII code on the port with bit 7 pulled low while a key is
+ * down. The system software polls it: "wait until bit 7 is clear" means "wait
  * for a key", and the byte it then reads is the character. There is no strobe
  * latch to clear — holding the key holds the code on the pins.
  *
- * The capslock/shift arrangement is the keyboard's own: the host layout's
- * character (already shifted, if the user held shift) is what goes on the pins.
+ * Both CPU cards read the same way: an INS8154's port B on the 1 MHz cards, a
+ * 6522's port A on the System 5. The machine composes the pins; this class only
+ * knows what a keypress puts on them.
  */
 
 import type { HostKeyEvent } from '@/machines/machine.ts';
-import type { Ins8154 } from '@/cores/ins8154.ts';
 
-/** No key down: the port's pull-ups read all ones, which the OS reads as "idle". */
-const NO_KEY = 0xFF;
+/** No key down: the pull-ups read all ones, which the software reads as "idle". */
+export const ACORN_SYSTEM_NO_KEY = 0xFF;
 
 /** The byte the keyboard would put on the port, or null for a key it cannot send. */
 export function acornSystemKeyByte(event: HostKeyEvent): number | null {
@@ -38,9 +38,8 @@ export class AcornSystemKeyboard {
   /** Caps currently down (host key codes), for lighting an on-screen keyboard later. */
   private readonly held = new Set<string>();
 
-  constructor(private readonly pia: Ins8154) {
-    pia.portBInput = NO_KEY;
-  }
+  /** The level the keyboard drives onto the port: bit 7 low while a key is down. */
+  get keyLine(): number { return this.code === null ? ACORN_SYSTEM_NO_KEY : this.code & 0x7F; }
 
   isHeld(code: string): boolean { return this.held.has(code); }
 
@@ -52,19 +51,13 @@ export class AcornSystemKeyboard {
     this.track(event.code, down);
     const byte = acornSystemKeyByte(event);
     if (byte === null) return false;
-    if (down) {
-      this.code = byte;
-      this.pia.portBInput = byte & 0x7F;
-    } else if (this.code === byte) {
-      this.code = null;
-      this.pia.portBInput = NO_KEY;
-    }
+    if (down) this.code = byte;
+    else if (this.code === byte) this.code = null;
     return true;
   }
 
   reset(): void {
     this.code = null;
-    this.pia.portBInput = NO_KEY;
     this.held.clear();
   }
 }
