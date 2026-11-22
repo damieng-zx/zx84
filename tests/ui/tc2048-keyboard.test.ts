@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   TC2048_ROWS,
+  TS2068_ROWS,
   TC2048_SCENE,
   placeTc2048Rows,
 } from '@/machines/spectrum/ui/keyboard/tc2048-keyboard.ts';
@@ -206,5 +207,39 @@ describe('TC2048 geometry', () => {
       const cells = rowOf(r).map((p) => p.cell);
       for (let i = 1; i < cells.length; i++) expect(cells[i].x).toBeCloseTo(cells[i - 1].x + cells[i - 1].width, 6);
     }
+  });
+});
+
+// The Timex Sinclair 2068's keycaps and case, read from a photograph of the machine.
+describe('TS2068 keyboard', () => {
+  const ts = TS2068_ROWS.flat();
+  const ts1 = (main: string) => {
+    const found = ts.filter((k) => k.main === main);
+    expect(found, main).toHaveLength(1);
+    return found[0];
+  };
+
+  it('has the 42 TC2048 keys in the same order and on the same matrix cells', () => {
+    expect(TS2068_ROWS.map((r) => r.map((k) => [k.main, k.cells]))).toEqual(TC2048_ROWS.map((r) => r.map((k) => [k.main, k.cells])));
+  });
+
+  it('prints the 2068 BASIC extended-mode words under A, S, F, G and P', () => {
+    expect(['A', 'S', 'F', 'G', 'P'].map((c) => ts1(c).below)).toEqual(['FREE', 'STICK', 'ON ERR', 'SOUND', 'RESET']);
+  });
+
+  it('prints the same words as the TC2048 under every other letter', () => {
+    const below = 'QWERTYUIODHJKLZXCVBNM'.split('').map((c) => ts1(c).below);
+    expect(below).toEqual([
+      'ASN', 'ACS', 'ATN', 'VERIFY', 'MERGE', '[', ']', 'IN', 'OUT',
+      '\\', 'CIRCLE', 'VAL $', 'SCREEN $', 'ATTR',
+      'BEEP', 'INK', 'PAPER', 'FLASH', 'BRIGHT', 'OVER', 'INVERSE',
+    ]);
+  });
+
+  it('keeps the TC2048 spellings RETRN and BORDR and the same function words', () => {
+    expect(ts1('Y').keyword).toBe('RETRN');
+    expect(ts1('B').keyword).toBe('BORDR');
+    expect(ts1('Q').above).toBe('SIN');
+    expect(ts1('N').above).toBe('INKEY $');
   });
 });

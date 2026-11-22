@@ -24,6 +24,7 @@ describe('keyboard lab presets', () => {
       'spectrum-plus2a',
       'spectrum-plus3',
       'timex-computer-2048',
+      'timex-sinclair-2068',
       'zx80',
       'zx81',
       'ts1500',
@@ -36,7 +37,7 @@ describe('keyboard lab presets', () => {
       'memotech-mtx',
     ]);
     expect(presets.map((preset) => preset.keys.length)).toEqual([
-      40, 58, 58, 58, 58, 42, 40, 40, 40, 74, 74, 74, 73, 67, 69, 79,
+      40, 58, 58, 58, 58, 42, 42, 40, 40, 40, 74, 74, 74, 73, 67, 69, 79,
     ]);
     for (const preset of presets) {
       expect(new Set(preset.keys.map((key) => key.id)).size).toBe(preset.keys.length);

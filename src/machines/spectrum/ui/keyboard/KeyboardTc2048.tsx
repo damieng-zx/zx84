@@ -1,8 +1,10 @@
 /**
- * The Timex Computer 2048's on-screen keyboard.
+ * The Timex Computer 2048's and Timex 2068's on-screen keyboards.
  *
- * Light grey hard keys on a black case ruled into a cell per key, traced from
- * the machine (see tc2048-keyboard.ts). It drives the same matrix as every
+ * Hard keys on a case ruled into a cell per key, traced from the machines (see
+ * tc2048-keyboard.ts): light grey keys on a black case for the TC2048, grey keys
+ * on a silver case printed in black, under a black band of colour names, for the
+ * TS2068 / TC2068. It drives the same matrix as every
  * Spectrum keyboard, and highlights from it, through `useKeyboard()`.
  */
 
@@ -12,9 +14,11 @@ import { KeyboardScene, SceneElement, SceneKey } from '@/ui/components/KeyboardS
 import { Block, useKeyboard, type KeyboardController } from './keyboard-common.tsx';
 import {
   TC2048_ROWS,
+  TS2068_ROWS,
   TC2048_SCENE,
   placeTc2048Rows,
   type PlacedTc2048Key,
+  type TimexKeyboardFace,
 } from './tc2048-keyboard.ts';
 
 // The cursor keys 5-8 print a solid block arrow on the case, not a glyph.
@@ -88,20 +92,26 @@ function Tc2048Key(props: { placed: PlacedTc2048Key; kbd: KeyboardController }) 
   );
 }
 
-export function KeyboardTc2048() {
+function KeyboardTimex(props: { face: TimexKeyboardFace }) {
   const kbd = useKeyboard();
-  const keys = placeTc2048Rows(TC2048_ROWS);
+  const is2068 = props.face === 'ts2068';
+  const keys = placeTc2048Rows(is2068 ? TS2068_ROWS : TC2048_ROWS);
   return (
     <Pane id="keyboard-panel" label="Keyboard" floatable>
       <KeyboardScene
         width={TC2048_SCENE.width}
         height={TC2048_SCENE.height}
         unit={TC2048_SCENE.unit}
-        class="tck-bezel"
-        label="Timex Computer 2048 keyboard"
+        class={is2068 ? 'tck-bezel tck-bezel--2068' : 'tck-bezel'}
+        label={is2068 ? 'Timex 2068 keyboard' : 'Timex Computer 2048 keyboard'}
       >
         <For each={keys}>{(placed) => <Tc2048Key placed={placed} kbd={kbd} />}</For>
       </KeyboardScene>
     </Pane>
   );
 }
+
+export function KeyboardTc2048() { return <KeyboardTimex face="tc2048" />; }
+
+/** The TS2068's and TC2068's keyboard. */
+export function KeyboardTs2068() { return <KeyboardTimex face="ts2068" />; }

@@ -8,6 +8,10 @@
  * the 40 cells. The legends are the Spectrum's, with the TC2048's own spellings
  * (RETRN, BORDR).
  *
+ * The Timex Sinclair 2068 / Timex Computer 2068 keyboard is the same keys in the
+ * same places on a silver case, with the 2068 BASIC's own extended-mode keywords
+ * under five keys (FREE, STICK, ON ERR, SOUND, RESET): see the 'ts2068' face.
+ *
  * Nothing here knows how a key is drawn; see KeyboardTc2048.tsx.
  */
 
@@ -38,6 +42,16 @@ const ENTER: Cell = [6, 0];
 /** The TC2048 prints these words shorter than the Spectrum does. */
 const SPELLING: Readonly<Record<string, string>> = { RETURN: 'RETRN', BORDER: 'BORDR' };
 
+/** Which Timex keyboard: the TC2048's, or the 2068's (TS2068 and TC2068). */
+export type TimexKeyboardFace = 'tc2048' | 'ts2068';
+
+/** The 2068's extended-mode words that differ from the Spectrum's, by key: its
+ *  BASIC puts FREE, STICK, ON ERR, SOUND and RESET where the Spectrum has
+ *  ~, |, {, } and the copyright sign. */
+const TS2068_BELOW: Readonly<Record<string, string>> = {
+  A: 'FREE', S: 'STICK', F: 'ON ERR', G: 'SOUND', P: 'RESET',
+};
+
 export type Tc2048Kind = 'num' | 'letter' | 'special' | 'space';
 
 export interface Tc2048Key {
@@ -64,7 +78,7 @@ export interface Tc2048Key {
   readonly dark?: boolean;
 }
 
-function buildRows(): Tc2048Key[][] {
+function buildRows(face: TimexKeyboardFace): Tc2048Key[][] {
   const letters = lettersFor('uk');
   const numbers = numbersFor('uk');
   const num = (d: string): Tc2048Key => {
@@ -79,7 +93,8 @@ function buildRows(): Tc2048Key[][] {
     const l = letters[c];
     return {
       kind: 'letter', cells: [LETTER_CELLS[c]], main: c,
-      keyword: SPELLING[l.word] ?? l.word, strip: l.red, above: l.green, below: l.ess,
+      keyword: SPELLING[l.word] ?? l.word, strip: l.red, above: l.green,
+      below: (face === 'ts2068' ? TS2068_BELOW[c] : undefined) ?? l.ess,
     };
   };
   const special = (main: string, cells: readonly Cell[], extra: Partial<Tc2048Key> = {}): Tc2048Key =>
@@ -99,7 +114,9 @@ function buildRows(): Tc2048Key[][] {
   ];
 }
 
-export const TC2048_ROWS: readonly (readonly Tc2048Key[])[] = buildRows();
+export const TC2048_ROWS: readonly (readonly Tc2048Key[])[] = buildRows('tc2048');
+/** The 2068's keys: the TC2048's layout and wiring with its own extended-mode words. */
+export const TS2068_ROWS: readonly (readonly Tc2048Key[])[] = buildRows('ts2068');
 
 // ── Geometry ────────────────────────────────────────────────────────────────
 // Measured from the photograph at about three photo pixels to a design unit.

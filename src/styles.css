@@ -1169,6 +1169,38 @@ canvas {
 }
 .tck-key--space { border-radius: calc(var(--u1) * 2.5); }
 
+/* Timex 2068: the same keys on a silver case printed in black, the colour names
+   on a black band across the top of the number row, and darker grey caps. */
+.tck-bezel--2068::before {
+  border-color: #6e6e6c;
+  background: linear-gradient(180deg, #d9d9d6 0%, #c9c9c6 55%, #bcbcb9 100%);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.6),
+    inset 0 0 18px rgba(0, 0, 0, 0.12),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.tck-bezel--2068 .tck-cell { box-shadow: 0 0 0 calc(var(--u1) * 0.45) rgba(70, 70, 70, 0.55); }
+.tck-bezel--2068 .tck-above,
+.tck-bezel--2068 .tck-below { color: #1a1a1c; }
+.tck-bezel--2068 .tck-arrow { fill: #1a1a1c; }
+.tck-bezel--2068 .tck-above { padding-top: 0; }
+.tck-bezel--2068 .tck-colour {
+  align-self: stretch;
+  padding: calc(var(--u1) * 1.5) 0;
+  background: #121214;
+  color: #f3f3f0;
+}
+.tck-bezel--2068 .tck-key:not(.tck-key--dark) {
+  border-color: #3c3c3e;
+  background: linear-gradient(180deg, #b7b7b4 0%, #a2a2a0 55%, #929290 100%);
+  box-shadow:
+    inset 0 calc(var(--u1) * 0.8) 0 rgba(255, 255, 255, 0.55),
+    inset 0 calc(var(--u1) * -1.6) calc(var(--u1) * 1.6) rgba(0, 0, 0, 0.2),
+    0 calc(var(--u1) * 0.8) calc(var(--u1) * 1.4) rgba(0, 0, 0, 0.55);
+}
+.tck-bezel--2068 .tck-key:not(.tck-key--dark):hover { background: linear-gradient(180deg, #c3c3c0 0%, #adadab 55%, #9c9c9a 100%); }
+.tck-bezel--2068 .tck-key:not(.tck-key--dark).pressed { background: linear-gradient(180deg, #8a8a88 0%, #7c7c7a 100%); }
+
 /* ── Spectrum + / 128K hard keyboard ──────────────────────────────────── */
 /* A flush, uniform-height hard-key layout. Every legend is printed inside the
    keycap (no bezel trim, logo or rainbow). ENTER is the L-shaped Sinclair

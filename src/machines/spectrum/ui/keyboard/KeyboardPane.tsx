@@ -11,15 +11,15 @@
  * TC2048 in KeyboardTc2048.
  */
 
-import { For, Show } from 'solid-js';
+import { For, Match, Show, Switch } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { KeyboardScene, SceneElement, SceneKey } from '@/ui/components/KeyboardScene.tsx';
 import { currentModel } from '@/state/machine-state.ts';
 import { machineDescriptor } from '@/state/machine-caps.ts';
-import { is128kClass } from '@/machines/spectrum/models.ts';
+import { is128kClass, isTimex2068Class } from '@/machines/spectrum/models.ts';
 import { Block, useKeyboard, type KeyboardController, type LatchMode } from './keyboard-common.tsx';
 import { KeyboardPlus } from './KeyboardPlus.tsx';
-import { KeyboardTc2048 } from './KeyboardTc2048.tsx';
+import { KeyboardTc2048, KeyboardTs2068 } from './KeyboardTc2048.tsx';
 import { sparseKeyboardFace } from './plus2-legends.ts';
 import { lettersFor, numbersFor } from './legends.ts';
 import {
@@ -209,9 +209,10 @@ function KeyboardHard() {
 /** The 16K/48K rubber keyboard, or the TC2048's own hard keys. */
 function KeyboardSmall() {
   return (
-    <Show when={currentModel() === 'tc2048'} fallback={<KeyboardRubber />}>
-      <KeyboardTc2048 />
-    </Show>
+    <Switch fallback={<KeyboardRubber />}>
+      <Match when={currentModel() === 'tc2048'}><KeyboardTc2048 /></Match>
+      <Match when={isTimex2068Class(currentModel())}><KeyboardTs2068 /></Match>
+    </Switch>
   );
 }
 
