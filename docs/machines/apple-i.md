@@ -6,6 +6,11 @@ keyboard and TV. zx84 emulates the board with its PIA-driven keyboard and
 terminal, the Woz Monitor, and the memory and cassette-interface expansions
 people fitted.
 
+<p align="center">
+  <img src="../images/machines/apple-i.png" width="320" alt="The Apple I at its monitor prompt"><br>
+  <img src="../images/machines/apple-i-keyboard.png" width="760" alt="The Apple I keyboard">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Apple Computer (designed by Steve Wozniak) |

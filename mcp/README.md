@@ -30,7 +30,9 @@ listed under [Known models in the main README](../README.md#media). The default
 is `zx48k`. The Spectrum's earlier ids (`48k`, `128k`, `+2`, `+2A`, `+3`) are still
 accepted by `--model`; the `model` tool takes the current ids only.
 System ROM pages come from the machine registry, are fetched through the shared
-ROM source loader, and are cached under `mcp/.cache/`.
+ROM source loader, and are cached under `mcp/.cache/` — each at its source's own
+path below the ROM root (`mcp/.cache/electron/basic.rom`), so providers that
+reuse a filename (`basic.rom`, `os.rom`) keep their own copy.
 
 ## Model Support
 

@@ -4,8 +4,8 @@
  * The Atom's built-in keyboard and the separate ASCII keyboard sold for the
  * System machines are the same 61-key deck: ESC, the number row, Q/A/Z, the
  * space bar, with the arrow keys, COPY and DELETE on the left and the control
- * keys down the right. Each machine supplies its own `driver` â€” the Atom drives
- * a 10x6 matrix cell, the System machines put an ASCII code on a port â€” and its
+ * keys down the right. Each machine supplies its own `driver` — the Atom drives
+ * a 10x6 matrix cell, the System machines put an ASCII code on a port — and its
  * own badge, so the pane is the same deck with the right behaviour underneath.
  */
 

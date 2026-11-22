@@ -6,6 +6,11 @@ system is a 19" card frame of 100×160 mm boards on the standard Acorn bus: a
 zx84 emulates the System 2, 3, 4 and 5 as one machine family assembled from
 those card sets; the System 1 (the LED-and-keypad kit) is not implemented.
 
+<p align="center">
+  <img src="../images/machines/acorn-system.png" width="320" alt="The Acorn System 5 at the Acorn DOS prompt"><br>
+  <img src="../images/machines/acorn-system-keyboard.png" width="760" alt="The ASCII keyboard deck the System machines used">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Acorn Computers |

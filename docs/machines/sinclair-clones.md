@@ -6,6 +6,11 @@ Spectrum machine, so they share its ULA, keyboard, tape, snapshot and software
 tooling, but with their own timing, memory paging and a Beta Disk (TR-DOS) fitted
 on the board.
 
+<p align="center">
+  <img src="../images/machines/sinclair-clones.png" width="320" alt="The Pentagon 128 at its 128 menu"><br>
+  <img src="../images/machines/sinclair-clones-keyboard.png" width="760" alt="The Pentagon 128 keyboard">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Home-built and small-batch Russian and Ukrainian makers; the Scorpion by Scorpion Computers, Moscow |

@@ -11,15 +11,29 @@ import { romFilename, type MultifaceVariant } from '../src/machines/spectrum/per
 
 export const CACHE_DIR = path.join(import.meta.dirname!, '.cache');
 
+/**
+ * Cache file for a ROM source. The cache key is the source's own path — a
+ * relative source (`electron/basic.rom`) keeps it as written, a full URL keeps
+ * its pathname — because the basename alone is not unique: `electron/basic.rom`
+ * and `memotech/basic.rom` are different chips. Nodes are checked individually
+ * so a source can never escape the cache directory.
+ */
+export function cacheFileFor(source: string): string {
+  const raw = source.includes('://') ? new URL(source).pathname : source;
+  const segments = raw.split(/[\\/]+/).filter((s) => s !== '' && s !== '.' && s !== '..');
+  // Keep at least the basename for a source given with no directory at all.
+  if (segments.length === 0) segments.push(path.basename(raw) || 'rom');
+  return path.join(CACHE_DIR, ...segments);
+}
+
 async function fetchCached(source: string): Promise<Uint8Array> {
-  const url = resolveRomSource(source);
-  const filename = path.basename(new URL(url).pathname);
-  const cachePath = path.join(CACHE_DIR, filename);
+  const filename = path.basename(source);
+  const cachePath = cacheFileFor(source);
   if (fs.existsSync(cachePath)) return unwrapRomArchive(new Uint8Array(fs.readFileSync(cachePath)), filename);
-  const resp = await fetch(url);
+  const resp = await fetch(resolveRomSource(source));
   if (!resp.ok) throw new Error(`HTTP ${resp.status} fetching ${filename}`);
   const data = new Uint8Array(await resp.arrayBuffer());
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
   fs.writeFileSync(cachePath, data);
   return unwrapRomArchive(data, filename);
 }

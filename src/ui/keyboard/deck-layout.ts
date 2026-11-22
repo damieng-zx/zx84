@@ -3,8 +3,8 @@
  *
  * The Atom scans a 10x6 matrix, but its keyboard is a normal QWERTY deck: the
  * matrix rows are the *columns* of the physical board. This file lists the caps
- * in their physical order â€” ESC/1..0/=/ * /â†‘/BREAK, the Q row, the A row, the Z
- * row and the space bar â€” with each cap's matrix cell alongside. Cells follow
+ * in their physical order — ESC/1..0/=/ * /↑/BREAK, the Q row, the A row, the Z
+ * row and the space bar — with each cap's matrix cell alongside. Cells follow
  * the Atom matrix table (shift on port B bit 7, ctrl bit 6, REPT on port C bit
  * 6): digits and punctuation in columns 0-2, letters in columns 3-5.
  *
@@ -53,13 +53,13 @@ export const DECK_TOP_ROW: readonly DeckKeyDef[] = [
   cell(3, 1, '0', undefined, 'number'),
   cell(0, 2, '-', '=', 'number'),
   cell(3, 2, ':', '*', 'number'),
-  cell(5, 0, 'â†‘', undefined, 'cursor'),
+  cell(5, 0, '↑', undefined, 'cursor'),
   mod('break', 'BREAK', 'break'),
 ];
 
 /** The left/right arrow, COPY, QWERTY, `@`, `\` and DELETE. */
 export const DECK_Q_ROW: readonly DeckKeyDef[] = [
-  cell(3, 0, 'â†”', undefined, 'cursor'),
+  cell(3, 0, '↔', undefined, 'cursor'),
   cell(5, 1, 'COPY', undefined, 'word'),
   cell(0, 4, 'Q'), cell(4, 5, 'W'), cell(2, 3, 'E'), cell(9, 5, 'R'),
   cell(7, 5, 'T'), cell(2, 5, 'Y'), cell(6, 5, 'U'), cell(8, 4, 'I'),
@@ -71,7 +71,7 @@ export const DECK_Q_ROW: readonly DeckKeyDef[] = [
 
 /** The up/down arrow, CTRL, ASDF, the `;`/`+` key, `[`, `]` and RETURN. */
 export const DECK_A_ROW: readonly DeckKeyDef[] = [
-  cell(2, 0, 'â†•', undefined, 'cursor'),
+  cell(2, 0, '↕', undefined, 'cursor'),
   mod('ctrl', 'CTRL', 'ctrl'),
   cell(6, 3, 'A'), cell(8, 5, 'S'), cell(3, 3, 'D'), cell(1, 3, 'F'),
   cell(0, 3, 'G'), cell(9, 4, 'H'), cell(7, 4, 'J'), cell(6, 4, 'K'),
