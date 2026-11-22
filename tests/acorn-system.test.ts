@@ -468,16 +468,41 @@ describe('Acorn System 5', () => {
     }
   });
 
-  it('draws the character-generator glyphs', () => {
+  it('draws the character-generator glyphs at a 16-byte stride', () => {
     const m = new AcornSystemMachine('acorn-system5', null);
     try {
+      // The card's ROM is 128 glyphs of 16 bytes: ten rows of cell, then six
+      // unused. 'A' lives at &41 * 16, not at &41 * 8 — indexing at eight bytes
+      // lands in the middle of a neighbouring block and draws the wrong glyph.
       const font = new Uint8Array(2048);
-      font[0x41 * 8] = 0xFF;                     // glyph 'A', first row all dots
+      font[0x41 * 16] = 0xFF;                     // glyph 'A', first row all dots
       m.loadFont(font);
-      m.memory.writeByte(0x1000, 0x41);
+      // Cell 1: cell 0 carries the power-on cursor, which paints its whole cell.
+      m.memory.writeByte(0x1001, 0x41);
       m.tick();
       const px = new Uint32Array(m.pixels.buffer);
-      expect(px.some(p => p === 0xFFFFFFFF)).toBe(true);
+      // Glyph row 0 of cell 1 is the first scanline of the top character row.
+      const y = 8;
+      const x = 16 + 8;
+      expect(px[y * 672 + x]).toBe(0xFFFFFFFF);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('draws a descender from the glyph block\'s ninth and tenth rows', () => {
+    const m = new AcornSystemMachine('acorn-system5', null);
+    try {
+      // 'g' at &67 * 16: body in rows 0-7, its tail in rows 8-9. Drawing only
+      // the first eight rows drops the descender.
+      const font = new Uint8Array(2048);
+      font[0x67 * 16 + 8] = 0xF0;                 // descender row of 'g'
+      m.loadFont(font);
+      m.memory.writeByte(0x1001, 0x67);
+      m.tick();
+      const px = new Uint32Array(m.pixels.buffer);
+      // Cell row 0 starts at y=8, so the ninth glyph row is y=16.
+      expect(px[16 * 672 + 16 + 8]).toBe(0xFFFFFFFF);
     } finally {
       m.destroy();
     }

@@ -148,9 +148,12 @@ describe('Enterprise .epstate', () => {
     await expectExactResume({ make: () => machine('ep64', false), ext: '.epstate', before: 23, after: 19 });
   });
 
+  // The real ROMs boot EXOS and BASIC and run 400 + 100 frames three times
+  // over (file and refresh restores), which outlasts the 5 s default whenever
+  // the rest of the suite is sharing the machine.
   it.skipIf(!haveRoms)('resumes exactly on EXOS 2.1 with BASIC and EXDOS', async () => {
     await expectExactResume({ make: realMachine, ext: '.epstate', before: 400, after: 100 });
-  });
+  }, 60_000);
 
   it('refuses a damaged file and leaves the machine alone', async () => {
     await expectDamagedRefused(() => machine(), '.epstate');

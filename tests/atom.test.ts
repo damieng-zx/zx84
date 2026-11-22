@@ -1,7 +1,7 @@
 ﻿/**
  * Acorn Atom integration tests: registration, the 12 KB memory map, the PPI and
- * keyboard wiring, OCR mapping, native snapshots, and â€” when the Acorn ROMs are
- * in the MCP cache â€” a real boot to BASIC and a typed PRINT.
+ * keyboard wiring, OCR mapping, native snapshots, and — when the Acorn ROMs are
+ * in the MCP cache — a real boot to BASIC and a typed PRINT.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -257,7 +257,7 @@ describe('atom keyboard', () => {
     expect(k.shiftHeld).toBe(true);
     expect(k.readRow(5)).toBe(0x7E);
     k.releaseAll();
-    expect(k.pressChar('â‚¬')).toBe(false);
+    expect(k.pressChar('€')).toBe(false);
   });
 });
 
@@ -370,9 +370,9 @@ describe('atom on-screen keyboard', () => {
     // left/right arrow and COPY, the A row with CTRL and RETURN, the Z row with
     // two SHIFTs and REPT, then the space bar.
     expect(rows()).toEqual([
-      ['ESC', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', ':', 'â†‘', 'BREAK'],
-      ['â†”', 'COPY', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '@', '\\', 'DELETE'],
-      ['â†•', 'CTRL', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', '[', ']', 'RETURN'],
+      ['ESC', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', ':', '↑', 'BREAK'],
+      ['↔', 'COPY', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '@', '\\', 'DELETE'],
+      ['↕', 'CTRL', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', '[', ']', 'RETURN'],
       ['LOCK', 'SHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '.', '/', 'SHIFT', 'REPT'],
       [''],
     ]);
@@ -431,7 +431,7 @@ describe('atom on-screen keyboard', () => {
     expect(cells.get('4,5')).toBe('W');
     expect(cells.get('6,3')).toBe('A');
     expect(cells.get('1,5')).toBe('Z');
-    expect(cells.get('5,0')).toBe('â†‘');
+    expect(cells.get('5,0')).toBe('↑');
     expect(cells.get('9,0')).toBe('');
   });
 

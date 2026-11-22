@@ -144,6 +144,28 @@ shared `rom-manager` fetches, caches (IndexedDB), concatenates, and persists the
 generically; peripheral ROMs go through `AuxRomRequest` from your `prepare()`/
 `bootRoms()` hooks.
 
+### 8. The machine sheet and its pictures
+
+Every machine has a sheet under `docs/machines/` — start from `TEMPLATE.md` — and
+links from the README's table. It opens with two pictures: the machine at its
+boot prompt and the on-screen keyboard the pane draws (omit the picture where
+the machine has no keyboard contribution).
+
+Generate both rather than pasting screenshots:
+
+```
+npx tsx tools/machine-images.ts screen            # every machine's boot screen
+npx tsx tools/machine-images.ts keyboard          # needs `npx vite --port 5199`
+npx tsx tools/add-machine-images.ts               # put them in the sheets
+npx tsx tools/verify-machine-images.ts            # every reference resolves
+```
+
+Add the new machine to `SHOTS` in `tools/machine-images.ts` and to `PAIRS` in
+`tools/add-machine-images.ts` in the same commit, so the sheet and its pictures
+stay in step. Screens come straight from the machine's frame buffer; keyboards
+are the real faces captured headless through `tools/cdp.ts` (a Chromium-family
+browser is needed for those).
+
 ## What NOT to touch
 
 Nothing else. In particular: no edits to `src/cores/` (add a *new* core only if

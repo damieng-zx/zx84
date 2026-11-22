@@ -6,6 +6,11 @@ built around the Amstrad ASIC. zx84 emulates all five, with the discrete Gate
 Array and the Plus ASIC modelled separately, the uPD765A floppy controller
 shared with the Spectrum +3, and a small set of period add-ons.
 
+<p align="center">
+  <img src="../images/machines/amstrad-cpc.png" width="320" alt="The CPC 6128 at the Locomotive BASIC prompt"><br>
+  <img src="../images/machines/amstrad-cpc-keyboard.png" width="760" alt="The CPC 6128 keyboard, with its numeric keypad">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Amstrad |

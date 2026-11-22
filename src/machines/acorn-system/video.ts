@@ -55,7 +55,12 @@ export class AcornSystemVideo {
   paletteMode: 'pal' | 'measured' = 'pal';
 
   // 80x25 card
-  /** The character-generator ROM: 256 glyphs of 8 bytes. */
+  /**
+   * The character-generator ROM: 128 glyphs of 16 bytes. The first ten rows of
+   * each block are the cell — eight for the glyph body and two more for a
+   * descender — and the remaining six are unused. Indexing at 8 bytes instead
+   * lands mid-block and draws the wrong character.
+   */
   private font: Uint8Array | null = null;
 
   constructor(vdu: AcornSystemVduConfig, kind: 'teletext40' | 'mono80') {
@@ -151,8 +156,8 @@ export class AcornSystemVideo {
       const y0 = borderTop + row * cellHeight;
       for (let c = 0; c < cols; c++) {
         const cellAddr = (rowBase + c) & mask;
-        const code = videoRam[cellAddr];
-        const glyph = code * 8;
+        const code = videoRam[cellAddr] & 0x7F;
+        const glyph = code * 16;
         const x0 = borderLeft + c * cellWidth;
         const cursorCell = cursorOn && cellAddr === cursorAddr;
         for (let k = 0; k < cellHeight; k++) {
@@ -162,8 +167,9 @@ export class AcornSystemVideo {
             for (let d = 0; d < cellWidth; d++) px[base + d] = WHITE;
             continue;
           }
-          // The glyph is eight rows tall; the tenth scanline is the gap below it.
-          const bits = k < 8 ? font[glyph + k] : 0;
+          // Eight rows of glyph body, then the two descender rows the card
+          // reserves below it; a tenth scanline past the block is blank.
+          const bits = k < 10 ? font[glyph + k] : 0;
           if (bits === 0) continue;
           for (let d = 0; d < cellWidth; d++) {
             if ((bits >> (7 - d)) & 1) px[base + d] = WHITE;
