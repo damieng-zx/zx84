@@ -9,7 +9,7 @@ an optional EXDOS disk card, and an emulated FILE: device that runs bare EXOS
 programs straight from the host.
 
 <p align="center">
-  <img src="../images/machines/enterprise.png" width="320" alt="The Enterprise 128 showing its animated EXOS copyright screen">
+  <img src="../images/machines/enterprise.png" alt="The Enterprise 128 showing its animated EXOS copyright screen">
 </p>
 
 | | |

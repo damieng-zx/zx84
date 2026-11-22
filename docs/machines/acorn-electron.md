@@ -3,8 +3,8 @@
 Acorn's low-cost 6502 home computer, in which one custom chip (the ULA) does the work of the BBC Micro's video, sound, cassette, keyboard and ROM-paging hardware. zx84 emulates the base machine and the Plus 1 (cartridge slots, analogue and printer ports) and Plus 3 (WD1770 disc interface) expansions as Hardware-pane options.
 
 <p align="center">
-  <img src="../images/machines/acorn-electron.png" width="320" alt="The Acorn Electron at its BASIC prompt"><br>
-  <img src="../images/machines/acorn-electron-keyboard.png" width="760" alt="The Electron keyboard, with its function keys">
+  <img src="../images/machines/acorn-electron.png" alt="The Acorn Electron at its BASIC prompt"><br>
+  <img src="../images/machines/acorn-electron-keyboard.png" alt="The Electron keyboard, with its function keys">
 </p>
 
 | | |

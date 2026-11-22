@@ -42,6 +42,16 @@ for (const name of fs.readdirSync(DOCS)) {
       referenced.add(path.relative(IMAGES, resolved));
     }
   }
+
+  // Pictures are shown at their natural size: a width (or height) attribute
+  // rescales them, which is how the sheets first shipped with squashed keys.
+  for (const tag of text.match(/<img[^>]*>/g) ?? []) {
+    const scaled = /\s(width|height)="/.exec(tag);
+    if (scaled) {
+      const src = /\ssrc="([^"]+)"/.exec(tag)?.[1] ?? tag;
+      problems.push(`${name}: resized picture (${scaled[1]}=) "${src}"`);
+    }
+  }
 }
 
 for (const file of fs.readdirSync(IMAGES)) {

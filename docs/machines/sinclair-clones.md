@@ -7,8 +7,8 @@ tooling, but with their own timing, memory paging and a Beta Disk (TR-DOS) fitte
 on the board.
 
 <p align="center">
-  <img src="../images/machines/sinclair-clones.png" width="320" alt="The Pentagon 128 at its 128 menu"><br>
-  <img src="../images/machines/sinclair-clones-keyboard.png" width="760" alt="The Pentagon 128 keyboard">
+  <img src="../images/machines/sinclair-clones.png" alt="The Pentagon 128 at its 128 menu"><br>
+  <img src="../images/machines/sinclair-clones-keyboard.png" alt="The Pentagon 128 keyboard">
 </p>
 
 | | |

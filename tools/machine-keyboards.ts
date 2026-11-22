@@ -19,7 +19,7 @@ import type { Shot } from './machine-images.ts';
 
 const BASE = process.env.ZX84_DEV_URL ?? 'http://localhost:5199';
 /** Output width in CSS pixels; the face is scaled to fill it. */
-const TARGET_WIDTH = 1400;
+const TARGET_WIDTH = 860;
 
 /**
  * Strip the app down to the keyboard: no sidebars, screen or status bar, no
@@ -123,10 +123,13 @@ export async function captureKeyboards(shots: readonly Shot[], outDir: string): 
 
           const box = await page.rect('#keyboard-panel');
           if (!box || box.width < 10) throw new Error('no keyboard pane box');
+          // Capture at 1:1 — the viewport was already sized to TARGET_WIDTH, so
+          // the file is exactly that wide and a docs column never has to
+          // downscale it (resampling is what blurs the key legends).
           const png = await page.capture({
             x: Math.floor(box.x), y: Math.floor(box.y),
             width: Math.ceil(box.width), height: Math.ceil(box.height),
-          }, 1.5);
+          }, 1);
           fs.writeFileSync(file, png);
           console.log(`${shot.sheet}-keyboard.png  ${shot.model}  ${Math.round(box.width)}x${Math.round(box.height)}  ${png.length} bytes`);
           done = true;

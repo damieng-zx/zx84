@@ -6,8 +6,8 @@ emulates the 48K, 96K and 128K, booting the real system ROMs, with cassette
 loading, the FD1793 disk interface, the on-screen keyboard and screen OCR.
 
 <p align="center">
-  <img src="../images/machines/camputers-lynx.png" width="320" alt="The Lynx 48K at its prompt"><br>
-  <img src="../images/machines/camputers-lynx-keyboard.png" width="760" alt="The Lynx 48K keyboard, with its numeric keypad">
+  <img src="../images/machines/camputers-lynx.png" alt="The Lynx 48K at its prompt"><br>
+  <img src="../images/machines/camputers-lynx-keyboard.png" alt="The Lynx 48K keyboard, with its numeric keypad">
 </p>
 
 | | |

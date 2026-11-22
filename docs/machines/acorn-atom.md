@@ -6,8 +6,8 @@ lines. zx84 emulates the standard 2 KB machine and the everyday 12 KB RAM
 expansion, with the full 6847 text/semigraphic/graphics mode set.
 
 <p align="center">
-  <img src="../images/machines/acorn-atom.png" width="320" alt="The Acorn Atom at its ACORN ATOM banner"><br>
-  <img src="../images/machines/acorn-atom-keyboard.png" width="760" alt="The Atom keyboard, with its matrix legends">
+  <img src="../images/machines/acorn-atom.png" alt="The Acorn Atom at its ACORN ATOM banner"><br>
+  <img src="../images/machines/acorn-atom-keyboard.png" alt="The Atom keyboard, with its matrix legends">
 </p>
 
 | | |

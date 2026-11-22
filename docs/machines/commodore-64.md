@@ -3,8 +3,8 @@
 Commodore's 1982 6510-based home computer, the best-selling single computer model of all time. zx84 emulates the PAL machine and the NTSC one with a cycle-stolen VIC-II, the 6581 SID, both CIAs, the Datasette, a drive-level 1541, 1571 or 1581 disk drive that runs the real DOS ROM, cartridges and the 1351 mouse.
 
 <p align="center">
-  <img src="../images/machines/commodore-64.png" width="320" alt="The Commodore 64 at its BASIC banner"><br>
-  <img src="../images/machines/commodore-64-keyboard.png" width="760" alt="The Commodore 64 breadbin keyboard, with its function keys">
+  <img src="../images/machines/commodore-64.png" alt="The Commodore 64 at its BASIC banner"><br>
+  <img src="../images/machines/commodore-64-keyboard.png" alt="The Commodore 64 breadbin keyboard, with its function keys">
 </p>
 
 | | |

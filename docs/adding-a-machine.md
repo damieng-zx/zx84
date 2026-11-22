@@ -166,6 +166,16 @@ stay in step. Screens come straight from the machine's frame buffer; keyboards
 are the real faces captured headless through `tools/cdp.ts` (a Chromium-family
 browser is needed for those).
 
+Pictures are embedded **without** a `width` or `height` attribute, so each draws
+at its natural size and is never resampled. The keyboard captures are generated
+at the width of a docs column (`TARGET_WIDTH` in `tools/machine-keyboards.ts`),
+which keeps the key legends crisp; a larger capture would be scaled down by the
+renderer and blur them. `tools/verify-machine-images.ts` fails on any sheet that
+adds a size attribute back.
+
+`tools/check-readme-machines.ts` is the companion check for the README: it fails
+if a registered model id or a sheet on disk is not documented.
+
 ## What NOT to touch
 
 Nothing else. In particular: no edits to `src/cores/` (add a *new* core only if

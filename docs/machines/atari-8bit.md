@@ -7,8 +7,8 @@ the XL/XE machines, both TV standards, and runs the open-source AltirraOS and
 Altirra BASIC in place of Atari's firmware.
 
 <p align="center">
-  <img src="../images/machines/atari-8bit.png" width="320" alt="The Atari 800XL at the Altirra BASIC prompt"><br>
-  <img src="../images/machines/atari-8bit-keyboard.png" width="760" alt="The Atari 800XL keyboard, with its console keys">
+  <img src="../images/machines/atari-8bit.png" alt="The Atari 800XL at the Altirra BASIC prompt"><br>
+  <img src="../images/machines/atari-8bit-keyboard.png" alt="The Atari 800XL keyboard, with its console keys">
 </p>
 
 | | |

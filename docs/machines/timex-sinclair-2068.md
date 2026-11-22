@@ -9,8 +9,8 @@ machine in two TV standards, sharing its CPU, tape, snapshot and software toolin
 [TC2048](timex-computer-2048.md), whose SCLD video it reuses.
 
 <p align="center">
-  <img src="../images/machines/timex-sinclair-2068.png" width="320" alt="The Timex Sinclair 2068 at boot"><br>
-  <img src="../images/machines/timex-sinclair-2068-keyboard.png" width="760" alt="The TS2068 keyboard, with its cartridge and Spectrum keys">
+  <img src="../images/machines/timex-sinclair-2068.png" alt="The Timex Sinclair 2068 at boot"><br>
+  <img src="../images/machines/timex-sinclair-2068-keyboard.png" alt="The TS2068 keyboard, with its cartridge and Spectrum keys">
 </p>
 
 | | |

@@ -6,8 +6,8 @@ Disk ][ controller, the //e's memory management unit and auxiliary RAM, composit
 colour video, and a handful of period expansion cards.
 
 <p align="center">
-  <img src="../images/machines/apple-ii.png" width="320" alt="The Apple //e at its Apple II banner"><br>
-  <img src="../images/machines/apple-ii-keyboard.png" width="760" alt="The Apple //e keyboard, with its open and solid Apple keys">
+  <img src="../images/machines/apple-ii.png" alt="The Apple //e at its Apple II banner"><br>
+  <img src="../images/machines/apple-ii-keyboard.png" alt="The Apple //e keyboard, with its open and solid Apple keys">
 </p>
 
 | | |

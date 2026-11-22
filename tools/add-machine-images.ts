@@ -51,46 +51,67 @@ export const PAIRS: readonly ImagePair[] = [
   { sheet: 'commodore-vic-20', screen: 'The VIC-20 at its BASIC banner', keyboard: 'The VIC-20 breadbin keyboard' },
 ];
 
-/** Markdown for the pair: one centred row, screen first. */
+/**
+ * Markdown for the pair: one centred row, screen first. No width attribute —
+ * each picture draws at its natural size, so it is never resampled.
+ */
 function markdown(pair: ImagePair): string {
   const images = [
-    `<img src="${IMAGES}/${pair.sheet}.png" width="320" alt="${pair.screen}">`,
+    `<img src="${IMAGES}/${pair.sheet}.png" alt="${pair.screen}">`,
   ];
   if (pair.keyboard) {
-    images.push(`<img src="${IMAGES}/${pair.sheet}-keyboard.png" width="760" alt="${pair.keyboard}">`);
+    images.push(`<img src="${IMAGES}/${pair.sheet}-keyboard.png" alt="${pair.keyboard}">`);
   }
   return `<p align="center">\n  ${images.join('<br>\n  ')}\n</p>`;
 }
 
-/** Insert between the description and the specification table. */
-function apply(file: string, pair: ImagePair): boolean {
+/**
+ * Insert the block, or replace the one already there. Sheets are edited in
+ * place so a wording or sizing change reaches the six dozen existing files
+ * without hand-editing them.
+ */
+function apply(file: string, pair: ImagePair): 'added' | 'updated' | 'unchanged' {
   const text = fs.readFileSync(file, 'utf8');
-  if (text.includes(`${IMAGES}/${pair.sheet}.png`)) return false;
-
+  const block = markdown(pair);
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const lines = text.split(/\r?\n/);
+
+  // An existing block is the centred paragraph that holds this sheet's screen.
+  const screenAnywhere = `${IMAGES}/${pair.sheet}.png`;
+  const first = lines.findIndex((line) => line.includes(screenAnywhere));
+  if (first >= 0) {
+    let start = first;
+    while (start > 0 && !lines[start].startsWith('<p align')) start--;
+    let end = first;
+    while (end < lines.length && !lines[end].includes('</p>')) end++;
+    if (lines[start].startsWith('<p align') && end < lines.length) {
+      const current = lines.slice(start, end + 1).join(eol);
+      if (current === block.split('\n').join(eol)) return 'unchanged';
+      lines.splice(start, end - start + 1, ...block.split('\n'));
+      fs.writeFileSync(file, lines.join(eol));
+      return 'updated';
+    }
+  }
+
   const tableAt = lines.findIndex((line) => line.trim() === '| | |');
   if (tableAt < 2) throw new Error(`${file}: no specification table found`);
   let insertAt = tableAt;
   while (insertAt > 1 && lines[insertAt - 1].trim() === '') insertAt--;
 
-  lines.splice(insertAt, 0, '', ...markdown(pair).split('\n'));
+  lines.splice(insertAt, 0, '', ...block.split('\n'));
   fs.writeFileSync(file, lines.join(eol));
-  return true;
+  return 'added';
 }
 
-let changed = 0;
+const counts: Record<string, number> = { added: 0, updated: 0, unchanged: 0 };
 for (const pair of PAIRS) {
   const file = path.join(DOCS, `${pair.sheet}.md`);
   if (!fs.existsSync(file)) {
     console.error(`missing sheet: ${file}`);
     continue;
   }
-  if (apply(file, pair)) {
-    console.log(`updated ${pair.sheet}.md`);
-    changed++;
-  } else {
-    console.log(`already has images: ${pair.sheet}.md`);
-  }
+  const result = apply(file, pair);
+  counts[result]++;
+  if (result !== 'unchanged') console.log(`${result} ${pair.sheet}.md`);
 }
-console.log(`${changed} sheet(s) changed`);
+console.log(`${counts.added} added, ${counts.updated} updated, ${counts.unchanged} unchanged`);

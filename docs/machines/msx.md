@@ -3,8 +3,8 @@
 Toshiba's MSX1 home computer: a Z80, a TMS9929A video chip, an AY-3-8910-compatible sound chip and MSX BASIC in ROM, with four primary memory slots selected through an 8255 PPI. zx84 emulates the Toshiba HX-10 (PAL) and the Sony HB-55 (Japan, NTSC) and HB-55P (PAL), each with its cartridge slot, cassette interface and two joystick ports, plus an optional WD2793 floppy disk interface in the rear expansion slot.
 
 <p align="center">
-  <img src="../images/machines/msx.png" width="320" alt="The Toshiba HX-10 at the MSX BASIC boot screen"><br>
-  <img src="../images/machines/msx-keyboard.png" width="760" alt="The Toshiba HX-10 keyboard">
+  <img src="../images/machines/msx.png" alt="The Toshiba HX-10 at the MSX BASIC boot screen"><br>
+  <img src="../images/machines/msx-keyboard.png" alt="The Toshiba HX-10 keyboard">
 </p>
 
 | | |

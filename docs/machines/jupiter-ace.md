@@ -5,8 +5,8 @@ BASIC. zx84 emulates the 3 KB machine with its monochrome text ULA, piezo
 buzzer and cassette port, plus the official 16 KB and 48 KB RAM packs.
 
 <p align="center">
-  <img src="../images/machines/jupiter-ace.png" width="320" alt="The Ace at power-on: it clears to paper white and waits at the FORTH prompt for input"><br>
-  <img src="../images/machines/jupiter-ace-keyboard.png" width="760" alt="The Jupiter Ace keyboard, with its FORTH word legends">
+  <img src="../images/machines/jupiter-ace.png" alt="The Ace at power-on: it clears to paper white and waits at the FORTH prompt for input"><br>
+  <img src="../images/machines/jupiter-ace-keyboard.png" alt="The Jupiter Ace keyboard, with its FORTH word legends">
 </p>
 
 | | |
