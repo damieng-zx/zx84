@@ -31,6 +31,7 @@ import { AcornSystemMemory } from './memory.ts';
 import { AcornSystemVideo } from './video.ts';
 import { AcornSystemKeyboard } from './keyboard.ts';
 import { AcornSystemScreenText } from './screen-text.ts';
+import { AcornSystemFdc } from './fdc.ts';
 import { acornSystemDescriptor } from './descriptor.ts';
 import { createAcornSystemServices, type AcornSystemServices } from './services/index.ts';
 import {
@@ -64,6 +65,10 @@ export class AcornSystemMachine extends BaseMachine implements Machine {
   readonly video = new AcornSystemVideo();
   readonly keyboard = new AcornSystemKeyboard(this.pia);
   readonly screenText = new AcornSystemScreenText();
+  /** The 8271 card. Present in every machine object; only fitted to the model. */
+  readonly fdc = new AcornSystemFdc((asserted) => { if (asserted) this.cpu.nmi(); });
+  /** Whether the 8271 card is fitted (the System 3 and 4 have one). */
+  readonly diskFitted: boolean;
   /**
    * The CUTS cassette interface. Its transport is the recorder's own: the
    * computer has no motor relay (unlike the BBC's serial ULA), so the motor is
@@ -96,6 +101,8 @@ export class AcornSystemMachine extends BaseMachine implements Machine {
   constructor(model: AcornSystemModel, display?: IScreenRenderer | null) {
     super();
     this.model = model;
+    this.diskFitted = acornSystemModelInfo(model).disk;
+    this.memory.fdcFitted = this.diskFitted;
     this.display = display ?? null;
     // Nothing on a bare System 2 drives IRQ or NMI (the disc controller does on
     // a System 3); the hook is here for the interrupt log all the same.
@@ -142,7 +149,13 @@ export class AcornSystemMachine extends BaseMachine implements Machine {
     };
     memory.piaWrite = (offset, value) => pia.write(offset, value);
     memory.piaPeek = (offset) => pia.peek(offset);
+    memory.fdcRead = (offset) => this.fdc.read(offset);
+    memory.fdcWrite = (offset, value) => this.fdc.write(offset, value);
+    memory.fdcPeek = (offset) => this.fdc.peek(offset);
   }
+
+  /** The fitted 8271 card, or null on a System 2. */
+  get disk(): AcornSystemFdc | null { return this.diskFitted ? this.fdc : null; }
 
   attachHost(host: MachineHost): void { this.host = host; }
 
@@ -206,6 +219,7 @@ export class AcornSystemMachine extends BaseMachine implements Machine {
     this.cassette.reset();
     // No motor relay on this machine: the recorder's transport is live.
     this.cassette.setMotor(true, this.cpu.tStates);
+    if (this.diskFitted) this.fdc.reset();
     this.mixer.reset();
     this.audio.reset();
     this.needsDisplay = true;
@@ -259,6 +273,7 @@ export class AcornSystemMachine extends BaseMachine implements Machine {
       this.cpu.step();
       const stopped = this.afterInsn();
       this.cassette.step(this.cpu.tStates - before, this.cpu.tStates);
+      if (this.diskFitted) this.fdc.tick(this.cpu.tStates - before);
       if (!skipAudio) {
         // Silence still has to be fed: the frame loop paces itself on the buffer.
         this.mixer.accumulate(0, this.cpu.tStates - before);

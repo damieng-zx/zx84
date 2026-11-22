@@ -5,7 +5,8 @@
  *   0x0400-0x07FF  the teletext card's 1K character RAM
  *   0x0800-0x08FF  MC6845 CRTC: +0 register select, +1 data
  *   0x0900-0x09FF  second INS8154 socket on the CPU card (empty unless fitted)
- *   0x0A00-0x0AFF  floppy disc controller — not fitted on a System 2
+ *   0x0A00-0x0AFF  the 8271 floppy controller card (System 3 only): command/status,
+ *                  parameter/result, reset, and the data port at +4
  *   0x0C00-0x0CFF  Versatile Interface Board (6522 / 6850 / 8255) — not fitted
  *   0x0E00-0x0EFF  the CPU card's INS8154: keyboard on port B, cassette on port A,
  *                  its 128-byte RAM at 0x0E80-0x0EFF
@@ -22,9 +23,10 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
 import {
   ACORN_SYSTEM_BASIC_BASE, ACORN_SYSTEM_BASIC_SIZE, ACORN_SYSTEM_CARD_RAM_BASE,
-  ACORN_SYSTEM_CARD_RAM_SIZE, ACORN_SYSTEM_CRTC_BASE, ACORN_SYSTEM_OPEN_BUS,
-  ACORN_SYSTEM_PIA_BASE, ACORN_SYSTEM_RAM_SIZE, ACORN_SYSTEM_ROM_BASE, ACORN_SYSTEM_ROM_TOP,
-  ACORN_SYSTEM_VRAM_BASE, ACORN_SYSTEM_VRAM_SIZE,
+  ACORN_SYSTEM_CARD_RAM_SIZE, ACORN_SYSTEM_CRTC_BASE, ACORN_SYSTEM_FDC_BASE,
+  ACORN_SYSTEM_OPEN_BUS, ACORN_SYSTEM_PIA_BASE, ACORN_SYSTEM_RAM_SIZE,
+  ACORN_SYSTEM_ROM_BASE, ACORN_SYSTEM_ROM_TOP, ACORN_SYSTEM_VRAM_BASE,
+  ACORN_SYSTEM_VRAM_SIZE,
 } from './constants.ts';
 
 export class AcornSystemMemory implements IMachineMemory {
@@ -45,6 +47,11 @@ export class AcornSystemMemory implements IMachineMemory {
   crtcRead: (reg: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
   crtcWrite: (reg: number, value: number) => void = () => {};
   crtcPeek: (reg: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
+  /** The 8271 floppy controller card (System 3 only), addressed by the low byte. */
+  fdcFitted = false;
+  fdcRead: (offset: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
+  fdcWrite: (offset: number, value: number) => void = () => {};
+  fdcPeek: (offset: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
   /** The CPU card's INS8154, addressed by the low byte of 0x0E00-0x0EFF. */
   piaRead: (offset: number) => number = () => ACORN_SYSTEM_OPEN_BUS;
   piaWrite: (offset: number, value: number) => void = () => {};
@@ -72,6 +79,9 @@ export class AcornSystemMemory implements IMachineMemory {
     if (addr < ACORN_SYSTEM_VRAM_BASE) return this.mainRam[addr];
     if (addr < ACORN_SYSTEM_CRTC_BASE) return this.videoRam[addr - ACORN_SYSTEM_VRAM_BASE];
     if (addr < ACORN_SYSTEM_CRTC_BASE + 0x100) return this.crtcRead(addr & 1);
+    if (addr >= ACORN_SYSTEM_FDC_BASE && addr < ACORN_SYSTEM_FDC_BASE + 0x100) {
+      return this.fdcFitted ? this.fdcRead(addr & 0xFF) : ACORN_SYSTEM_OPEN_BUS;
+    }
     if (addr >= ACORN_SYSTEM_PIA_BASE && addr < ACORN_SYSTEM_PIA_BASE + 0x100) {
       return this.piaRead(addr & 0xFF);
     }
@@ -91,6 +101,9 @@ export class AcornSystemMemory implements IMachineMemory {
     if (addr < ACORN_SYSTEM_VRAM_BASE) return this.mainRam[addr];
     if (addr < ACORN_SYSTEM_CRTC_BASE) return this.videoRam[addr - ACORN_SYSTEM_VRAM_BASE];
     if (addr < ACORN_SYSTEM_CRTC_BASE + 0x100) return this.crtcPeek(addr & 1);
+    if (addr >= ACORN_SYSTEM_FDC_BASE && addr < ACORN_SYSTEM_FDC_BASE + 0x100) {
+      return this.fdcFitted ? this.fdcPeek(addr & 0xFF) : ACORN_SYSTEM_OPEN_BUS;
+    }
     if (addr >= ACORN_SYSTEM_PIA_BASE && addr < ACORN_SYSTEM_PIA_BASE + 0x100) {
       return this.piaPeek(addr & 0xFF);
     }
@@ -110,6 +123,10 @@ export class AcornSystemMemory implements IMachineMemory {
     if (addr < ACORN_SYSTEM_VRAM_BASE) { this.mainRam[addr] = v; return; }
     if (addr < ACORN_SYSTEM_CRTC_BASE) { this.videoRam[addr - ACORN_SYSTEM_VRAM_BASE] = v; return; }
     if (addr < ACORN_SYSTEM_CRTC_BASE + 0x100) { this.crtcWrite(addr & 1, v); return; }
+    if (addr >= ACORN_SYSTEM_FDC_BASE && addr < ACORN_SYSTEM_FDC_BASE + 0x100) {
+      if (this.fdcFitted) this.fdcWrite(addr & 0xFF, v);
+      return;
+    }
     if (addr >= ACORN_SYSTEM_PIA_BASE && addr < ACORN_SYSTEM_PIA_BASE + 0x100) {
       this.piaWrite(addr & 0xFF, v);
       return;

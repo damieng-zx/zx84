@@ -1,5 +1,5 @@
 /**
- * Acorn System 2 descriptor — pure metadata plus the machine factory.
+ * Acorn System descriptor — pure metadata plus the machine factory.
  *
  * Imported only by `registry.ts`; stays headless-safe (no solid-js, no reactive
  * state) because the MCP server, Node tests and the headless harness import it.
@@ -31,6 +31,7 @@ const SYSTEM_UI: MachineUiCapabilities = {
   colorMap: 'bbc',
   accuracy: false,
   builtinDisk: false,
+  builtinDrives: 2,
   joystick: false,
   fixedJoystick: false,
   mouseTypes: [],
@@ -44,7 +45,7 @@ const SYSTEM_UI: MachineUiCapabilities = {
   tape: 'deck',
   tapeSound: false,
   tapeExtensions: ACORN_TAPE_EXTENSIONS,
-  // Loading only: the CUTS output side is not recorded yet, so no 'tape-tap'.
+  // Loading only: the CUTS output side is not recorded, so no 'tape-tap'.
   saveMenu: ['screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
@@ -55,10 +56,18 @@ const SYSTEM_UI: MachineUiCapabilities = {
   memoryMappedIo: true,
 };
 
+/** A System 3 fits the 8271 card, so the Drive pane and its DISK LED apply. */
+const SYSTEM3_UI: MachineUiCapabilities = {
+  ...SYSTEM_UI,
+  builtinDisk: true,
+  statusLeds: ['kbd', 'text', 'dsk'],
+};
+
 export function acornSystemDescriptor(
   model: MachineModel,
   locale: MachineLocale = 'uk',
 ): MachineDescriptor {
+  const info = acornSystemModelInfo(model);
   return {
     kind: 'acorn-system',
     model,
@@ -73,28 +82,32 @@ export function acornSystemDescriptor(
       borderLeft: ACORN_SYSTEM_BORDER_LEFT,
       borderTop: ACORN_SYSTEM_BORDER_TOP,
     },
-    ui: { ...SYSTEM_UI, systemRomLabel: acornSystemModelInfo(model).romLabel },
+    ui: { ...(info.disk ? SYSTEM3_UI : SYSTEM_UI), systemRomLabel: info.romLabel },
   };
 }
 
 export const acornSystemEntry: MachineEntry = {
   kind: 'acorn-system',
-  models: ['acorn-system2'],
+  models: ['acorn-system2', 'acorn-system3'],
   descriptor: acornSystemDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new AcornSystemMachine(model as AcornSystemModel, display);
   },
-  // The COS/kernel is the system ROM; the resident BASIC is fetched separately
-  // by the machine's prepare() hook, since it lives on the memory card.
+  // The COS (2K) or the DOS/kernel (4K) is the system ROM; the resident BASIC
+  // is fetched separately by the machine's prepare() hook, since it lives on
+  // the memory card.
   romSources(model: MachineModel) {
     return [acornSystemModelInfo(model).romSource];
   },
   /**
-   * A raw drop is recognised by shape: 2K is the COS/kernel at &F800, 4K is a
-   * System DOS/kernel at &F000 (which this memory map also decodes, so a
-   * System 3 ROM boots to its prompt with no disc controller fitted).
+   * A raw drop is recognised by shape: 2K is the COS/kernel at &F800, 4K is
+   * the System DOS/kernel at &F000. The shape decides the model too, so a DOS
+   * lands on a System 3 (with the controller it expects) and a COS on a
+   * System 2.
    */
   detectModelForRom(data: Uint8Array): MachineModel | null {
-    return data.length === 0x800 || data.length === 0x1000 ? 'acorn-system2' : null;
+    if (data.length === 0x800) return 'acorn-system2';
+    if (data.length === 0x1000) return 'acorn-system3';
+    return null;
   },
 };

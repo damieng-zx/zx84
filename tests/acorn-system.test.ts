@@ -14,6 +14,7 @@ import { AcornSystemMachine } from '@/machines/acorn-system/machine.ts';
 import { systemBasicListing, systemBasicVariables } from '@/machines/acorn-system/basic.ts';
 import { acornSystemEntry } from '@/machines/acorn-system/descriptor.ts';
 import { buildUef, type UefChunk } from '@/media/tape/uef.ts';
+import { parseSsd } from '@/media/floppy/ssd.ts';
 import type { HostKeyEvent } from '@/machines/machine.ts';
 
 const chunk = (id: number, ...data: number[]): UefChunk => ({ id, data: Uint8Array.from(data) });
@@ -161,11 +162,11 @@ describe('Acorn System 2 registry entry', () => {
     expect(acornSystemEntry.romSources('acorn-system2')).toEqual(['acorn-system/syscos40.rom']);
   });
 
-  it('recognises a 2K COS or a 4K DOS by shape', () => {
+  it('recognises a 2K COS as a System 2 and a 4K DOS as a System 3', () => {
     expect(acornSystemEntry.detectModelForRom!(new Uint8Array(0x800), 'acorn-system2'))
       .toBe('acorn-system2');
     expect(acornSystemEntry.detectModelForRom!(new Uint8Array(0x1000), 'acorn-system2'))
-      .toBe('acorn-system2');
+      .toBe('acorn-system3');
     expect(acornSystemEntry.detectModelForRom!(new Uint8Array(0x400), 'acorn-system2'))
       .toBeNull();
   });
@@ -268,6 +269,101 @@ describe('System BASIC variables', () => {
       });
       expect(vars.some(v => v.name === 'I' && v.kind === 'number')).toBe(false);
       expect(vars).toHaveLength(26);            // the loop replaces, not adds
+    } finally {
+      m.destroy();
+    }
+  });
+});
+
+/**
+ * System 3: the same cards plus the 8271 controller at &0A00 and the DOS/kernel
+ * at &F000. The DOS's disc NMI handler reads the data port at +4 ("LDA &0A04"),
+ * not +3, and drives a 300-line READ DATA handshake through DRQ.
+ */
+describe('Acorn System 3 disc controller', () => {
+  /** A 40-track single-sided FM disc whose sector 0 holds `first`. */
+  function floppy(first: number) {
+    const raw = new Uint8Array(2560 * 40);
+    raw[0] = first;
+    raw[1] = 0x37;
+    return parseSsd(raw, false);
+  }
+
+  function system3(): AcornSystemMachine {
+    return new AcornSystemMachine('acorn-system3', null);
+  }
+
+  it('fits the card on a System 3 and not on a System 2', () => {
+    const two = new AcornSystemMachine('acorn-system2', null);
+    const three = system3();
+    try {
+      expect(two.disk).toBeNull();
+      expect(two.services.disks).toBeNull();
+      expect(two.descriptor.ui.builtinDisk).toBe(false);
+      // The card's address window reads as the floating bus with it absent.
+      expect(two.memory.readByte(0x0A00)).toBe(0x00);
+
+      expect(three.disk).not.toBeNull();
+      expect(three.services.disks?.drives.map(d => d.id)).toEqual(['a', 'b']);
+      expect(three.descriptor.ui.builtinDisk).toBe(true);
+    } finally {
+      two.destroy();
+      three.destroy();
+    }
+  });
+
+  it('reads a sector through the card at &0A00-&0A04', () => {
+    const m = system3();
+    try {
+      m.reset();
+      m.disk!.insertDisk(floppy(0x42), 0);
+
+      // READ DATA: command, then track, sector, count as parameters.
+      m.memory.writeByte(0x0A00, 0x12);
+      m.memory.writeByte(0x0A01, 0x00);
+      m.memory.writeByte(0x0A01, 0x00);
+      m.memory.writeByte(0x0A01, 0x01);
+      // Status: busy while the transfer runs.
+      expect(m.memory.readByte(0x0A00) & 0x80).toBe(0x80);
+
+      const bytes: number[] = [];
+      for (let i = 0; i < 256; i++) {
+        m.disk!.tick(80);                        // a data request apiece
+        bytes.push(m.memory.readByte(0x0A04));
+      }
+      expect(bytes[0]).toBe(0x42);
+      expect(bytes[1]).toBe(0x37);
+      expect(bytes[2]).toBe(0x00);
+
+      m.disk!.tick(80);                          // end of transfer
+      m.disk!.tick(60);                          // result settles
+      expect(m.memory.readByte(0x0A00) & 0x80).toBe(0x00);   // no longer busy
+      expect(m.memory.readByte(0x0A01)).toBe(0x00);          // completed, no error
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('mounts a .ssd into a drive and writes it back out', async () => {
+    const m = system3();
+    try {
+      const raw = new Uint8Array(2560 * 40);
+      const mounted = await m.services.media.mount(raw, 'blank.ssd');
+      expect(mounted).toMatchObject({ ok: true, target: 'a' });
+      expect(m.services.disks!.drives[0]).toMatchObject({ loaded: true, mediaName: 'blank.ssd' });
+      const saved = m.services.disks!.save('a');
+      expect(saved?.name).toBe('blank.ssd');
+      expect(saved?.data.length).toBe(raw.length);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('refuses a disc when no controller is fitted', async () => {
+    const m = new AcornSystemMachine('acorn-system2', null);
+    try {
+      const mounted = await m.services.media.mount(new Uint8Array(2560 * 40), 'x.ssd');
+      expect(mounted.ok).toBe(false);
     } finally {
       m.destroy();
     }

@@ -52,8 +52,10 @@ export const ACORN_SYSTEM_VRAM_BASE = 0x0400;
 export const ACORN_SYSTEM_VRAM_SIZE = 0x0400;
 /** MC6845: register select at +0, data at +1. */
 export const ACORN_SYSTEM_CRTC_BASE = 0x0800;
-/** The CPU card's INS8154: keyboard on port B. */
+/** The CPU card's INS8154: keyboard on port B, cassette on port A. */
 export const ACORN_SYSTEM_PIA_BASE = 0x0E00;
+/** The 8271 floppy controller card (System 3): command/status, param/result, reset, data. */
+export const ACORN_SYSTEM_FDC_BASE = 0x0A00;
 /** The 8K RAM + 8K ROM card: RAM at 0x2000, the 4K BASIC at 0xC000. */
 export const ACORN_SYSTEM_CARD_RAM_BASE = 0x2000;
 export const ACORN_SYSTEM_CARD_RAM_SIZE = 0x2000;
