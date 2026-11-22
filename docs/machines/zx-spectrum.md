@@ -116,7 +116,10 @@ Blank disks can be created for the +3 (DSK or HFE), +D (800K MGT or HFE) and
 Beta Disk.
 
 **Save menu exports:** SZX snapshot, Z80 snapshot, Saved tape (`.tzx`), PNG
-screenshot, `.scr` screen dump, RAM `.bin`.
+screenshot, `.scr` screen dump, RAM `.bin`. Models with an attribute per 8×1 line
+in hardware (the Timex Computer 2048, the Pentagon 1024's multicolour) also offer a
+multicolour `.mlt` and write the larger `.scr` sizes; see the
+[Timex Computer 2048](timex-computer-2048.md) page for the layouts.
 
 ---
 

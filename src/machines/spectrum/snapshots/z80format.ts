@@ -34,10 +34,12 @@ export interface Z80Result {
   frameTStates?: number;
   /** Source machine decoded from the hardware mode and the "modify hardware"
    *  flag (byte 37 bit 7: 48K→16K, 128K→+2, +3→+2A). Null for hardware this
-   *  emulator has no model for (SamRam, Pentagon, Scorpion, Timex, ...). */
+   *  emulator has no model for (SamRam, Scorpion, the TC2068/TS2068, ...). */
   sourceModel?: SpectrumModel | null;
   /** Byte 29 bit 2, "Issue 2 emulation". Reported for 48K-class snapshots only. */
   issue2?: boolean;
+  /** Byte 36 of a TC2048 (hardware mode 14) file: the last OUT to port 0xFF. */
+  timexDec?: number;
 }
 
 // ── Header parsing helpers ─────────────────────────────────────────────────
@@ -195,6 +197,8 @@ function is128KHardware(hwMode: number, version: number): boolean {
 
 /** Map hardware mode + "modify hardware" flag to an emulated model. */
 function sourceModelOf(hwMode: number, version: number, modify: boolean): SpectrumModel | null {
+  if (hwMode === 14) return 'tc2048';
+  if (hwMode === 15 || hwMode === 128) return 'ts2068';   // TC2068 (PAL), TS2068 (NTSC)
   if (hwMode === 7 || hwMode === 8) return modify ? 'zx128kplus2a' : 'zx128kplus3';
   if (hwMode === 13) return 'zx128kplus2a';
   if (hwMode === 12) return 'zx128kplus2';
@@ -407,7 +411,10 @@ export function loadZ80(
     }
 
     memory.load48KRAM(ram);
-    return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg, frameTStates, sourceModel, issue2 };
+    // A TC2048 file keeps its last OUT to port 0xFF in byte 36.
+    // (The 2068's port 0xF4 is not recorded in the format, so it comes back as 0: HOME.)
+    const timexDec = hwMode === 14 || hwMode === 15 || hwMode === 128 ? data[extBase + 4] : undefined;
+    return { is128K: false, port7FFD: 0, borderColor, ayRegs, ayCurrentReg, frameTStates, sourceModel, issue2, timexDec };
   }
 }
 
@@ -499,6 +506,8 @@ export function saveZ80(
   model?: SpectrumModel,
   /** Issue 2 keyboard emulation (byte 29 bit 2); written for 48K-class only. */
   issue2 = false,
+  /** The Timex port 0xFF value, written to byte 36 of a TC2048 file. */
+  timexDec = 0,
 ): Uint8Array {
   // ── 30-byte common header ──────────────────────────────────────────────
 
@@ -555,7 +564,8 @@ export function saveZ80(
   // Byte 4 (extBase+2): hardware mode
   // v3 hardware modes: 0=48K, 1=48K+IF1, 3=48K+MGT, 4=128K, 5=128K+IF1, 7=+3, 9=Pentagon, 12=+2, 13=+2A
   let hwMode: number;
-  if (!is128K) hwMode = 0;                         // 48K (16K: + modify flag)
+  if (model === 'tc2048') hwMode = 14;             // TC2048
+  else if (!is128K) hwMode = 0;                    // 48K (16K: + modify flag)
   else if (model === 'zx128kplus2a') hwMode = 13;
   else if (model === 'zx128kplus2') hwMode = 12;
   else if (model === 'pentagon128') hwMode = 9;
@@ -566,8 +576,9 @@ export function saveZ80(
   // Byte 5 (extBase+3): port 0x7FFD value (128K paging)
   extHeader[5] = is128K ? memory.port7FFD : 0;
 
-  // Byte 6 (extBase+4): interface 1 ROM paged (0 = no)
-  extHeader[6] = 0;
+  // Byte 6 (extBase+4): interface 1 ROM paged (0 = no); on a TC2048, the last
+  // OUT to port 0xFF.
+  extHeader[6] = model === 'tc2048' ? timexDec & 0xFF : 0;
 
   // Byte 7 (extBase+5): bit 7 = "modify hardware" (48K→16K here). The +2 and
   // +2A have their own hwMode values, so only the 16K needs the flag.

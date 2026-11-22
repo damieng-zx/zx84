@@ -10,6 +10,7 @@ import { zx8xLaunchHardware } from '@/library/zx8x-hardware.ts';
 import { loadFile } from '@/shell/media.ts';
 import { switchModel } from '@/shell/lifecycle.ts';
 import { currentModel } from '@/state/machine-state.ts';
+import { isZx8xModel, zx8xLibraryModel, zx8xTakesRamPack } from '../models.ts';
 import * as settings from '@/store/settings.ts';
 
 const RESULT_LIMIT = 500;
@@ -92,8 +93,8 @@ export function Zx8xLibraryBrowser() {
   const games = createMemo(() => {
     const value = catalog();
     const model = currentModel();
-    return value && (model === 'zx80' || model === 'zx81')
-      ? resolveZx8xGamesForModel(value, model)
+    return value && isZx8xModel(model)
+      ? resolveZx8xGamesForModel(value, zx8xLibraryModel(model))
       : [];
   });
 
@@ -315,7 +316,7 @@ export function Zx8xLibraryBrowser() {
   async function play(game: Zx8xGame): Promise<void> {
     if (loadingGame()) return;
     const model = currentModel();
-    if (game.model !== model) {
+    if (!isZx8xModel(model) || game.model !== zx8xLibraryModel(model)) {
       setError(`This title is for ${game.model.toUpperCase()}, not ${model.toUpperCase()}.`);
       return;
     }
@@ -335,6 +336,8 @@ export function Zx8xLibraryBrowser() {
         memotechHrg: settings.zx81MemotechHrg(),
         quickSilvaHrg: settings.zx81QuickSilvaHrg(),
       });
+      // A TS1500 has its 16K soldered in: there is no pack to fit or remove.
+      if (!zx8xTakesRamPack(model)) target.ram16k = settings.zx8x16kRam();
       const needsRebuild = settings.zx8x16kRam() !== target.ram16k
         || settings.zx81UdgRam() !== target.udgRam
         || settings.zx81Udg128Ram() !== target.udg128Ram

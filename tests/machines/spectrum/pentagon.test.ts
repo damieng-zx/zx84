@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { entryForModel } from '@/machines/registry.ts';
-import { MODEL_MENU, MODEL_LABELS, menuModels } from '@/ui/panes/model-menu.ts';
+import { MODEL_MENU, MODEL_LABELS, findMenuGroup, menuModels } from '@/ui/panes/model-menu.ts';
 import {
   is128kClass, isPlus2AClass, isPlusDCapable, isInterface1Capable, isInterface2Capable,
   isBetaDiskCapable, hasBuiltinBetaDisk, isPentagonClass, romPageSlotCount,
@@ -157,12 +157,14 @@ describe('Pentagon 128 — registry and menu', () => {
     expect(entryForModel('pentagon128').kind).toBe('spectrum');
   });
 
-  it('is listed under a Sinclair Clones group, not under Sinclair', () => {
-    const clones = MODEL_MENU.find(g => g.label === 'Sinclair Clones');
+  it('is listed in a Clones submenu inside Sinclair, not among the Sinclair models themselves', () => {
+    const sinclair = MODEL_MENU.find(g => g.label === 'Sinclair');
+    const clones = sinclair?.children?.find(g => g.label === 'Clones');
     expect(clones).toBeDefined();
     expect((clones!.children ?? []).map(i => i.value)).toEqual(['pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256']);
-    const sinclair = MODEL_MENU.find(g => g.label === 'Sinclair');
+    expect(findMenuGroup('sinclair-clones')).toBe(clones);
     expect((sinclair!.children ?? []).map(i => i.value)).not.toContain('pentagon128');
+    expect(MODEL_MENU.find(g => g.label === 'Sinclair Clones')).toBeUndefined();
     expect(menuModels()).toContain('pentagon128');
     expect(MODEL_LABELS.pentagon128).toBe('Pentagon 128');
   });

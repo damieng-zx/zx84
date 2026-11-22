@@ -5,6 +5,7 @@ import { setStatus } from '@/shell/context.ts';
 import { applyDisplaySettings } from '@/shell/settings.ts';
 import * as settings from '@/store/settings.ts';
 import { activeZx8x } from './active.ts';
+import { isZx81Class, zx8xTakesRamPack } from '../models.ts';
 import { PRINTER_DOTS } from '../zx-printer.ts';
 
 type HrgMode = 'udg' | 'udg128' | 'wrx' | 'memotech' | 'quicksilva';
@@ -145,22 +146,24 @@ function Printout() {
 export function Zx8xHardwareSection() {
   return (
     <>
-      <div class="multiface-row">
-        <label class="mf-check" title="Use 16KB RAM">
-          <input
-            type="checkbox"
-            checked={settings.zx8x16kRam()}
-            onChange={(event) => {
-              const value = (event.target as HTMLInputElement).checked;
-              settings.setZx8x16kRam(value);
-              settings.persistSetting('zx8x-16k-ram', value ? 'on' : 'off');
-              void switchModel(currentModel());
-            }}
-          />
-          16KB RAM
-        </label>
-      </div>
-      <Show when={currentModel() === 'zx81'}>
+      <Show when={zx8xTakesRamPack(currentModel())}>
+        <div class="multiface-row">
+          <label class="mf-check" title="Use 16KB RAM">
+            <input
+              type="checkbox"
+              checked={settings.zx8x16kRam()}
+              onChange={(event) => {
+                const value = (event.target as HTMLInputElement).checked;
+                settings.setZx8x16kRam(value);
+                settings.persistSetting('zx8x-16k-ram', value ? 'on' : 'off');
+                void switchModel(currentModel());
+              }}
+            />
+            16KB RAM
+          </label>
+        </div>
+      </Show>
+      <Show when={isZx81Class(currentModel())}>
         <For each={HRG_OPTIONS}>{option => (
           <div class="multiface-row">
             <label class="mf-check" title={option.title}>
@@ -175,7 +178,7 @@ export function Zx8xHardwareSection() {
         )}</For>
       </Show>
       <For each={ADD_ONS}>{addOn => (
-        <Show when={!addOn.zx81Only || currentModel() === 'zx81'}>
+        <Show when={!addOn.zx81Only || isZx81Class(currentModel())}>
           <div class="multiface-row">
             <label class="mf-check" title={addOn.title}>
               <input
@@ -188,7 +191,7 @@ export function Zx8xHardwareSection() {
           </div>
         </Show>
       )}</For>
-      <Show when={currentModel() === 'zx81' && settings.zx81ZxPrinter()}>
+      <Show when={isZx81Class(currentModel()) && settings.zx81ZxPrinter()}>
         <Printout />
       </Show>
     </>

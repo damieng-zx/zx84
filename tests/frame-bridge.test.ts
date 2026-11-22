@@ -95,13 +95,13 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     setLedEar: vi.fn(),
     setLedLoad: vi.fn(),
     setLedText: vi.fn(),
+    setDisplayColumns: vi.fn(),
     setLedBeep: vi.fn(),
     setLedAy: vi.fn(),
     setLedDsk: vi.fn(),
     setLedRainbow: vi.fn(),
     setLedMouse: vi.fn(),
     setLedTapeTurbo: vi.fn(),
-    setDisplayColumns: vi.fn(),
     setStatus: vi.fn(),
     setEmulationPaused: vi.fn(),
     setTracing: vi.fn(),
@@ -184,6 +184,7 @@ import {
 } from '@/frame-bridge.ts';
 import type { FontEntry } from '@/frame-bridge.ts';
 import { SpectrumFrameProbe } from '@/machines/spectrum/services/frame-probe.ts';
+import type { FrameProbe } from '@/machines/machine.ts';
 import { Z80DebugService } from '@/debug/z80/service.ts';
 
 // ── fontDataHash ─────────────────────────────────────────────────────────
@@ -516,6 +517,19 @@ describe('onFrame — LED thresholds', () => {
     emu.spectrum = specWithActivity({ attrWrites: 769 });
     onFrame();
     expect(emu.setLedRainbow).toHaveBeenCalledWith(true);
+  });
+
+  it('passes the display-columns readout through, and 0 for a machine that reports none', () => {
+    const s = specWithActivity({});
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setDisplayColumns).toHaveBeenLastCalledWith(0);
+    // A machine with two display widths (the C128) reports the one on screen.
+    const probe = (s as unknown as { services: { probe: FrameProbe } }).services.probe;
+    const sample = probe.sample.bind(probe);
+    probe.sample = (out) => { sample(out); out.columns = 80; };
+    onFrame();
+    expect(emu.setDisplayColumns).toHaveBeenLastCalledWith(80);
   });
 
   it('SMELL: setLedText is OR\'d with earReads — transcribe LED lights on tape EAR activity', () => {

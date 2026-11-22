@@ -1020,6 +1020,187 @@ canvas {
   font-size: calc(var(--u1) * 12);
 }
 
+/* ── Timex Computer 2048 face ────────────────────────────────────────────────
+   Traced from the machine: a black case ruled into a cell for each key, light
+   grey hard caps with the glyph at the top left, the keyword beside it and the
+   symbol-shift legend reversed out of a black strip at the foot; a black SYMBL
+   SHIFT; every case legend in white except the colour names. */
+.tck-bezel {
+  position: relative;
+  --u1: var(--keyboard-scene-px);
+  padding: 0;
+}
+/* Full-bleed case backdrop (see .kbd-bezel::before): nothing may declare
+   `container-type` between here and .keyboard-scene-frame. */
+.tck-bezel::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border-radius: calc(var(--u1) * 4);
+  border: 1px solid #000;
+  background: linear-gradient(180deg, #232326 0%, #151517 55%, #0e0e10 100%);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.08),
+    inset 0 0 18px rgba(0, 0, 0, 0.6),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+}
+/* The white rules: one ruled cell per key, drawn as a hairline outside each
+   cell so neighbouring cells share a single line. */
+.tck-cell {
+  box-shadow: 0 0 0 calc(var(--u1) * 0.45) rgba(240, 240, 236, 0.78);
+}
+.tck-above, .tck-below {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--font-ui);
+  color: #f3f3f0;
+  text-align: center;
+  white-space: nowrap;
+  overflow: visible;
+}
+.tck-above { justify-content: space-between; padding: calc(var(--u1) * 2) 0 calc(var(--u1) * 1.5); }
+.tck-below { justify-content: center; }
+.tck-colour, .tck-word {
+  font-size: calc(var(--u1) * 7.4);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  line-height: 1;
+}
+.tck-colour { font-size: calc(var(--u1) * 7); color: #f3f3f0; }
+.tck-arrow { width: calc(var(--u1) * 12); height: calc(var(--u1) * 6); fill: #f3f3f0; }
+.tck-arrow--vertical { width: calc(var(--u1) * 6); height: calc(var(--u1) * 12); margin-block: calc(var(--u1) * -1.5); }
+
+/* Caps */
+.tck-key {
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  font-family: var(--font-ui);
+  color: #17171a;
+  border: 1px solid #060607;
+  border-radius: calc(var(--u1) * 2.2);
+  background: linear-gradient(180deg, #f1f1ee 0%, #dcdcd8 55%, #c9c9c5 100%);
+  box-shadow:
+    inset 0 calc(var(--u1) * 0.8) 0 rgba(255, 255, 255, 0.9),
+    inset 0 calc(var(--u1) * -1.6) calc(var(--u1) * 1.6) rgba(0, 0, 0, 0.2),
+    0 calc(var(--u1) * 0.8) calc(var(--u1) * 1.4) rgba(0, 0, 0, 0.85);
+  transition: background 0.08s ease, box-shadow 0.05s ease, transform 0.05s ease;
+}
+.tck-key:hover { background: linear-gradient(180deg, #fafaf8 0%, #e6e6e2 55%, #d3d3cf 100%); }
+.tck-key.pressed {
+  background: linear-gradient(180deg, #b9b9b5 0%, #a9a9a5 100%);
+  box-shadow: inset 0 calc(var(--u1) * 1.2) calc(var(--u1) * 2) rgba(0, 0, 0, 0.45);
+  transform: translateY(calc(var(--u1) * 0.8));
+}
+.tck-key--dark {
+  color: #f3f3f0;
+  background: linear-gradient(180deg, #3a3a3e 0%, #232326 55%, #151517 100%);
+  border-color: #8d8d89;
+  box-shadow:
+    inset 0 calc(var(--u1) * 0.6) 0 rgba(255, 255, 255, 0.22),
+    0 calc(var(--u1) * 0.8) calc(var(--u1) * 1.4) rgba(0, 0, 0, 0.85);
+}
+.tck-key--dark:hover { background: linear-gradient(180deg, #46464b 0%, #2c2c30 55%, #1b1b1e 100%); }
+.tck-key--dark.pressed { background: linear-gradient(180deg, #111113 0%, #0b0b0c 100%); }
+
+.tck-main {
+  position: absolute;
+  top: calc(var(--u1) * 1);
+  left: calc(var(--u1) * 4);
+  font-size: calc(var(--u1) * 11.5);
+  font-weight: 700;
+  line-height: 1;
+}
+.tck-keyword {
+  position: absolute;
+  top: calc(var(--u1) * 6);
+  left: calc(var(--u1) * 14);
+  right: calc(var(--u1) * 0.5);
+  font-size: calc(var(--u1) * 6);
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  letter-spacing: 0.1px;
+}
+.tck-strip {
+  position: absolute;
+  left: calc(var(--u1) * 2);
+  right: calc(var(--u1) * 2);
+  bottom: calc(var(--u1) * 2);
+  height: calc(var(--u1) * 7.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0c0c0e;
+  color: #f3f3f0;
+  font-size: calc(var(--u1) * 6);
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+/* The block-graphics swatch printed beside the digit, in black on the cap. */
+.tck-block {
+  position: absolute;
+  top: calc(var(--u1) * 5);
+  left: calc(var(--u1) * 15);
+  width: calc(var(--u1) * 6);
+  height: calc(var(--u1) * 6);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  border: 1px solid #2a2a2d;
+}
+.tck-block i { background: transparent; }
+.tck-block i.on { background: #1c1c1f; }
+.tck-block.block-empty { background: #1c1c1f; }
+
+.tck-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--u1) * 6.6);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.2px;
+}
+.tck-key--space { border-radius: calc(var(--u1) * 2.5); }
+
+/* Timex 2068: the same keys on a silver case printed in black, the colour names
+   on a black band across the top of the number row, and darker grey caps. */
+.tck-bezel--2068::before {
+  border-color: #6e6e6c;
+  background: linear-gradient(180deg, #d9d9d6 0%, #c9c9c6 55%, #bcbcb9 100%);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.6),
+    inset 0 0 18px rgba(0, 0, 0, 0.12),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.tck-bezel--2068 .tck-cell { box-shadow: 0 0 0 calc(var(--u1) * 0.45) rgba(70, 70, 70, 0.55); }
+.tck-bezel--2068 .tck-above,
+.tck-bezel--2068 .tck-below { color: #1a1a1c; }
+.tck-bezel--2068 .tck-arrow { fill: #1a1a1c; }
+.tck-bezel--2068 .tck-above { padding-top: 0; }
+.tck-bezel--2068 .tck-colour {
+  align-self: stretch;
+  padding: calc(var(--u1) * 1.5) 0;
+  background: #121214;
+  color: #f3f3f0;
+}
+.tck-bezel--2068 .tck-key:not(.tck-key--dark) {
+  border-color: #3c3c3e;
+  background: linear-gradient(180deg, #b7b7b4 0%, #a2a2a0 55%, #929290 100%);
+  box-shadow:
+    inset 0 calc(var(--u1) * 0.8) 0 rgba(255, 255, 255, 0.55),
+    inset 0 calc(var(--u1) * -1.6) calc(var(--u1) * 1.6) rgba(0, 0, 0, 0.2),
+    0 calc(var(--u1) * 0.8) calc(var(--u1) * 1.4) rgba(0, 0, 0, 0.55);
+}
+.tck-bezel--2068 .tck-key:not(.tck-key--dark):hover { background: linear-gradient(180deg, #c3c3c0 0%, #adadab 55%, #9c9c9a 100%); }
+.tck-bezel--2068 .tck-key:not(.tck-key--dark).pressed { background: linear-gradient(180deg, #8a8a88 0%, #7c7c7a 100%); }
+
 /* ── Spectrum + / 128K hard keyboard ──────────────────────────────────── */
 /* A flush, uniform-height hard-key layout. Every legend is printed inside the
    keycap (no bezel trim, logo or rainbow). ENTER is the L-shaped Sinclair
@@ -1455,6 +1636,98 @@ canvas {
   top: calc(var(--u1) * 3); bottom: auto; right: calc(var(--u1) * 3.5);
 }
 .zxk--zx80 .zxk-block rect { fill: #f2c53d; }
+
+/* ── Timex Sinclair 1500 face ───────────────────────────────────────────────
+   Traced from the machine: a silver case, mid-grey caps with the glyph in white at the top, the shifted symbol and a
+   small black legend (EDIT, STOP, THEN…) at the bottom-left beside a light block
+   swatch, and the keyword above / function word below the key printed in black on
+   the case. SHIFT and SPACE are wide; ENTER and FUNCTION share one key. */
+.zxk--ts1500 {
+  --case: linear-gradient(180deg, #d0d3d7 0%, #bcbfc4 40%, #adb0b6 100%);
+}
+.zxk--ts1500::before {
+  box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+/* Case legends: black keyword above, dark-grey function word below, both centred. */
+.zxk--ts1500 .zxk-above, .zxk--ts1500 .zxk-below {
+  justify-content: center; text-align: center;
+  font-weight: 600; letter-spacing: 0;
+}
+.zxk--ts1500 .zxk-above { color: #101114; }
+.zxk--ts1500 .zxk-below { color: #34363b; }
+
+/* Caps: mid-grey with a lit top edge and a dark underside. */
+.zxk--ts1500 .zxk-key {
+  background: linear-gradient(180deg, #8b8f96 0%, #7c8087 55%, #71757c 100%);
+  border-radius: calc(var(--u1) * 3);
+  box-shadow:
+    inset 0 calc(var(--u1) * 1) 0 rgba(255, 255, 255, 0.32),
+    inset 0 calc(var(--u1) * -1.2) 0 rgba(0, 0, 0, 0.28),
+    0 calc(var(--u1) * 1) calc(var(--u1) * 1.5) rgba(0, 0, 0, 0.35);
+}
+.zxk--ts1500 .zxk-key:hover { background: linear-gradient(180deg, #999da4 0%, #8a8e95 55%, #7f838a 100%); }
+.zxk--ts1500 .zxk-key.pressed { background: linear-gradient(180deg, #686c73 0%, #62666d 100%); box-shadow: inset 0 calc(var(--u1) * 1) calc(var(--u1) * 2) rgba(0, 0, 0, 0.4); }
+
+/* The glyph: large and white, top of the cap, a little left of centre. */
+.zxk--ts1500 .zxk-main {
+  top: calc(var(--u1) * 2.5); bottom: auto; left: 0; width: 84%;
+  text-align: center;
+  font-size: calc(var(--u1) * 15); font-weight: 700; line-height: 1;
+  color: #f6f7f8; text-shadow: 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.zxk--ts1500 .zxk-key--num .zxk-main { font-feature-settings: 'zero' 1; }
+
+/* The shifted symbol or word, and EDIT / AND / THEN…: small and black at the
+   bottom-left, beside the swatch. A key with no swatch centres it under the glyph. */
+.zxk--ts1500 .zxk-capfn, .zxk--ts1500 .zxk-shift {
+  top: auto; bottom: calc(var(--u1) * 3.5); left: calc(var(--u1) * 3.5); right: auto;
+  width: auto; max-width: 62%; text-align: left;
+  font-size: calc(var(--u1) * 5.5); font-weight: 700; letter-spacing: 0;
+  color: #101114; overflow: visible;
+}
+.zxk--ts1500 .zxk-shift--sym { font-size: calc(var(--u1) * 8); top: auto; }
+.zxk--ts1500 .zxk-key--plain .zxk-capfn, .zxk--ts1500 .zxk-key--plain .zxk-shift {
+  left: 0; width: 84%; max-width: none; text-align: center;
+}
+/* Cursor arrows: a small solid arrow at the bottom-left. */
+.zxk--ts1500 .zxk-arrow {
+  position: absolute; left: calc(var(--u1) * 4); bottom: calc(var(--u1) * 3.5);
+  width: calc(var(--u1) * 7); height: calc(var(--u1) * 8); fill: #101114;
+}
+/* The block swatch: a light square, its quadrants dark. */
+.zxk--ts1500 .zxk-block {
+  right: calc(var(--u1) * 3.5); bottom: calc(var(--u1) * 3.5);
+  width: calc(var(--u1) * 9); height: calc(var(--u1) * 9);
+  background: #e6e8ea; border-color: #26272b;
+}
+.zxk--ts1500 .zxk-block rect { fill: #26272b; }
+
+/* Word keys. SHIFT: black, centred. SPACE: the word in white over the pound sign.
+   ENTER over FUNCTION: two small white lines. */
+.zxk--ts1500 .zxk-key--label .zxk-main {
+  left: 0; width: 100%; font-size: calc(var(--u1) * 6.5); font-weight: 700;
+  color: #f6f7f8; line-height: 1.2;
+}
+.zxk--ts1500 .zxk-key--mod .zxk-main {
+  top: 50%; bottom: auto; transform: translateY(-50%);
+  font-size: calc(var(--u1) * 8); color: #101114; text-shadow: none;
+}
+.zxk--ts1500 .zxk-key--label:not(.zxk-key--mod) .zxk-main {
+  top: calc(var(--u1) * 5); font-size: calc(var(--u1) * 7);
+}
+.zxk--ts1500 .zxk-key--label:not(.zxk-key--mod):not(:has(.zxk-shift)) .zxk-main {
+  top: 50%; transform: translateY(-50%); font-size: calc(var(--u1) * 6);
+}
+/* The full-stop key prints "." and "," side by side. */
+.zxk--ts1500 .zxk-key--dot .zxk-main {
+  top: 50%; transform: translateY(-50%); left: 22%; width: auto;
+  font-size: calc(var(--u1) * 12);
+}
+.zxk--ts1500 .zxk-key--dot .zxk-shift {
+  top: 50%; bottom: auto; transform: translateY(-50%);
+  left: auto; right: 22%; width: auto;
+  font-size: calc(var(--u1) * 12); color: #f6f7f8;
+}
 
 /* ── Jupiter Ace keyboard ──────────────────────────────────────────────────
    The Spectrum 48K's layout on the Ace's own case: white plastic, "very dark
@@ -2797,6 +3070,13 @@ input[type="range"]::-moz-range-thumb {
   left: 100%;
   max-height: calc(100vh - 16px);
   overflow-y: auto;
+}
+/* Only a leaf submenu may scroll. Any overflow but visible clips both axes, so a
+   submenu holding further flyouts (Sinclair > Timex) would trap them, which sit
+   outside it at left: 100%, in a scrolling box instead of letting them pop out. */
+.ddmenu-sub:has(.ddmenu-parent) {
+  max-height: none;
+  overflow: visible;
 }
 .ddmenu-parent:hover > .ddmenu-sub {
   display: block;

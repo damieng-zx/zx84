@@ -15,7 +15,7 @@
 import type { JSX } from 'solid-js';
 import { Show, createEffect, onMount, onCleanup } from 'solid-js';
 import {
-  collapsedPanes, toggleCollapsed, registerResetter, unregisterResetter,
+  isFolded, toggleCollapsed, registerResetter, unregisterResetter,
   paneFloat, setPaneFloat, dockPane, inResizeGrip,
 } from '@/ui/panes.ts';
 
@@ -23,6 +23,18 @@ import {
 const KEEP_ON_SCREEN = 120;
 /** Pointer travel before a press on the title bar counts as a drag. */
 const DRAG_THRESHOLD = 4;
+
+/**
+ * The box a docked pane floats out as. A folded pane is only its title bar tall,
+ * so it takes the height of the content it was hiding instead; the case would
+ * otherwise come out squashed into a strip.
+ */
+function tornOutBox(pane: HTMLElement, rect: DOMRect) {
+  const content = pane.classList.contains('collapsed')
+    ? pane.querySelector<HTMLElement>('.pane-content-inner')?.scrollHeight ?? 0
+    : 0;
+  return { x: rect.left, y: rect.top, width: rect.width, height: Math.max(rect.height, content) };
+}
 
 interface PaneProps {
   id: string;
@@ -100,9 +112,7 @@ export function Pane(props: PaneProps) {
         // Tear a docked pane out exactly where it stands, so it does not jump
         // out from under the pointer on the first move.
         if (!float()) {
-          setPaneFloat(props.id, {
-            x: rect.left, y: rect.top, width: rect.width, height: rect.height,
-          });
+          setPaneFloat(props.id, tornOutBox(pane, rect));
         }
       }
       const maxX = window.innerWidth - KEEP_ON_SCREEN;
@@ -186,7 +196,7 @@ export function Pane(props: PaneProps) {
         class={[
           'pane',
           props.mono ? 'pane--mono' : '',
-          collapsedPanes().has(props.id) ? 'collapsed' : '',
+          isFolded(props.id) ? 'collapsed' : '',
           props.floatable ? 'pane--floatable' : '',
           float() ? 'pane--floating' : '',
         ].filter(Boolean).join(' ')}
@@ -216,9 +226,7 @@ export function Pane(props: PaneProps) {
               if (float() || !pane) dockPane(props.id);
               else {
                 const rect = pane.getBoundingClientRect();
-                setPaneFloat(props.id, {
-                  x: rect.left, y: rect.top, width: rect.width, height: rect.height,
-                });
+                setPaneFloat(props.id, tornOutBox(pane, rect));
               }
             }}
           >

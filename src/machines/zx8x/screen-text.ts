@@ -15,11 +15,16 @@ function cells(mem: Uint8Array, model: Zx8xModel): string[] {
   if (pointer < 0x4000 || pointer >= 0x8000) return result;
   if (mem[pointer] === 0x76) pointer++;
   for (let row = 0; row < ROWS && pointer < 0x8000; row++) {
-    for (let col = 0; col < COLS && pointer < 0x8000; col++) {
+    let col = 0;
+    for (; col < COLS && pointer < 0x8000; col++) {
       const value = mem[pointer++];
       if (value === 0x76) break;
       result[row * COLS + col] = zx8xChar(model, value);
     }
+    // A row that filled all 32 columns (every row of the expanded display a
+    // machine with 16K builds) still has its terminator ahead: skip it, or it
+    // reads as the next row and every row after shifts down.
+    if (col === COLS && pointer < 0x8000 && mem[pointer] === 0x76) pointer++;
   }
   return result;
 }

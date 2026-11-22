@@ -11,7 +11,8 @@
 
 import type { CartridgeSlot, MachineHost, RomService, RomSlotInfo } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
-import { romPageSlotCount, defaultRomPageLabel, isInterface2Capable, type RomPage } from '@/machines/spectrum/models.ts';
+import { romPageSlotCount, defaultRomPageLabel, isInterface2Capable, isTimex2068Class, type RomPage } from '@/machines/spectrum/models.ts';
+import { parseDck } from '@/machines/spectrum/peripherals/timex-dock.ts';
 import { BANK_SIZE } from '@/utils/bank-size.ts';
 
 class If2CartridgeSlot implements CartridgeSlot {
@@ -35,11 +36,36 @@ class If2CartridgeSlot implements CartridgeSlot {
   }
 }
 
+/** The Timex 2068's dock connector: a `.dck` cartridge supplies chunks of DOCK, EXROM
+ *  and HOME memory (see timex-dock.ts). Like the Interface 2, it is plugged in with
+ *  the power off, so the machine restarts with it. A file that is not a cartridge
+ *  throws before anything is changed. */
+class TimexDockSlot implements CartridgeSlot {
+  constructor(private readonly s: Spectrum) {}
+
+  get name(): string { return this.s.memory.timexMmu?.cart?.name ?? ''; }
+
+  insert(data: Uint8Array, name: string): void {
+    const cart = parseDck(data, name);
+    this.s.stop();
+    this.s.memory.timexMmu?.setCartridge(cart);
+    this.s.reset();
+  }
+
+  eject(): void {
+    this.s.stop();
+    this.s.memory.timexMmu?.setCartridge(null);
+    this.s.reset();
+  }
+}
+
 export class SpectrumRomService implements RomService {
   private readonly if2: If2CartridgeSlot;
+  private readonly dock: TimexDockSlot;
 
   constructor(private readonly s: Spectrum, private readonly host: () => MachineHost | null) {
     this.if2 = new If2CartridgeSlot(s);
+    this.dock = new TimexDockSlot(s);
   }
 
   get systemSlots(): readonly RomSlotInfo[] {
@@ -101,6 +127,7 @@ export class SpectrumRomService implements RomService {
   }
 
   get cartridge(): CartridgeSlot | null {
+    if (isTimex2068Class(this.s.model)) return this.dock;
     return isInterface2Capable(this.s.model) ? this.if2 : null;
   }
 }

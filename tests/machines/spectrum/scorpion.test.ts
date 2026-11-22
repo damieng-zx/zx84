@@ -21,7 +21,7 @@ import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { loadSZX, saveSZXSync, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
 import { entryForModel } from '@/machines/registry.ts';
-import { MODEL_MENU } from '@/ui/panes/model-menu.ts';
+import { findMenuGroup } from '@/ui/panes/model-menu.ts';
 import { bootWaitPc } from '@/machines/spectrum/boot-trap.ts';
 import {
   isScorpionClass, is128kClass, isPlus2AClass, hasBuiltinBetaDisk, betaRomInSystemRom,
@@ -383,8 +383,8 @@ describe('Scorpion — registry and menu', () => {
     expect(entryForModel('scorpion256').romSources('scorpion256')).toEqual(['clones/scorpion-zs256-v25c.rom']);
   });
 
-  it('is listed in the Sinclair Clones group', () => {
-    const clones = MODEL_MENU.find(g => g.label === 'Sinclair Clones');
+  it('is listed in the Clones submenu', () => {
+    const clones = findMenuGroup('sinclair-clones');
     expect((clones!.children ?? []).map(i => i.value)).toContain('scorpion256');
   });
 

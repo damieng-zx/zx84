@@ -17,6 +17,7 @@ import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import { tapeBlockInfo } from '@/machines/shared/tape-block-info.ts';
 import type { Zx8xMachine } from '../zx8x-machine.ts';
 import { ZX8X_CPU_CLOCK } from '../constants.ts';
+import type { Zx8xModel } from '../models.ts';
 import { programNameFromFilename } from '../tape-shelf.ts';
 import { zx81NameToAscii } from '../tape-shelf.ts';
 import {
@@ -40,7 +41,7 @@ export function splitP81(data: Uint8Array): { name: Uint8Array; payload: Uint8Ar
 
 /** Program images each model's LOAD takes (.o/.80 on the ZX80, .p/.81/.p81
  *  on the ZX81). */
-export function isZx8xProgramFile(model: 'zx80' | 'zx81', filename: string): boolean {
+export function isZx8xProgramFile(model: Zx8xModel, filename: string): boolean {
   return model === 'zx80' ? /\.(o|80)$/i.test(filename) : /\.(p|81|p81)$/i.test(filename);
 }
 
@@ -51,7 +52,7 @@ export function isZx8xProgramFile(model: 'zx80' | 'zx81', filename: string): boo
  * For an image, `program` is what is on it: the image up to its E_LINE, or
  * the whole image when it does not hold a plausible E_LINE.
  */
-export function zx8xTapeBlocks(model: 'zx80' | 'zx81', data: Uint8Array, filename: string): { blocks: TapeBlock[]; program?: Zx8xDeckProgram } {
+export function zx8xTapeBlocks(model: Zx8xModel, data: Uint8Array, filename: string): { blocks: TapeBlock[]; program?: Zx8xDeckProgram } {
   if (/\.tzx$/i.test(filename)) return { blocks: parseTZX(data) };
   if (/\.wav$/i.test(filename)) {
     const blocks = wavToPulseBlocks(data);
@@ -60,7 +61,7 @@ export function zx8xTapeBlocks(model: 'zx80' | 'zx81', data: Uint8Array, filenam
   }
   let nameCodes: Uint8Array | null = null;
   let payload = data;
-  if (model === 'zx81') {
+  if (model !== 'zx80') {
     const split = /\.p81$/i.test(filename) ? splitP81(data) : null;
     nameCodes = split ? split.name : asciiToZx81Name(programNameFromFilename(filename));
     if (split) payload = split.payload;

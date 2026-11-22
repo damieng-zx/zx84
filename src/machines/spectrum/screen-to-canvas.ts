@@ -11,6 +11,7 @@
  */
 
 import { PALETTES, vramBitmapAddr, type ColorMap } from '@/machines/spectrum/ula.ts';
+import { decodeExtendedScreen, type ScreenExtension } from '@/machines/spectrum/screen-formats.ts';
 
 export const SCR_WIDTH = 256;
 export const SCR_HEIGHT = 192;
@@ -18,10 +19,29 @@ export const SCR_HEIGHT = 192;
 const ATTR_OFFSET = 6144;   // 0x1800 — attributes follow the bitmap in a .scr
 
 /**
- * Draw `scr` onto `canvas` (resized to 256×192). Returns false if the data isn't
- * a recognisable SCR dump (caller can then show a fallback).
+ * Draw `scr` onto `canvas` (resized to 256×192, or 512×192 for a Timex hi-res
+ * dump). `ext` is the file's extension: a 12288-byte `.mlt` lays its attributes
+ * out differently from a 12288-byte `.scr`. Returns false if the data isn't a
+ * recognisable dump (caller can then show a fallback).
  */
-export function renderScreenToCanvas(scr: Uint8Array, canvas: HTMLCanvasElement, colorMap: ColorMap = 'basic'): boolean {
+export function renderScreenToCanvas(
+  scr: Uint8Array, canvas: HTMLCanvasElement, colorMap: ColorMap = 'basic', ext: ScreenExtension = 'scr',
+): boolean {
+  const extended = decodeExtendedScreen(scr, ext, PALETTES[colorMap]);
+  if (extended) {
+    canvas.width = extended.width;
+    canvas.height = extended.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    const img = ctx.createImageData(extended.width, extended.height);
+    img.data.set(extended.pixels);
+    ctx.putImageData(img, 0, 0);
+    // A hi-res pixel is half the width of a normal one: the canvas is shown at the
+    // normal picture's width, so let the browser smooth the halving.
+    canvas.style.imageRendering = extended.width > SCR_WIDTH ? 'auto' : '';
+    return true;
+  }
+  canvas.style.imageRendering = '';
   if (scr.length < ATTR_OFFSET) return false;
   canvas.width = SCR_WIDTH;
   canvas.height = SCR_HEIGHT;
