@@ -156,6 +156,12 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/acorn-system/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  oric: {
+    HardwareSection: lazy(() =>
+      import('@/machines/oric/ui/hardware-section.tsx').then(m => ({ default: m.OricHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/oric/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
 };
 
 /** The UI contributions for a machine kind (empty object when none registered). */

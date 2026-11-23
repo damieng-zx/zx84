@@ -660,7 +660,15 @@ canvas {
   display: none;
   position: absolute;
   margin: 0;
-  overflow: hidden;
+  /* The overlay is scaled to the field's exact size, and with a tight line
+     height (the default is 1.0) a glyph's descenders paint below its line box.
+     Clipping here therefore eats the tails of g/y/p on the last row — visible on
+     the Oric, whose 28 text rows fill the active area right to the bottom edge,
+     where a machine with a border below its text hides it. Let the ink overflow
+     instead of losing it: the overlay is pointer-transparent and sits over the
+     screen, so a descender overhanging its cell is exactly what the real display
+     looks like. */
+  overflow: visible;
   pointer-events: none;
   font-family: monospace;
   font-size: 13px;
@@ -5969,3 +5977,209 @@ input[type="range"]::-moz-range-thumb {
   pointer-events: none;
   line-height: 1;
 }
+
+/* -- Oric Atmos keyboard --------------------------------------------------
+   The Atmos case is charcoal; the keys are black except for the control caps,
+   which are orange — ESC / CTRL / both SHIFTs down the left, DEL and RETURN on
+   the right, and the four arrows plus FUNCT along the bottom. The ORIC badge
+   sits on the case above the deck. */
+.oric-keyboard {
+  --oric-u: var(--keyboard-scene-px);
+  --oric-case-top: #35353a;
+  --oric-case-bottom: #1b1b1f;
+  --oric-case-edge: #0a0a0c;
+  /* The letter and number caps: near-black, legends in white. */
+  --oric-cap-top: #2a2a2e;
+  --oric-cap-mid: #232327;
+  --oric-cap-bottom: #17171a;
+  --oric-cap-edge: #0d0d0f;
+  --oric-legend: #ffffff;
+  /* The orange control caps. */
+  --oric-ctrl-top: #f07a2a;
+  --oric-ctrl-mid: #e2601a;
+  --oric-ctrl-bottom: #bf4a10;
+  --oric-ctrl-edge: #8f3308;
+  --oric-ctrl-legend: #ffffff;
+  position: relative;
+  color: var(--oric-legend);
+  font-family: Helvetica, Arial, sans-serif;
+}
+.oric-keyboard::before {
+  content: '';
+  position: absolute;
+  inset: var(--case-bleed);
+  border: 1px solid var(--oric-case-edge);
+  border-radius: calc(var(--oric-u) * 10);
+  background:
+    linear-gradient(160deg, rgba(255,255,255,0.10), transparent 30%),
+    linear-gradient(180deg, var(--oric-case-top) 0%, var(--oric-case-bottom) 100%);
+  box-shadow:
+    inset 0 calc(var(--oric-u) * 2) calc(var(--oric-u) * 4) rgba(255,255,255,0.08),
+    0 2px 8px rgba(0,0,0,0.55);
+}
+/* The dark plate the key block sits on. */
+.oric-plate {
+  z-index: 0;
+  border-radius: calc(var(--oric-u) * 3);
+  background: linear-gradient(180deg, #131316 0%, #0b0b0d 100%);
+  box-shadow:
+    inset 0 calc(var(--oric-u) * 5) calc(var(--oric-u) * 12) rgba(0,0,0,0.8),
+    0 calc(var(--oric-u) * 1) calc(var(--oric-u) * 2) rgba(0,0,0,0.5);
+}
+.oric-badge {
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: #d9453a;
+  text-transform: uppercase;
+  white-space: nowrap;
+  line-height: 1;
+}
+.oric-badge__brand {
+  font-size: calc(var(--oric-u) * 9);
+  font-weight: 700;
+  font-style: italic;
+  letter-spacing: 0.06em;
+}
+.oric-badge__model {
+  display: none;
+}
+.oric-key {
+  z-index: 2;
+  overflow: hidden;
+  border: 1px solid var(--oric-cap-edge);
+  border-radius: calc(var(--oric-u) * 2);
+  background: linear-gradient(180deg, var(--oric-cap-top) 0%, var(--oric-cap-mid) 55%, var(--oric-cap-bottom) 100%);
+  box-shadow:
+    inset 0 calc(var(--oric-u) * 1.5) 0 rgba(255,255,255,0.14),
+    0 calc(var(--oric-u) * 2) calc(var(--oric-u) * 2) rgba(0,0,0,0.55);
+  color: var(--oric-legend);
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: filter 0.06s ease, transform 0.05s ease;
+}
+.oric-key:hover { filter: brightness(1.12); }
+.oric-key.pressed { filter: brightness(0.86); transform: translateY(calc(var(--oric-u) * 1.5)); }
+.oric-key__legend {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--oric-u) * 0.4);
+  pointer-events: none;
+  line-height: 1;
+}
+.oric-key__main { font-size: calc(var(--oric-u) * 12); font-weight: 600; }
+.oric-key__shift { font-size: calc(var(--oric-u) * 8.5); color: inherit; }
+.oric-key--shifted .oric-key__main { font-size: calc(var(--oric-u) * 10); }
+.oric-key--word .oric-key__main {
+  font-size: calc(var(--oric-u) * 7);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.oric-key--cursor .oric-key__main { font-size: calc(var(--oric-u) * 13); }
+
+/* Every cap the machine moulded in orange: ESC, CTRL, SHIFT, DEL, RETURN, the
+   four arrows and FUNCT. The pane marks them with `--control` rather than
+   inferring from the region, because ESC/DEL are 'word' and the arrows are
+   'cursor' — only the flag says "this is an orange cap". */
+.oric-key--control {
+  border-color: var(--oric-ctrl-edge);
+  background: linear-gradient(180deg, var(--oric-ctrl-top) 0%, var(--oric-ctrl-mid) 55%, var(--oric-ctrl-bottom) 100%);
+  color: var(--oric-ctrl-legend);
+  box-shadow:
+    inset 0 calc(var(--oric-u) * 1.5) 0 rgba(255,255,255,0.3),
+    0 calc(var(--oric-u) * 2) calc(var(--oric-u) * 2) rgba(0,0,0,0.55);
+}
+.oric-key--control .oric-key__main { font-size: calc(var(--oric-u) * 7.5); font-weight: 700; }
+.oric-key--control .oric-key__shift { color: inherit; }
+.oric-key--cursor .oric-key__main { font-size: calc(var(--oric-u) * 13); }
+/* The space bar stays black, like the rest of the character block. */
+.oric-key--space {
+  background: linear-gradient(180deg, #2a2a2e 0%, #1d1d21 100%);
+}
+
+/* -- Oric-1 keyboard ------------------------------------------------------
+   The Oric-1 is the same machine in a cream case, and its keyboard looks
+   nothing like the Atmos's: the caps are *blank* cream chiclets and every
+   legend is silkscreened in white on the black plate above its key. So the
+   theme repaints the case cream, keeps the plate black, makes the caps plain
+   cream plastic, and moves the legend out of the cap onto the plate above it.
+
+   Reference: Tynemouth Software, "Oric Atmos and Oric-1 Repairs" (2019),
+   whose photographs show both decks side by side. */
+.oric-keyboard--oric1 {
+  --oric-case-top: #ded7c0;
+  --oric-case-bottom: #c8c0a6;
+  --oric-case-edge: #9c9379;
+  /* Blank cream caps. */
+  --oric-cap-top: #efe9d4;
+  --oric-cap-mid: #e3dcc5;
+  --oric-cap-bottom: #cfc7ae;
+  --oric-cap-edge: #a89f84;
+  /* The legends live on the plate, not the caps. */
+  --oric-legend: #ffffff;
+}
+/* The Oric-1's plate is black, and the legends sit on it above each key. */
+.oric-keyboard--oric1 .oric-plate {
+  border-top: none;
+  background: #171716;
+}
+.oric-keyboard--oric1 .oric-key,
+.oric-keyboard--oric1 .oric-key--control {
+  border-radius: calc(var(--oric-u) * 1.2);
+  background: linear-gradient(180deg, var(--oric-cap-top) 0%, var(--oric-cap-mid) 55%, var(--oric-cap-bottom) 100%);
+  box-shadow:
+    inset 0 calc(var(--oric-u) * 1) 0 rgba(255,255,255,0.55),
+    0 calc(var(--oric-u) * 1.5) calc(var(--oric-u) * 1.5) rgba(0,0,0,0.35);
+}
+/*
+ * The cap carries no legend of its own — the text is drawn on the black plate
+ * above it. That means the legend has to escape the cap box, so
+ * `overflow: hidden` (which the Atmos theme needs to clip its in-cap legends)
+ * must come off here, or the plate legends are clipped away entirely.
+ */
+.oric-keyboard--oric1 .oric-key {
+  overflow: visible;
+  border-radius: calc(var(--oric-u) * 1.2);
+}
+.oric-keyboard--oric1 .oric-key__legend {
+  inset: auto 0 100% 0;
+  /* The row pitch is 44 and the Oric-1's caps are 28, so the plate above each
+     cap has 16 units to write in. */
+  height: calc(var(--oric-u) * 15);
+  padding-bottom: calc(var(--oric-u) * 2.5);
+  justify-content: flex-end;
+  overflow: visible;
+}
+.oric-keyboard--oric1 .oric-key__main {
+  font-size: calc(var(--oric-u) * 10);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.oric-keyboard--oric1 .oric-key__shift {
+  font-size: calc(var(--oric-u) * 6);
+  font-weight: 600;
+}
+.oric-keyboard--oric1 .oric-key--word .oric-key__main,
+.oric-keyboard--oric1 .oric-key--control .oric-key__main {
+  font-size: calc(var(--oric-u) * 6.5);
+}
+.oric-keyboard--oric1 .oric-key--cursor .oric-key__main {
+  font-size: calc(var(--oric-u) * 9);
+}
+/* The plate runs a little further up so the top row's legends have room. */
+.oric-keyboard--oric1 .oric-plate {
+  margin-top: calc(var(--oric-u) * -10);
+  padding-top: calc(var(--oric-u) * 10);
+}
+/* The Oric-1's space bar is a cream cap like every other key, not the Atmos's
+   dark one. */
+.oric-keyboard--oric1 .oric-key--space {
+  background: linear-gradient(180deg, var(--oric-cap-top) 0%, var(--oric-cap-mid) 55%, var(--oric-cap-bottom) 100%);
+}
+

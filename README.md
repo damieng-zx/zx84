@@ -2,7 +2,7 @@
 
 <img src="public/mascot.svg" align="right" width="100" height="140" alt="Blip, the ZX84 robot mascot">
 
-**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (with the Pentagon and Scorpion clones and the Timex 2048 and 2068), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn Atom, Acorn System, BBC Micro and Electron, the Apple I and the Apple II family, the Atari 8-bit line, the Enterprise 64/128, and the Commodore 64, 128 and VIC-20, with an MCP server for automated testing.**
+**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (with the Pentagon and Scorpion clones and the Timex 2048 and 2068), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn Atom, Acorn System, Oric-1 and Oric Atmos, BBC Micro and Electron, the Apple I and the Apple II family, the Atari 8-bit line, the Enterprise 64/128, and the Commodore 64, 128 and VIC-20, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -29,6 +29,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Enterprise](docs/machines/enterprise.md) | 64, 128 | Z80 |
 | [Acorn System](docs/machines/acorn-system.md) | System 2, 3, 4, 5 | 6502 / 6502A |
 | [Acorn Atom](docs/machines/acorn-atom.md) | Acorn Atom (2K or 12K) | 6502 |
+| [Oric-1 / Oric Atmos](docs/machines/oric-atmos.md) | Oric-1, Oric Atmos (+ Microdisc) | 6502 |
 | [Acorn BBC Micro](docs/machines/bbc-micro.md) | Model B | 6502 |
 | [Acorn Electron](docs/machines/acorn-electron.md) | Electron | 6502 |
 | [Apple I](docs/machines/apple-i.md) | Apple I | 6502 |
@@ -75,6 +76,7 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Acorn System | Disks: `.ssd`, `.dsd`, `.img`, `.dsk`, `.hfe`, `.scp`; tapes: `.uef`, `.csw`, `.wav` |
 | Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`, `.hfe`, `.scp`; tapes: `.uef`, `.csw` |
 | Acorn Atom | Tapes: `.uef`, `.csw`, `.wav`; listings typed in at the keyboard: `.txt`, `.bas`; snapshots: `.atmstate` |
+| Oric-1 / Oric Atmos | Tapes: `.tap`; disks: `.dsk` (Microdisc); listings typed in at the keyboard: `.txt`, `.bas`; snapshots: `.oricstate` |
 | Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, discs: `.adf`, `.ads`, `.adm`, `.adl`, `.ssd`, `.dsd`, `.img`, `.dsk`, `.hfe`, `.scp`; with the Plus 1, cartridges: `.rom` |
 | Apple I | Listings typed in at the keyboard: `.txt`, `.hex`; with the cassette interface fitted, cassettes: `.wav` |
 | Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through), `.nib`, `.woz`, `.2mg`, `.d13`; cassettes: `.wav` |
@@ -115,6 +117,7 @@ Known models:
 `einstein-tc01` `einstein-256` `hx-10` `hb-55` `hb-55p` `mtx500` `mtx512` `rs128`
 `lynx48` `lynx96` `lynx128` `jupiter-ace` `ep64` `ep128`
 `acorn-system2` `acorn-system3` `acorn-system4` `acorn-system5` `atom`
+`atmos` `oric1`
 `bbc-b` `bbc-a` `electron` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c`
 `atari400` `atari800` `atari600xl` `atari800xl` `atari1200xl` `atari65xe` `atari800xe` `atari130xe`
 `c64` `c128` `vic20`.
@@ -138,7 +141,7 @@ Known models:
 
 ### Saving, Library, And Persistence
 
-- Export Spectrum `.szx` and `.z80` snapshots and CPC `.sna` snapshots, and zx84's own exact save states on every other machine (`.acestate`, `.zx8xstate`, `.lynxstate`, `.mtxstate`, `.msxstate`, `.einstate`, `.pcwstate`, `.epstate`, `.bbcstate`, `.elkstate`, `.a1state`, `.a2state`, `.a8state`, `.atmstate`, `.c64state`, `.c128state`, `.vic20state`), plus screenshots and supported screen/RAM exports.
+- Export Spectrum `.szx` and `.z80` snapshots and CPC `.sna` snapshots, and zx84's own exact save states on every other machine (`.acestate`, `.zx8xstate`, `.lynxstate`, `.mtxstate`, `.msxstate`, `.einstate`, `.pcwstate`, `.epstate`, `.bbcstate`, `.elkstate`, `.a1state`, `.a2state`, `.a8state`, `.atmstate`, `.oricstate`, `.c64state`, `.c128state`, `.vic20state`), plus screenshots and supported screen/RAM exports.
 - Every machine resumes where it left off after a browser refresh.
 - Record what software SAVEs to cassette and download it as a tape the machine loads back (`.tzx` on the Spectrum, `.cdt` on the CPC, `.wav` on the Apple I and II, and the machine's own format elsewhere), and download what the BBC Micro, Electron and PCW sent to their printers as text.
 - Persist settings, pane layout, custom ROMs and fonts, and supported media in browser storage.

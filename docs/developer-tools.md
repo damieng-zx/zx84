@@ -198,6 +198,7 @@ strings, arrays and FOR–NEXT loop variables with their limit and step.
 | MTX | MTX BASIC | ✓ | |
 | Commodore 64 | BASIC V2 | ✓ | ✓ |
 | Commodore VIC-20 | BASIC V2 | ✓ | ✓ |
+| Oric-1 / Oric Atmos | Oric BASIC 1.0/1.1 | V | partial (allocation map) |
 
 ## System Variables
 
@@ -300,6 +301,7 @@ rest depend on the hardware:
 | Apple I | 6502 | ✓ | | | | | ✓ |
 | Apple II | 6502 / 65C02 | ✓ | | | | | ✓ |
 | Commodore 64 | 6510 | ✓ | ✓ | ✓ | | | ✓ |
+| Oric-1 / Oric Atmos | 6502 | V | V (Microdisc) | V | | | V |
 | Commodore 128 | 8502 | ✓ | ✓ | | | | ✓ |
 | Commodore VIC-20 | 6502 | ✓ | ✓ | ✓ | | | ✓ |
 
