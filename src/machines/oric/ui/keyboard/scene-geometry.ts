@@ -14,6 +14,13 @@
  *   ↓ directly below Z (2.0)
  *   space starting at X's left edge (3.0)
  *
+ * The two machines differ in one geometric respect that matters here: the
+ * Atmos's caps carry their legends, so they can be tall (39 units against a
+ * 44-unit row pitch). The Oric-1's caps are **blank**, and its legends are
+ * silkscreened on the plate *above* each cap — so its caps have to be short
+ * enough to leave the plate room to write on. That is why the key height is a
+ * parameter rather than a constant.
+ *
  * Positions are in arbitrary design units, the same way the Atom and Lynx decks
  * are laid out, so the CSS can scale them.
  */
@@ -24,11 +31,14 @@ import {
 } from './layout.ts';
 
 const PITCH = 46;
-const KEY_H = 39;
 const MARGIN = 18;
 const TOP = 22;
 const ROW_PITCH = 44;
-const ROW_GAP = PITCH - KEY_H;
+
+/** The Atmos's caps fill most of the row; their legends are on the caps. */
+const ATMOS_KEY_H = 39;
+/** The Oric-1's are shorter, leaving the plate above them for the legends. */
+const ORIC1_KEY_H = 28;
 
 /** The letter block's left edge. */
 const BLOCK_X = MARGIN;
@@ -38,7 +48,6 @@ const BLOCK_X = MARGIN;
  * a quarter cap short still finish on the same right edge.
  */
 const BLOCK_COLS = 14;
-const BLOCK_RIGHT = BLOCK_X + BLOCK_COLS * PITCH - ROW_GAP;
 
 /**
  * Where each of the four letter rows starts, in cap units from the block's left
@@ -76,63 +85,83 @@ const ROW_Y = (index: number): number => TOP + index * ROW_PITCH;
 
 const BOTTOM_ROW_Y = ROW_Y(ORIC_DECK_ROWS.length);
 
-export const ORIC_SCENE = {
-  width: BLOCK_RIGHT + MARGIN,
-  height: BOTTOM_ROW_Y + KEY_H + MARGIN,
-} as const;
-
-/** The black plate the caps sit on. */
-export const ORIC_PLATE_BOX: SceneBox = {
-  x: MARGIN - 8,
-  y: TOP - 12,
-  width: BLOCK_RIGHT - (MARGIN - 8) + 8,
-  height: BOTTOM_ROW_Y + KEY_H - (TOP - 12) + 12,
-};
-
 export interface PlacedOricKey {
   readonly key: OricKeyDef;
   readonly box: SceneBox;
 }
 
-/** The pixel width of a cap spanning `span` cap units. */
-function capWidth(span: number): number {
-  return span * PITCH - ROW_GAP;
+/** One machine's deck: its cap height, and the boxes that follow from it. */
+export interface OricDeck {
+  readonly scene: { readonly width: number; readonly height: number };
+  readonly plate: SceneBox;
+  readonly keys: readonly PlacedOricKey[];
 }
 
-/** Lay out one row from a starting x, honouring each cap's `span`. */
-function placeRow(keys: readonly OricKeyDef[], x: number, y: number, out: PlacedOricKey[]): void {
-  let cursor = x;
-  for (const key of keys) {
-    const span = key.span ?? 1;
-    out.push({ key, box: { x: cursor, y, width: capWidth(span), height: KEY_H } });
-    cursor += span * PITCH;
-  }
-}
+function buildDeck(keyHeight: number): OricDeck {
+  const rowGap = PITCH - keyHeight;
+  const blockRight = BLOCK_X + BLOCK_COLS * PITCH - rowGap;
 
-function build(): PlacedOricKey[] {
-  const out: PlacedOricKey[] = [];
+  /** The pixel width of a cap spanning `span` cap units. */
+  const capWidth = (span: number): number => span * PITCH - rowGap;
+
+  const keys: PlacedOricKey[] = [];
+
+  /** Lay out one row from a starting x, honouring each cap's `span`. */
+  const placeRow = (row: readonly OricKeyDef[], x: number, y: number): void => {
+    let cursor = x;
+    for (const key of row) {
+      const span = key.span ?? 1;
+      keys.push({ key, box: { x: cursor, y, width: capWidth(span), height: keyHeight } });
+      cursor += span * PITCH;
+    }
+  };
 
   // The four rows of the letter block, top to bottom.
   ORIC_DECK_ROWS.forEach((row, i) => {
-    placeRow(row, BLOCK_X + (ROW_INSET[i] ?? 0) * PITCH, ROW_Y(i), out);
+    placeRow(row, BLOCK_X + (ROW_INSET[i] ?? 0) * PITCH, ROW_Y(i));
   });
 
   // The bottom row: `← ↓ SPACE ↑ → FUNCT`, placed at fixed cap positions.
-  let i = 0;
-  for (const key of ORIC_BOTTOM_ROW) {
+  ORIC_BOTTOM_ROW.forEach((key, i) => {
     const capX = BOTTOM_ROW_X[i] ?? i;
-    out.push({
+    keys.push({
       key,
-      box: { x: BLOCK_X + capX * PITCH, y: BOTTOM_ROW_Y, width: capWidth(key.span ?? 1), height: KEY_H },
+      box: {
+        x: BLOCK_X + capX * PITCH, y: BOTTOM_ROW_Y,
+        width: capWidth(key.span ?? 1), height: keyHeight,
+      },
     });
-    i++;
-  }
+  });
 
-  return out;
+  return {
+    scene: {
+      width: blockRight + MARGIN,
+      height: BOTTOM_ROW_Y + keyHeight + MARGIN,
+    },
+    plate: {
+      x: MARGIN - 8,
+      y: TOP - 12,
+      width: blockRight - (MARGIN - 8) + 8,
+      height: BOTTOM_ROW_Y + keyHeight - (TOP - 12) + 12,
+    },
+    keys,
+  };
 }
 
-const PLACED: readonly PlacedOricKey[] = build();
+const ATMOS_DECK = buildDeck(ATMOS_KEY_H);
+const ORIC1_DECK = buildDeck(ORIC1_KEY_H);
+
+/** The Atmos's deck, whose caps carry their own legends. */
+export function atmosDeck(): OricDeck { return ATMOS_DECK; }
+
+/** The Oric-1's deck, whose shorter caps leave the plate free for legends. */
+export function oric1Deck(): OricDeck { return ORIC1_DECK; }
+
+// The Atmos remains the default, because it was the first deck built and every
+// existing caller and test names it without qualification.
+export const ORIC_SCENE = ATMOS_DECK.scene;
+export const ORIC_PLATE_BOX = ATMOS_DECK.plate;
 
 export function placeOricKeys(): readonly PlacedOricKey[] {
-  return PLACED;
+  return ATMOS_DECK.keys;
 }

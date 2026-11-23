@@ -660,7 +660,15 @@ canvas {
   display: none;
   position: absolute;
   margin: 0;
-  overflow: hidden;
+  /* The overlay is scaled to the field's exact size, and with a tight line
+     height (the default is 1.0) a glyph's descenders paint below its line box.
+     Clipping here therefore eats the tails of g/y/p on the last row — visible on
+     the Oric, whose 28 text rows fill the active area right to the bottom edge,
+     where a machine with a border below its text hides it. Let the ink overflow
+     instead of losing it: the overlay is pointer-transparent and sits over the
+     screen, so a descender overhanging its cell is exactly what the real display
+     looks like. */
+  overflow: visible;
   pointer-events: none;
   font-family: monospace;
   font-size: 13px;
@@ -6130,19 +6138,26 @@ input[type="range"]::-moz-range-thumb {
     0 calc(var(--oric-u) * 1.5) calc(var(--oric-u) * 1.5) rgba(0,0,0,0.35);
 }
 /*
- * The cap carries no legend at all. The text is drawn on the plate above the
- * cap instead, so it needs to escape the key box: the legend is positioned
- * above the cap's top edge, in the plate's own colour.
+ * The cap carries no legend of its own — the text is drawn on the black plate
+ * above it. That means the legend has to escape the cap box, so
+ * `overflow: hidden` (which the Atmos theme needs to clip its in-cap legends)
+ * must come off here, or the plate legends are clipped away entirely.
  */
+.oric-keyboard--oric1 .oric-key {
+  overflow: visible;
+  border-radius: calc(var(--oric-u) * 1.2);
+}
 .oric-keyboard--oric1 .oric-key__legend {
   inset: auto 0 100% 0;
-  height: calc(var(--oric-u) * 11);
-  padding-bottom: calc(var(--oric-u) * 1.5);
+  /* The row pitch is 44 and the Oric-1's caps are 28, so the plate above each
+     cap has 16 units to write in. */
+  height: calc(var(--oric-u) * 15);
+  padding-bottom: calc(var(--oric-u) * 2.5);
   justify-content: flex-end;
   overflow: visible;
 }
 .oric-keyboard--oric1 .oric-key__main {
-  font-size: calc(var(--oric-u) * 8);
+  font-size: calc(var(--oric-u) * 10);
   font-weight: 700;
   letter-spacing: 0.02em;
 }

@@ -15,7 +15,7 @@ import {
   ORIC_A_ROW, ORIC_BOTTOM_ROW, ORIC_DECK_KEYS, ORIC_FUNCT, ORIC_Q_ROW, ORIC_SPACE,
   ORIC_TOP_ROW, ORIC_Z_ROW, isFunctCap,
 } from '@/machines/oric/ui/keyboard/layout.ts';
-import { ORIC_SCENE, placeOricKeys } from '@/machines/oric/ui/keyboard/scene-geometry.ts';
+import { ORIC_SCENE, atmosDeck, oric1Deck, placeOricKeys } from '@/machines/oric/ui/keyboard/scene-geometry.ts';
 import { ORIC_TEXT_SCREEN, ORIC_TEXT_COLS } from '@/machines/oric/constants.ts';
 
 const CACHE = join(process.cwd(), 'mcp', '.cache');
@@ -151,6 +151,32 @@ describe('oric on-screen keyboard', () => {
     // renamed key.
     expect(ORIC_DECK_KEYS.filter(k => k.row === 5 && k.col === 4).map(k => k.id))
       .toEqual(['funct']);
+  });
+
+  it('leaves the Oric-1 room on the plate for its printed legends', () => {
+    // The Oric-1's caps are blank and its legends are printed on the plate above
+    // each key, so the gap between one cap's top and the cap above it has to be
+    // tall enough to actually write in. This is what regressed: with the Atmos's
+    // 39-unit caps in a 44-unit row pitch there were only 5 units of plate, and
+    // the legends were squeezed to nothing.
+    const atmos = atmosDeck();
+    const oric1 = oric1Deck();
+
+    const rowTops = (deck: ReturnType<typeof atmosDeck>): number[] =>
+      [...new Set(deck.keys.map(k => k.box.y))].sort((a, b) => a - b);
+
+    const gap = (deck: ReturnType<typeof atmosDeck>): number => {
+      const tops = rowTops(deck);
+      const capHeight = deck.keys[0]!.box.height;
+      return tops[1]! - tops[0]! - capHeight;
+    };
+
+    // The Oric-1's caps are shorter than the Atmos's...
+    expect(oric1.keys[0]!.box.height).toBeLessThan(atmos.keys[0]!.box.height);
+    // ...which is what gives its plate room for a legend.
+    expect(gap(oric1)).toBeGreaterThanOrEqual(12);
+    // The Atmos keeps its legends on the caps, so it needs no such gap.
+    expect(gap(atmos)).toBeLessThan(gap(oric1));
   });
 
   it('lays out the control column as measured from the machine', () => {

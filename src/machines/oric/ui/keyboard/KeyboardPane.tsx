@@ -4,12 +4,14 @@
  * The two machines share a key matrix and the same physical arrangement of caps,
  * but look nothing alike, so the pane renders one of two decks:
  *
- *  - **Atmos** — charcoal case, black character caps carrying their legends, and
+ *  - **Atmos**: charcoal case, black character caps carrying their legends, and
  *    every control cap (ESC/CTRL/SHIFT/DEL/RETURN/arrows/FUNCT) in orange.
- *  - **Oric-1** — cream case, *blank* cream chiclet caps, and all the legends
+ *  - **Oric-1**: cream case, *blank* cream chiclet caps, and all the legends
  *    silkscreened in white on the black plate above each key. It has no FUNCT.
  *
- * The layout data is shared; only the appearance and the FUNCT cap differ.
+ * The layout *data* is shared; the two decks differ in appearance, in the cap
+ * height (the Oric-1's caps are shorter so the plate has room to write on), and
+ * in the FUNCT cap.
  */
 
 import { For, Show } from 'solid-js';
@@ -18,9 +20,7 @@ import { KeyboardScene, SceneElement, SceneKey } from '@/ui/components/KeyboardS
 import { useOricKeyboard } from './keyboard-common.tsx';
 import type { OricKeyboardController } from './keyboard-common.tsx';
 import { isFunctCap, modelHasFunctKey } from './layout.ts';
-import {
-  ORIC_PLATE_BOX, ORIC_SCENE, placeOricKeys, type PlacedOricKey,
-} from './scene-geometry.ts';
+import { atmosDeck, oric1Deck, type PlacedOricKey } from './scene-geometry.ts';
 
 function OricKey(props: { placed: PlacedOricKey; keyboard: OricKeyboardController }) {
   const key = props.placed.key;
@@ -57,16 +57,17 @@ function OricKey(props: { placed: PlacedOricKey; keyboard: OricKeyboardControlle
 export function KeyboardPane() {
   const keyboard = useOricKeyboard();
   const showFunct = modelHasFunctKey();
+  const deck = showFunct ? atmosDeck() : oric1Deck();
   return (
     <Pane id="keyboard-panel" label="Keyboard" floatable>
       <KeyboardScene
-        width={ORIC_SCENE.width}
-        height={ORIC_SCENE.height}
+        width={deck.scene.width}
+        height={deck.scene.height}
         class={showFunct ? 'oric-keyboard oric-keyboard--atmos' : 'oric-keyboard oric-keyboard--oric1'}
         label={showFunct ? 'Oric Atmos keyboard' : 'Oric-1 keyboard'}
       >
-        <SceneElement box={ORIC_PLATE_BOX} class="oric-plate" />
-        <For each={placeOricKeys()}>
+        <SceneElement box={deck.plate} class="oric-plate" />
+        <For each={deck.keys}>
           {(placed) => (
             <Show when={showFunct || !isFunctCap(placed.key)}>
               <OricKey placed={placed} keyboard={keyboard} />
