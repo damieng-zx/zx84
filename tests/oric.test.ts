@@ -66,15 +66,18 @@ describe('oric registration', () => {
     }
   });
 
-  it('classifies a 16 KB system ROM by its BASIC version banner', () => {
-    const atmos = rom('oric-basic11b.rom');
-    const oric1 = rom('oric-basic10.rom');
-    expect(oricEntry.detectModelForRom?.(atmos, 'oric1')).toBe('atmos');
-    expect(oricEntry.detectModelForRom?.(oric1, 'atmos')).toBe('oric1');
-    // A 16 KB image that is not an Oric ROM is refused.
+  it('refuses an image that is not an Oric system ROM', () => {
     expect(oricEntry.detectModelForRom?.(new Uint8Array(0x4000), 'atmos')).toBeNull();
     expect(oricEntry.detectModelForRom?.(new Uint8Array(0x1000), 'atmos')).toBeNull();
   });
+
+  it.runIf(hasRom('oric-basic11b.rom') && hasRom('oric-basic10.rom'))(
+    'classifies a 16 KB system ROM by its BASIC version banner', () => {
+      const atmos = rom('oric-basic11b.rom');
+      const oric1 = rom('oric-basic10.rom');
+      expect(oricEntry.detectModelForRom?.(atmos, 'oric1')).toBe('atmos');
+      expect(oricEntry.detectModelForRom?.(oric1, 'atmos')).toBe('oric1');
+    });
 
   it('names the hosted ROM image for each model', () => {
     // These are the R2 keys under `zx84files.bitsparse.com/roms/`, and the
