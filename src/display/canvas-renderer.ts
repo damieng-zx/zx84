@@ -73,7 +73,13 @@ export class CanvasRenderer implements IScreenRenderer {
     // scales the backing store on that axis. `image-rendering: pixelated`
     // there drops every other source pixel at 1x (missing columns); let the
     // compositor filter it instead. Vertical is always 1:1.
-    this.canvas.style.imageRendering = this.pixelAspectX < 1 ? 'auto' : '';
+    // Any non-square pixel aspect is produced by squeezing the CSS box on that
+    // one axis, so the compositor scales the backing store there. `pixelated`
+    // duplicates or drops whole columns at that point (the Oric's 5:4 pixels at
+    // 1.25x duplicated every fourth column), so let the compositor filter on
+    // that axis instead. Only a 1:1 aspect may use pixelated, where vertical and
+    // horizontal are both exact.
+    this.canvas.style.imageRendering = this.pixelAspectX === 1 ? 'pixelated' : 'auto';
     this.ctx.imageSmoothingEnabled = false;
   }
 

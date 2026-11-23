@@ -159,6 +159,8 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   oric: {
     HardwareSection: lazy(() =>
       import('@/machines/oric/ui/hardware-section.tsx').then(m => ({ default: m.OricHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/oric/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
 };
 
