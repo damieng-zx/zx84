@@ -52,6 +52,11 @@ export class M6522 {
   /** Called when the output register is written (value + current DDR). */
   onPortAWrite: (value: number, ddr: number) => void = () => {};
   onPortBWrite: (value: number, ddr: number) => void = () => {};
+  /** Called after the peripheral control register is written. The CA2/CB2
+   *  output levels are derived from it (modes 6 and 7 are manual output), so a
+   *  chip that hangs off those lines — the Oric's AY-3-8912 — acts here, the
+   *  same way it acts on the handshake pins of a real 6522. */
+  onPcrWrite: (pcr: number) => void = () => {};
 
   private ca1 = false;
   private cb1 = false;
@@ -187,13 +192,37 @@ export class M6522 {
         return;
       case 10: this.sr = val; return;
       case 11: this.acr = val; return;
-      case 12: this.pcr = val; return;
+      case 12: this.pcr = val; this.onPcrWrite(val); return;
       case 13: this.ifr &= ~(val & 0x7F); return;
       case 14:
         if (val & VIA_IFR_ANY) this.ier |= val & 0x7F;
         else this.ier &= ~(val & 0x7F);
         return;
       default: return;
+    }
+  }
+
+  /** A read for inspection only: the same values, but it neither clears an
+   *  interrupt flag (which a timer/IFR read does) nor counts as an access. */
+  peek(reg: number): number {
+    switch (reg & 0x0F) {
+      case 0: return this.outputB();
+      case 1: return this.outputA();
+      case 2: return this.ddrb;
+      case 3: return this.ddra;
+      case 4: return this.t1Counter & 0xFF;
+      case 5: return (this.t1Counter >> 8) & 0xFF;
+      case 6: return this.t1Latch & 0xFF;
+      case 7: return (this.t1Latch >> 8) & 0xFF;
+      case 8: return this.t2Counter & 0xFF;
+      case 9: return (this.t2Counter >> 8) & 0xFF;
+      case 10: return this.sr;
+      case 11: return this.acr;
+      case 12: return this.pcr;
+      case 13: return this.ifr | (this.irq ? VIA_IFR_ANY : 0);
+      case 14: return this.ier | ((this.ier & 0x7F) !== 0 ? VIA_IFR_ANY : 0);
+      case 15: return this.outputA();
+      default: return 0xFF;
     }
   }
 
