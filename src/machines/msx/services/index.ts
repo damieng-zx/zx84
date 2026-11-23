@@ -14,6 +14,7 @@ import { MsxRomService } from './roms.ts';
 import { MsxMediaService } from './media.ts';
 import { MsxDiskService } from './disks.ts';
 import { MsxFrameProbe } from './frame-probe.ts';
+import { MsxInspection } from './inspect.ts';
 import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import { MSX_STATE } from '../snapshots/msx-state.ts';
 
@@ -25,6 +26,7 @@ export interface MsxServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: MsxInputService;
   readonly probe: MsxFrameProbe;
+  readonly inspect: MsxInspection;
 }
 
 export function createMsxServices(m: MsxMachine): MsxServices {
@@ -38,6 +40,7 @@ export function createMsxServices(m: MsxMachine): MsxServices {
     media, roms, tape, disks, snapshots,
     input: new MsxInputService(m),
     probe: new MsxFrameProbe(m),
+    inspect: new MsxInspection(m),
     debug: new Z80DebugService(m),
   };
 }

@@ -11,15 +11,13 @@
  */
 
 import type {
-  FrameIndicators, FrameProbe, FramePaneProvider, TranscribeDriver,
-  MemoryMapSnapshot,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import type { WD179x } from '@/cores/wd179x.ts';
 import type { UPD765A } from '@/cores/upd765a.ts';
 import type { FontSource, OcrGridName } from '@/ocr/ocr.ts';
-import { isPlus2AClass } from '@/machines/spectrum/models.ts';
 import { DRIVE_PROFILE, byCapacity, fixedDrive } from '@/media/floppy/floppy-sound.ts';
 
 /** Two disk interfaces, two drives to declare. The +3's built-in unit is a 3"
@@ -27,9 +25,6 @@ import { DRIVE_PROFILE, byCapacity, fixedDrive } from '@/media/floppy/floppy-sou
  *  +D always used 3.5" drives, and the Beta shares its sound model. */
 const FDC_DRIVE = byCapacity;
 const WD_DRIVE = fixedDrive('3.5inch');
-import { SPECIAL_MODES } from '@/machines/spectrum/memory.ts';
-import { parseBasicProgram, parseBasicVariables } from '@/basic/sinclair-basic-parser';
-import { hex8 } from '@/utils/hex.ts';
 
 /** Compute a drive-panel slot's LED state: 0 off, 1 motor, 2 read, 3 write.
  *  Mirrors the old frame-bridge renderDriveStatus() decision tree. */
@@ -52,45 +47,6 @@ function fillDriveSlot(out: FrameIndicators, slot: number, fdc: UPD765A | WD179x
  *  the Beta Disk (mutually exclusive), else null. */
 function activeWd(s: Spectrum): WD179x | null {
   return s.mgtPlusD.enabled ? s.mgtPlusD.fdc : s.betaDisk.enabled ? s.betaDisk.fdc : null;
-}
-
-/** Build the Spectrum memory-layout snapshot (128K/+2/+2A/+3 paging). */
-function spectrumMemoryMap(s: Spectrum): MemoryMapSnapshot | null {
-  const mem = s.memory;
-  const plus2a = isPlus2AClass(s.model);
-
-  const screenBank = (mem.port7FFD & 0x08) ? 7 : 5;
-  const screenFlags = (bank: number): readonly ('screen')[] | undefined =>
-    bank === screenBank ? ['screen'] : undefined;
-
-  let slots;
-  if (plus2a && mem.specialPaging) {
-    // Special paging mode — all RAM. Mode selects one of four configurations.
-    const [b0, b1, b2, b3] = SPECIAL_MODES[(mem.port1FFD >> 1) & 3];
-    slots = [
-      { range: 'C000-FFFF', read: `RAM Bank ${b3}`, flags: screenFlags(b3) },
-      { range: '8000-BFFF', read: `RAM Bank ${b2}`, flags: screenFlags(b2) },
-      { range: '4000-7FFF', read: `RAM Bank ${b1}`, flags: screenFlags(b1) },
-      { range: '0000-3FFF', read: `RAM Bank ${b0}`, flags: screenFlags(b0) },
-    ];
-  } else {
-    const romLabel = plus2a
-      ? `ROM Page ${mem.currentROM}`
-      : mem.currentROM === 0 ? '128K Editor ROM' : '48K BASIC ROM';
-    slots = [
-      { range: 'C000-FFFF', read: `RAM Bank ${mem.currentBank}`, flags: screenFlags(mem.currentBank) },
-      { range: '8000-BFFF', read: 'RAM Bank 2' },
-      { range: '4000-7FFF', read: 'RAM Bank 5', flags: screenFlags(5) },
-      { range: '0000-3FFF', read: romLabel },
-    ];
-  }
-
-  // Paging-register footer: 7FFD, optional 1FFD (+2A), and the lock latch.
-  const registers = [{ name: '7FFD', value: hex8(mem.port7FFD) }];
-  if (plus2a) registers.push({ name: '1FFD', value: hex8(mem.port1FFD) });
-  registers.push({ name: 'Lock', value: mem.pagingLocked ? 'Y' : 'N' });
-
-  return { slots, registers };
 }
 
 class SpectrumTranscribeDriver implements TranscribeDriver {
@@ -130,29 +86,10 @@ class SpectrumTranscribeDriver implements TranscribeDriver {
 }
 
 export class SpectrumFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: SpectrumTranscribeDriver;
 
   constructor(private readonly s: Spectrum) {
-    const spec = s;
     this.transcribe = new SpectrumTranscribeDriver(s);
-    this.panes = {
-      hasSysvars: true,
-      memoryMap: () => spec.variant.hasBanking ? spectrumMemoryMap(spec) : null,
-      basicListing: () => parseBasicProgram(spec.memory.snapshot()),
-      basicVars: () => parseBasicVariables(spec.memory.snapshot()),
-      // Font-pane ROM capture: the current CHARS font, when its space glyph is
-      // blank (the heuristic that filters garbage). Hash-cache stays bridge-side.
-      romFontCandidate: () => {
-        const snap = spec.memory.snapshot();
-        let charsAddr = snap[0x5C36] | (snap[0x5C37] << 8);
-        if (charsAddr === 0) charsAddr = 0x3C00;
-        const fontStart = charsAddr + 256;
-        if (fontStart + 768 > 65536) return null;
-        for (let i = 0; i < 8; i++) if (snap[fontStart + i] !== 0) return null;
-        return { fontStart, snap };
-      },
-    };
   }
 
   sample(out: FrameIndicators): void {

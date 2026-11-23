@@ -132,7 +132,7 @@ describe('2 MHz mode', () => {
   it('is shown in the memory map pane and the VIC chip dump', () => {
     const m = machineRunning(counter(1));
     run(m, 4);
-    const clock = m.services.probe.panes!.memoryMap!()!.registers.find(r => r.name === 'Clock');
+    const clock = m.services.inspect!.memoryMap!()!.registers.find(r => r.name === 'Clock');
     expect(clock?.value).toContain('2 MHz');
     expect(m.chips().find(c => c.name === 'vic')!.dump()).toContain('2 MHz: the 8502 runs at twice');
     m.destroy();

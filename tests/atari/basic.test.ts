@@ -258,7 +258,7 @@ describe('Atari BASIC residency', () => {
   it('lists only while a BASIC cartridge is in on the 800', () => {
     const m = new AtariMachine('atari800', null);
     try {
-      const panes = m.services.probe.panes;
+      const panes = m.services.inspect!;
       const load = () => m.memory.ram.set(sample().mem.subarray(0, 0xA000));
       load();
       expect(panes.basicListing!()).toEqual([]);
@@ -281,7 +281,7 @@ describe('Atari BASIC residency', () => {
     try {
       m.memory.loadRom(new Uint8Array([...new Uint8Array(0x4000), ...fakeBasic()]));
       m.memory.ram.set(sample().mem.subarray(0, 0xA000));
-      const panes = m.services.probe.panes;
+      const panes = m.services.inspect!;
       m.memory.setPortB(0xFF); // bit 1 high: BASIC off
       expect(panes.basicListing!()).toEqual([]);
       m.memory.setPortB(0xFD);
@@ -338,7 +338,7 @@ function rows(m: AtariMachine): string[] {
 
 /** The pane's listing as LIST would print it: `<number> <text>`. */
 function paneListing(m: AtariMachine): string[] {
-  return m.services.probe.panes.basicListing!().map(l => `${l.lineNumber} ${l.text}`);
+  return m.services.inspect!.basicListing!().map(l => `${l.lineNumber} ${l.text}`);
 }
 
 /** Run LIST and return the rows it printed (each line fits one row). */
@@ -377,7 +377,7 @@ describe.skipIf(!haveRoms)('Atari BASIC panes with the real ROMs', { timeout: 60
       m.setSpeedMultiplier(0);
       for (let f = 0; f < 120; f++) m.tick();
       expect(paneListing(m)).toEqual([]);
-      expect(m.services.probe.panes.basicVars!()).toEqual([]);
+      expect(m.services.inspect!.basicVars!()).toEqual([]);
 
       // Line 80's PRUNT is a syntax error: BASIC keeps it as an ERROR- line.
       type(m, PROGRAM.slice(0, 7).join('\n') + '\n');
@@ -388,7 +388,7 @@ describe.skipIf(!haveRoms)('Atari BASIC panes with the real ROMs', { timeout: 60
       expect(listed).toHaveLength(9);
       expect(paneListing(m)).toEqual(listed);
 
-      const vars = m.services.probe.panes.basicVars!();
+      const vars = m.services.inspect!.basicVars!();
       expect(vars.map(v => v.name)).toEqual(['A$', 'B(5)', 'C(2,3)', 'X', 'Y', 'Z', 'I']);
       for (const v of vars) {
         if (v.kind === 'number') expect(v.value).toBe(printed(m, v.name));
@@ -398,7 +398,7 @@ describe.skipIf(!haveRoms)('Atari BASIC panes with the real ROMs', { timeout: 60
 
       type(m, 'NEW\n');
       expect(paneListing(m)).toEqual([]);
-      expect(m.services.probe.panes.basicVars!()).toEqual([]);
+      expect(m.services.inspect!.basicVars!()).toEqual([]);
     } finally {
       m.destroy();
     }
@@ -415,7 +415,7 @@ describe.skipIf(!haveRoms)('Atari BASIC panes with the real ROMs', { timeout: 60
       type(m, '10 N=32*32:PRINT N\nRUN\n');
       expect(paneListing(m)).toEqual(screenListing(m));
       expect(paneListing(m)).toEqual(['10 N=32*32:PRINT N']);
-      expect(m.services.probe.panes.basicVars!()).toEqual([{ name: 'N', kind: 'number', value: '1024' }]);
+      expect(m.services.inspect!.basicVars!()).toEqual([{ name: 'N', kind: 'number', value: '1024' }]);
     } finally {
       m.destroy();
     }

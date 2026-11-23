@@ -5,6 +5,7 @@ import { Zx8xRomService } from './roms.ts';
 import { Zx8xInputService } from './input.ts';
 import { Zx8xMediaService } from './media.ts';
 import { Zx8xFrameProbe } from './frame-probe.ts';
+import { Zx8xInspection } from './inspect.ts';
 import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import { ZX8X_STATE } from '../snapshots/zx8x-state.ts';
 import { Zx8xTapeService } from './tape.ts';
@@ -17,6 +18,7 @@ export interface Zx8xServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: Zx8xInputService;
   readonly probe: Zx8xFrameProbe;
+  readonly inspect: Zx8xInspection;
 }
 
 export function createZx8xServices(machine: Zx8xMachine): Zx8xServices {
@@ -29,6 +31,7 @@ export function createZx8xServices(machine: Zx8xMachine): Zx8xServices {
     snapshots,
     input: new Zx8xInputService(machine),
     probe: new Zx8xFrameProbe(machine),
+    inspect: new Zx8xInspection(machine),
     debug: new Z80DebugService(machine),
   };
 }

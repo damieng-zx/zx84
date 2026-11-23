@@ -1199,9 +1199,21 @@ export function createFrameIndicators(): FrameIndicators {
   };
 }
 
-/** Pull-on-demand debug-pane content. Called by the bridge only when the pane
- *  is open (and throttled as the bridge sees fit) — may allocate freely. */
-export interface FramePaneProvider {
+/**
+ * Pull-on-demand machine inspection: read-only views of what is in the machine
+ * right now, decoded into neutral plain data (never HTML).
+ *
+ * This is NOT per-frame telemetry, and does not belong on `FrameProbe`: the
+ * frame probe is sampled every rAF and must allocate nothing, while these are
+ * asked for on demand and may allocate freely. They are also not `DebugService`,
+ * which is per-CPU-family substrate shared by every machine of that family —
+ * a BASIC listing needs the machine's own memory layout and token table.
+ *
+ * Hosts: the debug panes (BASIC listing, BASIC variables, Banks, Font) and the
+ * headless MCP server's `basic_listing`/`basic_vars` tools. Every member is
+ * optional: a machine that has nothing to report simply omits it, and each host
+ * hides or declines the corresponding feature. */
+export interface MachineInspection {
   /** Structured memory-layout snapshot, or null when this model has none. */
   memoryMap?(): MemoryMapSnapshot | null;
   /** Detokenised BASIC program listing, as structured plain-text lines. */
@@ -1252,7 +1264,7 @@ export interface FrameProbe {
   frameTick?(out: FrameIndicators): void;
   /** Live disk image in panel slot 0..3 (post-format metadata refresh). */
   diskImageForSlot?(slot: number): DskImage | null;
-  readonly panes?: FramePaneProvider;
+  /** OCR text overlay (mutates the framebuffer while transcribe mode is on). */
   readonly transcribe?: TranscribeDriver;
 }
 
@@ -1272,7 +1284,11 @@ export interface MachineServices {
   readonly snapshots: SnapshotService | null;
   readonly debug: DebugService;
   readonly input: InputService;
+  /** Per-frame telemetry: sampled every rAF, allocation-free (tiers 3–4). */
   readonly probe: FrameProbe;
+  /** On-demand read-only views of machine state (BASIC listings, memory map).
+   *  Absent on a machine with nothing to report; hosts then hide the panes. */
+  readonly inspect?: MachineInspection;
   /** The machine's printer port, where it has one that keeps its output. */
   readonly printer?: PrinterCaptureService | null;
 }

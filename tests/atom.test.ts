@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Acorn Atom integration tests: registration, the 12 KB memory map, the PPI and
  * keyboard wiring, OCR mapping, native snapshots, and — when the Acorn ROMs are
  * in the MCP cache — a real boot to BASIC and a typed PRINT.
@@ -575,14 +575,14 @@ const roms = romsAvailable();
       m.typeText('10 A=42\n20 END\n');
       for (let i = 0; i < 800 && m.pasteRemaining > 0; i++) m.tick();
       for (let i = 0; i < 30; i++) m.tick();
-      expect(m.services.probe.panes?.basicListing?.()).toEqual([
+      expect(m.services.inspect?.basicListing?.()).toEqual([
         { lineNumber: 10, text: ' A=42' },
         { lineNumber: 20, text: ' END' },
       ]);
       m.typeText('RUN\n');
       for (let i = 0; i < 800 && m.pasteRemaining > 0; i++) m.tick();
       for (let i = 0; i < 60; i++) m.tick();
-      expect(m.services.probe.panes?.basicVars?.()).toContainEqual(
+      expect(m.services.inspect?.basicVars?.()).toContainEqual(
         { name: 'A', kind: 'number', value: '42' },
       );
     } finally {
@@ -599,7 +599,7 @@ const roms = romsAvailable();
       m.typeText('RUN\n');
       for (let i = 0; i < 800 && m.pasteRemaining > 0; i++) m.tick();
       for (let i = 0; i < 60; i++) m.tick();
-      expect(m.services.probe.panes?.basicVars?.()).toContainEqual(
+      expect(m.services.inspect?.basicVars?.()).toContainEqual(
         expect.objectContaining({ name: 'AA(4)', kind: 'array' }),
       );
     } finally {
@@ -643,7 +643,7 @@ const roms = romsAvailable();
       m.typeText('10 PRINT 1\n');
       for (let i = 0; i < 800 && m.pasteRemaining > 0; i++) m.tick();
       for (let i = 0; i < 30; i++) m.tick();
-      expect(m.services.probe.panes?.basicListing?.()).toEqual([{ lineNumber: 10, text: ' PRINT 1' }]);
+      expect(m.services.inspect?.basicListing?.()).toEqual([{ lineNumber: 10, text: ' PRINT 1' }]);
     } finally {
       m.destroy();
     }
@@ -700,13 +700,13 @@ const haveBreakout = romsAvailable() && existsSync(BREAKOUT_UEF);
       for (let i = 0; i < 8; i++) m.tick();
       m.keyboard.releaseAll();
 
-      let listing = m.services.probe.panes?.basicListing?.() ?? [];
+      let listing = m.services.inspect?.basicListing?.() ?? [];
       let screen = '';
       for (let i = 0; i < 24000; i += 250) {
         for (let j = 0; j < 250; j++) m.tick();
         screen = m.ocrScreenForMcp();
         if (screen.includes('SUM') || screen.includes('ERROR')) break;
-        listing = m.services.probe.panes?.basicListing?.() ?? [];
+        listing = m.services.inspect?.basicListing?.() ?? [];
         // The file is a two-line BASIC loader followed by a machine-code block;
         // the OS returns to the prompt when the last block is in.
         if (listing.length > 0 && screen.split('\n').pop() === '>') break;
@@ -715,7 +715,7 @@ const haveBreakout = romsAvailable() && existsSync(BREAKOUT_UEF);
       expect(screen).not.toMatch(/SUM|ERROR/);
       expect(listing.map(l => l.lineNumber)).toEqual([1, 2]);
       expect(listing[0].text).toContain('WHICH SKILL LEVEL');
-      expect(m.services.probe.panes?.basicVars?.()).toEqual([]);
+      expect(m.services.inspect?.basicVars?.()).toEqual([]);
       expect(tape.position).toBeGreaterThan(0);
     } finally {
       m.destroy();

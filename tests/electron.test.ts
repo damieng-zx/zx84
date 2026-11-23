@@ -674,15 +674,15 @@ describe('Electron services', () => {
       const m = machine();
       m.memory.ram[0x18] = page;
       m.memory.ram.set(program, page << 8);
-      expect(m.services.probe.panes?.basicListing?.()).toEqual([{ lineNumber: 10, text: 'PRINT 1' }]);
+      expect(m.services.inspect?.basicListing?.()).toEqual([{ lineNumber: 10, text: 'PRINT 1' }]);
       m.destroy();
     }
   });
 
   it('shows no BASIC listing or variables for RAM that holds no program', () => {
     const m = machine();
-    expect(m.services.probe.panes?.basicListing?.()).toEqual([]);
-    expect(m.services.probe.panes?.basicVars?.()).toEqual([]);
+    expect(m.services.inspect?.basicListing?.()).toEqual([]);
+    expect(m.services.inspect?.basicVars?.()).toEqual([]);
     m.destroy();
   });
 

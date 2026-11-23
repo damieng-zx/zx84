@@ -1,9 +1,8 @@
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { fixedDrive } from '@/media/floppy/floppy-sound.ts';
-import { systemBasicListing, systemBasicVariables } from '../basic.ts';
 import type { AcornSystemMachine } from '../machine.ts';
 
 /** Acorn's standard 5.25" drive, for the drive-sound feed. */
@@ -25,25 +24,17 @@ class AcornSystemTranscribeDriver implements TranscribeDriver {
   }
 }
 
-/** The BASIC panes' pull-on-demand bodies (read only when the pane is open). */
-class AcornSystemPanes implements FramePaneProvider {
-  constructor(private readonly m: AcornSystemMachine) {}
-
-  basicListing() { return systemBasicListing(this.m.memory); }
-  basicVars() { return systemBasicVariables(this.m.memory); }
-}
-
 /**
  * The System's dashboard: the KEY indicator shows the COS/DOS polling the
  * keyboard port, the TAPE indicators report the CUTS transport, and a System 3
  * adds the two drives' activity and head positions. There is no sound.
+ *
+ * The BASIC panes' bodies live in `inspect.ts` (on demand, may allocate).
  */
 export class AcornSystemFrameProbe implements FrameProbe {
-  readonly panes: AcornSystemPanes;
   readonly transcribe: AcornSystemTranscribeDriver;
 
   constructor(private readonly machine: AcornSystemMachine) {
-    this.panes = new AcornSystemPanes(machine);
     this.transcribe = new AcornSystemTranscribeDriver(machine);
   }
 

@@ -4,6 +4,7 @@ import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import type { OricMachine } from '../oric-machine.ts';
 import { ORIC_STATE_SPEC } from '../snapshots/oric-state.ts';
 import { OricFrameProbe } from './frame-probe.ts';
+import { OricInspection } from './inspect.ts';
 import { OricInputService } from './input.ts';
 import { OricMediaService } from './media.ts';
 import { OricRomService } from './roms.ts';
@@ -19,6 +20,7 @@ export interface OricServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: OricInputService;
   readonly probe: OricFrameProbe;
+  readonly inspect: OricInspection;
 }
 
 export function createOricServices(machine: OricMachine): OricServices {
@@ -33,6 +35,7 @@ export function createOricServices(machine: OricMachine): OricServices {
     snapshots,
     input: new OricInputService(machine),
     probe: new OricFrameProbe(machine),
+    inspect: new OricInspection(machine),
     debug: new M6502DebugService(machine),
   };
 }

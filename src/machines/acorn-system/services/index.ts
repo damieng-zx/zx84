@@ -4,6 +4,7 @@ import type { MachineServices } from '@/machines/machine.ts';
 import type { AcornSystemMachine } from '../machine.ts';
 import { AcornSystemDiskService } from './disks.ts';
 import { AcornSystemFrameProbe } from './frame-probe.ts';
+import { AcornSystemInspection } from './inspect.ts';
 import { AcornSystemInputService } from './input.ts';
 import { AcornSystemMediaService } from './media.ts';
 import { AcornSystemRomService } from './roms.ts';
@@ -18,6 +19,7 @@ export interface AcornSystemServices extends MachineServices {
   readonly snapshots: null;
   readonly input: AcornSystemInputService;
   readonly probe: AcornSystemFrameProbe;
+  readonly inspect: AcornSystemInspection;
 }
 
 export function createAcornSystemServices(machine: AcornSystemMachine): AcornSystemServices {
@@ -34,6 +36,7 @@ export function createAcornSystemServices(machine: AcornSystemMachine): AcornSys
     snapshots: null,
     input: new AcornSystemInputService(machine),
     probe: new AcornSystemFrameProbe(machine),
+    inspect: new AcornSystemInspection(machine),
     debug: new M6502DebugService(machine),
   };
 }

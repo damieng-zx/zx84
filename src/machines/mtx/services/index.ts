@@ -2,6 +2,7 @@ import { Z80DebugService } from '@/debug/z80/service.ts';
 import type { MachineServices } from '@/machines/machine.ts';
 import type { MtxMachine } from '../mtx-machine.ts';
 import { MtxFrameProbe } from './frame-probe.ts';
+import { MtxInspection } from './inspect.ts';
 import { MtxInputService } from './input.ts';
 import { MtxMediaService } from './media.ts';
 import { MtxRomService } from './roms.ts';
@@ -18,6 +19,7 @@ export interface MtxServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: MtxInputService;
   readonly probe: MtxFrameProbe;
+  readonly inspect: MtxInspection;
 }
 
 export function createMtxServices(machine: MtxMachine): MtxServices {
@@ -33,6 +35,7 @@ export function createMtxServices(machine: MtxMachine): MtxServices {
     snapshots,
     input: new MtxInputService(machine),
     probe: new MtxFrameProbe(machine),
+    inspect: new MtxInspection(machine),
     debug: new Z80DebugService(machine),
   };
 }

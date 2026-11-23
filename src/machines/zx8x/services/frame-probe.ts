@@ -1,7 +1,6 @@
-import type { FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver } from '@/machines/machine.ts';
+import type { FrameIndicators, FrameProbe, TranscribeDriver } from '@/machines/machine.ts';
 import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import type { Zx8xMachine } from '../zx8x-machine.ts';
-import { parseZx8xBasicProgram, parseZx8xBasicVariables } from '../basic.ts';
 
 class Zx8xTranscribeDriver implements TranscribeDriver {
   constructor(private readonly machine: Zx8xMachine) {}
@@ -16,15 +15,10 @@ class Zx8xTranscribeDriver implements TranscribeDriver {
 }
 
 export class Zx8xFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: Zx8xTranscribeDriver;
 
   constructor(private readonly machine: Zx8xMachine) {
     this.transcribe = new Zx8xTranscribeDriver(machine);
-    this.panes = {
-      basicListing: () => parseZx8xBasicProgram(machine.memory.snapshot(), machine.model),
-      basicVars: () => parseZx8xBasicVariables(machine.memory.snapshot(), machine.model),
-    };
   }
 
   sample(out: FrameIndicators): void {

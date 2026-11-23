@@ -186,7 +186,7 @@ describe('BbcFrameProbe transcribe driver', () => {
       // 10 PRINT 1, laid at PAGE 0x0E00 with its leading 0x0D and &FF terminator.
       m.memory.ram[0x18] = 0x0E;
       m.memory.ram.set([0x0D, 0x00, 0x0A, 0x07, 0xF1, 0x20, 0x31, 0x0D, 0xFF], 0x0E00);
-      expect(m.services.probe.panes?.basicListing?.())
+      expect(m.services.inspect?.basicListing?.())
         .toEqual([{ lineNumber: 10, text: 'PRINT 1' }]);
     } finally {
       m.destroy();

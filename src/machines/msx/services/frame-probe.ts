@@ -1,62 +1,18 @@
 /**
  * MSX FrameProbe — keyboard/PSG/cassette activity, the cassette deck's
  * transport state, the floppy interface's drives, plus the OCR text-overlay
- * driver.
+ * driver. The memory-layout and BASIC panes live in `inspect.ts`.
  */
 
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver,
-  MemoryMapSnapshot,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import { DRIVE_PROFILE, fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import type { MsxMachine } from '@/machines/msx/msx-machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
-import { parseMsxBasic, parseMsxBasicVariables } from '@/basic/msx-basic-parser.ts';
-import { hex8 } from '@/utils/hex.ts';
 
 /** The disk interface's drives are 3.5" units. */
 const DRIVE = fixedDrive('3.5inch');
-
-/** Label the source paged into one MSX 16KB page given its primary slot number.
- *  slot 0 = internal ROM (BIOS+BASIC, pages 0-1 only; the HB-55 adds its Data
- *  Bank ROM in page 2), slot 1 = cartridge, slot 3 = rear expansion connector
- *  (the floppy disk interface's Disk BASIC ROM in page 1 when fitted, else
- *  empty). The on-board RAM is in slot 2 on the HX-10 and slot 0 page 3 on the
- *  HB-55 — the memory object knows which. */
-function msxSlotLabel(m: MsxMachine, slot: number, page: number): { read: string } {
-  const mem = m.memory;
-  if (mem.ramCoversPage(slot, page)) return { read: 'RAM' };
-  switch (slot) {
-    case 0:
-      if (page < 2) return { read: 'ROM' };
-      return { read: mem.firmwareCoversPage(slot, page) ? 'Data Bank ROM' : '(empty)' };
-    case 1: return { read: mem.cartCoversPage(page) ? 'Cartridge' : '(empty)' };
-    case 2: return { read: '(empty)' };
-    case 3: return { read: page === 1 && mem.hasDiskInterface ? 'Disk ROM' : '(empty)' };
-    default: return { read: '?' };
-  }
-}
-
-/** Build the MSX memory-layout snapshot: four 16KB pages each selecting one of
- *  four primary slots via the 2-bit fields of PPI port A (0xA8). */
-function msxMemoryMap(m: MsxMachine): MemoryMapSnapshot | null {
-  const mem = m.memory;
-  const primary = mem.getPrimarySlot();
-  const ranges = ['0000-3FFF', '4000-7FFF', '8000-BFFF', 'C000-FFFF'];
-
-  const slots = ranges.map((range, page) => {
-    const slot = (primary >> (page * 2)) & 3;
-    const label = msxSlotLabel(m, slot, page);
-    return { range, ...label };
-  });
-
-  return {
-    slots,
-    registers: mem.cartridgeMapper === 'plain'
-      ? [{ name: 'Port A8', value: hex8(primary) }]
-      : [{ name: 'Port A8', value: hex8(primary) }, { name: 'Mapper', value: mem.cartridgeMapper }],
-  };
-}
 
 class MsxTranscribeDriver implements TranscribeDriver {
   constructor(private readonly m: MsxMachine) {}
@@ -75,17 +31,10 @@ class MsxTranscribeDriver implements TranscribeDriver {
 }
 
 export class MsxFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: MsxTranscribeDriver;
 
   constructor(private readonly m: MsxMachine) {
     this.transcribe = new MsxTranscribeDriver(m);
-    this.panes = {
-      memoryMap: () => msxMemoryMap(m),
-      // MSX BASIC's program and variable tables live in the physical RAM slot.
-      basicListing: () => parseMsxBasic(m.memory.ramSnapshot()),
-      basicVars: () => parseMsxBasicVariables(m.memory.ramSnapshot()),
-    };
   }
 
   sample(out: FrameIndicators): void {

@@ -37,12 +37,12 @@ reuse a filename (`basic.rom`, `os.rom`) keep their own copy.
 ## Model Support
 
 The generic tools (execution, registers, memory, disassembly, breakpoints and
-watchpoints, stepping, media loading, OCR, screenshots) work through the
-`Machine` interface on every model whose machine provides the service. A few
-tools are hardware-specific: tracing is Spectrum-only, and several machines
-add bench tools of their own (see the Tool Reference). Each
-[machine sheet](../docs/machines) lists the tools, media formats and limits for
-that machine.
+watchpoints, stepping, media loading, OCR, screenshots, BASIC listing and
+variables) work through the `Machine` interface on every model whose machine
+provides the service. A few tools are hardware-specific: tracing is
+Spectrum-only, and several machines add bench tools of their own (see the Tool
+Reference). Each [machine sheet](../docs/machines) lists the tools, media
+formats and limits for that machine.
 
 Use `model` to switch machines. Switching always creates a fresh machine.
 
@@ -70,6 +70,8 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | `disassemble` | `address` (default PC), `lines` (default `16`) | Z80 disassembly with byte display. |
 | `symbols_load` | `file` | Load a symbol file into the MCP symbol table. |
 | `symbols` | `query`, `limit` | Find/list loaded symbols. |
+| `basic_listing` | `line` (optional) | List the BASIC program in memory, detokenised in the active machine's dialect. `line` is a line number or a range such as `100-200`. |
+| `basic_vars` | `name` (optional) | List the machine BASIC's variables (simple, string, array, FOR loop); `name` filters case-insensitively. |
 
 ### Breakpoints, Watchpoints, And Traps
 
@@ -192,8 +194,7 @@ mount is replayed onto the replacement machine). Generic tools consume
 (which also holds the per-family headless launch knobs).
 
 Tool registrations live under `mcp/tools/`. The root helpers cover formatting,
-ROM fetching, catalog access, PNG output, traps, FDC logging, and ZXTL storage;
-`mcp/loader.ts` is the generic MediaService + ZIP mount path, while
+ROM fetching, catalog access, PNG output, traps, FDC logging, and ZXTL storage;`mcp/loader.ts` is the generic MediaService + ZIP mount path, while
 `mcp/spectrum-loader.ts` is the Spectrum bench loader (peripheral-ROM arming,
 boot traps, load verdicts). Hex output uses the shared `src/utils/hex.ts`;
 there is no MCP-local hex formatter.

@@ -66,7 +66,7 @@ describe.runIf(hasRom(ATMOS_ROM))('oric BASIC listing', () => {
     const m = boot();
     try {
       type(m, '10 REM HELLO\n20 FOR I=1 TO 3\n30 PRINT "X";I\n40 NEXT I\n');
-      const listing = m.services.probe.panes?.basicListing?.() ?? [];
+      const listing = m.services.inspect?.basicListing?.() ?? [];
       expect(listing.map(l => l.lineNumber)).toEqual([10, 20, 30, 40]);
       expect(listing[0].text).toBe('REM HELLO');
       // The operators, TO and the tokens all have to decode for this to read
@@ -83,7 +83,7 @@ describe.runIf(hasRom(ATMOS_ROM))('oric BASIC listing', () => {
     const m = boot();
     try {
       type(m, '10 REM PRINT FOR TO END\n');
-      const listing = m.services.probe.panes?.basicListing?.() ?? [];
+      const listing = m.services.inspect?.basicListing?.() ?? [];
       expect(listing).toHaveLength(1);
       // The words after REM must not be detokenised: they are comment text.
       expect(listing[0].text).toBe('REM PRINT FOR TO END');
@@ -97,7 +97,7 @@ describe.runIf(hasRom(ATMOS_ROM))('oric BASIC listing', () => {
     try {
       // A fresh machine has the one-record terminator and nothing else. An
       // empty list is what makes the pane show "(no BASIC program)".
-      expect(m.services.probe.panes?.basicListing?.()).toEqual([]);
+      expect(m.services.inspect?.basicListing?.()).toEqual([]);
     } finally {
       m.destroy();
     }

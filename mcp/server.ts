@@ -23,6 +23,7 @@ import { register as registerMedia } from './tools/media.ts';
 import { register as registerTrace } from './tools/trace.ts';
 import { register as registerPeripherals } from './tools/peripherals.ts';
 import { register as registerSymbols } from './tools/symbols.ts';
+import { register as registerBasic } from './tools/basic.ts';
 import { register as registerBeam } from './tools/beam.ts';
 import { register as registerChips } from './tools/chips.ts';
 
@@ -40,6 +41,7 @@ registerMedia(server);
 registerTrace(server);
 registerPeripherals(server);
 registerSymbols(server);
+registerBasic(server);
 registerBeam(server);
 registerChips(server);
 

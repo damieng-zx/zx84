@@ -1,7 +1,6 @@
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
-import { parseAtomBasic, parseAtomBasicVariables } from '@/basic/atom-basic-parser.ts';
 import type { AtomMachine } from '../atom-machine.ts';
 
 class AtomTranscribeDriver implements TranscribeDriver {
@@ -23,19 +22,12 @@ class AtomTranscribeDriver implements TranscribeDriver {
 }
 
 export class AtomFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: AtomTranscribeDriver;
   /** The tape moved its level during the last UI frame: light the EAR lamp. */
   private earActive = false;
 
   constructor(private readonly machine: AtomMachine) {
     this.transcribe = new AtomTranscribeDriver(machine);
-    this.panes = {
-      // Atom BASIC stores plain ASCII line records in the text space; its
-      // variables are the A-Z integer columns and the AA-ZZ arrays.
-      basicListing: () => parseAtomBasic(machine.memory.ram),
-      basicVars: () => parseAtomBasicVariables(machine.memory.ram),
-    };
   }
 
   /** The cassette input idles high on the Atom, so the EAR lamp follows level

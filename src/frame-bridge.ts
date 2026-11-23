@@ -98,12 +98,13 @@ function updateDisasm(): void {
 
 export function updateRegsOnce(): void {
   if (!machine) return;
-  const probe = machine.services?.probe;
+  const m = machine;
+  const probe = m.services?.probe;
   batch(() => {
     setRegsRev(v => v + 1);
     updateDisasm();
     // Machine-provided debug panes (sysvars, BASIC, memory layout).
-    const panes = probe?.panes;
+    const panes = m.services?.inspect;
     if (panes) {
       if (panes.hasSysvars) setSysvarRev(v => v + 1);
       if (panes.basicListing) setBasicListing(panes.basicListing());
@@ -295,7 +296,7 @@ export function updateFontPreview(): { type: 'custom'; data: Uint8Array } | { ty
   } else {
     // ROM-font capture is a machine-provided hook (Spectrum CHARS heuristic);
     // machines without one have no capturable font.
-    const candidate = machine?.services?.probe?.panes?.romFontCandidate?.();
+    const candidate = machine?.services?.inspect?.romFontCandidate?.();
     if (!candidate) return null;
     const { fontStart, snap } = candidate;
 
@@ -397,12 +398,13 @@ function feedFloppySound(): void {
 
 export function onFrame(): void {
   if (!machine) return;
+  const m = machine;
   // Clock-speed readout applies to every machine.
   updateClockSpeed();
   // Breakpoint / run-to check runs every rAF, even under turbo.
   checkBreakpoint();
 
-  const probe = machine.services?.probe;
+  const probe = m.services?.probe;
   if (!probe) {
     // No probe (bare test stub): keep the debugger pane alive and stop there.
     if (!isCollapsed('disasm-panel')) {
@@ -515,7 +517,7 @@ export function onFrame(): void {
       }
 
       // Sysvars + BASIC — throttled to ~1Hz, only if the pane is open.
-      const panes = probe.panes;
+      const panes = m.services?.inspect;
       const now = performance.now();
       if (now - _lastSlowUpdate > 1000) {
         _lastSlowUpdate = now;

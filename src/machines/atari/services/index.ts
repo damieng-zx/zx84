@@ -12,6 +12,7 @@ import type { MachineServices } from '@/machines/machine.ts';
 import type { AtariMachine } from '../atari-machine.ts';
 import { AtariDiskService } from './disks.ts';
 import { AtariFrameProbe } from './frame-probe.ts';
+import { AtariInspection } from './inspect.ts';
 import { AtariInputService } from './input.ts';
 import { AtariMediaService } from './media.ts';
 import { AtariRomService } from './roms.ts';
@@ -26,6 +27,7 @@ export interface AtariServices extends MachineServices {
   readonly snapshots: AtariSnapshotService;
   readonly input: AtariInputService;
   readonly probe: AtariFrameProbe;
+  readonly inspect: AtariInspection;
 }
 
 export function createAtariServices(machine: AtariMachine): AtariServices {
@@ -40,6 +42,7 @@ export function createAtariServices(machine: AtariMachine): AtariServices {
     snapshots: new AtariSnapshotService(machine, () => machine.host),
     input: new AtariInputService(machine),
     probe: new AtariFrameProbe(machine),
+    inspect: new AtariInspection(machine),
     debug: new M6502DebugService(machine),
   };
 }
