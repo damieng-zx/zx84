@@ -1,9 +1,8 @@
 import type {
-  FrameIndicators, FrameProbe, FramePaneProvider, TranscribeDriver,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import { fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import { parseBbcBasic, parseBbcBasicVariables } from '@/basic/bbc-basic-parser.ts';
 import type { BbcMachine } from '../bbc-machine.ts';
 
 /** BBC DFS drives are 5.25" 40/80-track units (Acorn's standard upgrade). */
@@ -33,17 +32,10 @@ class BbcTranscribeDriver implements TranscribeDriver {
 }
 
 export class BbcFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: BbcTranscribeDriver;
 
   constructor(private readonly machine: BbcMachine) {
     this.transcribe = new BbcTranscribeDriver(machine);
-    this.panes = {
-      // The tokenised BBC BASIC program lives in main RAM from PAGE.
-      basicListing: () => parseBbcBasic(machine.memory.ram),
-      // Variables live in the heap above TOP plus the resident A%-Z%.
-      basicVars: () => parseBbcBasicVariables(machine.memory.ram),
-    };
   }
 
   /** Pure read — overwrite every channel this machine owns so no stale value

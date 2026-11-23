@@ -3,16 +3,13 @@
  *
  * Only the channels this machine actually has are written: the keyboard scan the
  * ROM's 100 Hz interrupt performs, the PSG (its "chip" LED), the ULA's blink
- * clock as the video-effect source, and the cassette once Phase 4 lands.
+ * clock as the video-effect source, and the cassette once Phase 4 lands. The
+ * memory-layout and BASIC panes are pull-on-demand and live in `inspect.ts`.
  */
 
-import type { BasicListingLine } from '@/basic/types.ts';
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, TranscribeDriver,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
-import {
-  parseOricBasic, parseOricBasicVariables, readOricTokenTable, type OricTokenTable,
-} from '@/basic/oric-basic-parser.ts';
 import type { OricMachine } from '../oric-machine.ts';
 
 class OricTranscribeDriver implements TranscribeDriver {
@@ -34,33 +31,10 @@ class OricTranscribeDriver implements TranscribeDriver {
 }
 
 export class OricFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: OricTranscribeDriver;
-  /** The keyword table, read once from the resident ROM (it never changes). */
-  private tokenTable: OricTokenTable | null = null;
-  private tokenRom: Uint8Array | null = null;
 
   constructor(private readonly machine: OricMachine) {
     this.transcribe = new OricTranscribeDriver(machine);
-    this.panes = {
-      basicListing: () => this.listing(),
-      basicVars: () => parseOricBasicVariables(this.machine.memory.ram),
-      memoryMap: () => this.machine.memoryMap(),
-    };
-  }
-
-  /** The ROM's own keyword table, cached against the ROM it came from. */
-  private tokens(): OricTokenTable {
-    const rom = this.machine.memory.rom;
-    if (this.tokenTable === null || this.tokenRom !== rom) {
-      this.tokenTable = readOricTokenTable(rom);
-      this.tokenRom = rom;
-    }
-    return this.tokenTable;
-  }
-
-  private listing(): BasicListingLine[] {
-    return parseOricBasic(this.machine.memory.ram, this.tokens());
   }
 
   frameTick(_out: FrameIndicators): void {

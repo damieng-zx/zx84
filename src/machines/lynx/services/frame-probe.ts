@@ -3,43 +3,16 @@
  */
 
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot,
-  TranscribeDriver,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import { DRIVE_PROFILE, fixedDrive } from '@/media/floppy/floppy-sound.ts';
-import { hex8 } from '@/utils/hex.ts';
 import type { LynxMachine } from '../lynx-machine.ts';
 
 /** Camputers shipped the Lynx with 5.25" drives. Its 200K format is the
  *  40-track single-sided shape that suits; the 800K one is the same drive at
  *  80 tracks, well past where a capacity test would call a drive 3.5". */
 const DRIVE = fixedDrive('5.25inch');
-
-function lynxMemoryMap(m: LynxMachine): MemoryMapSnapshot {
-  const labels = m.memory.slotLabels;
-  const slots = [];
-  for (let slot = 7; slot >= 0; slot--) {
-    const base = slot * 0x2000;
-    slots.push({
-      range: `${hex8(base >> 8)}00-${hex8(((base + 0x1fff) >> 8) & 0xff)}FF`,
-      read: labels[slot],
-    });
-  }
-
-  // A store goes to every bank enabled for writing, so the pane lists them as
-  // one set rather than per slot.
-  const banks = m.memory.writeTargets;
-
-  return {
-    slots,
-    registers: [
-      { name: 'Writes to', value: banks.length > 0 ? banks.join(' + ') : 'nothing' },
-      { name: 'Green plane', value: m.video.altGreen ? 'alternate' : 'main' },
-      { name: 'Cassette', value: m.tapeMotorOn ? 'motor on' : 'motor off' },
-    ],
-  };
-}
 
 /**
  * TEXT-overlay driver.
@@ -70,11 +43,9 @@ class LynxTranscribeDriver implements TranscribeDriver {
 }
 
 export class LynxFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: LynxTranscribeDriver;
 
   constructor(private readonly machine: LynxMachine) {
-    this.panes = { memoryMap: () => lynxMemoryMap(this.machine) };
     this.transcribe = new LynxTranscribeDriver(machine);
   }
 

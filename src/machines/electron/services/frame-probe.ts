@@ -1,9 +1,8 @@
 import type {
-  FrameIndicators, FrameProbe, FramePaneProvider, TranscribeDriver,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import { parseBbcBasic, parseBbcBasicVariables } from '@/basic/bbc-basic-parser.ts';
 import type { ElectronMachine } from '../electron-machine.ts';
 
 class ElectronTranscribeDriver implements TranscribeDriver {
@@ -28,16 +27,10 @@ class ElectronTranscribeDriver implements TranscribeDriver {
 }
 
 export class ElectronFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: ElectronTranscribeDriver;
 
   constructor(private readonly machine: ElectronMachine) {
     this.transcribe = new ElectronTranscribeDriver(machine);
-    this.panes = {
-      // The tokenised BASIC program lives in main RAM from PAGE (BASIC II, as on the BBC).
-      basicListing: () => parseBbcBasic(machine.memory.ram),
-      basicVars: () => parseBbcBasicVariables(machine.memory.ram),
-    };
   }
 
   /** Pure read — overwrite every channel this machine owns so no stale value

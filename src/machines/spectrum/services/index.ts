@@ -14,6 +14,7 @@ import { SpectrumRomService } from './roms.ts';
 import { SpectrumSnapshotService } from './snapshots.ts';
 import { SpectrumMediaService } from './media.ts';
 import { SpectrumFrameProbe } from './frame-probe.ts';
+import { SpectrumInspection } from './inspect.ts';
 
 export interface SpectrumServices extends MachineServices {
   readonly media: SpectrumMediaService;
@@ -23,6 +24,7 @@ export interface SpectrumServices extends MachineServices {
   readonly snapshots: SpectrumSnapshotService;
   readonly input: SpectrumInputService;
   readonly probe: SpectrumFrameProbe;
+  readonly inspect: SpectrumInspection;
 }
 
 export function createSpectrumServices(s: Spectrum): SpectrumServices {
@@ -36,6 +38,7 @@ export function createSpectrumServices(s: Spectrum): SpectrumServices {
     media, roms, tape, disks, snapshots,
     input: new SpectrumInputService(s),
     probe: new SpectrumFrameProbe(s),
+    inspect: new SpectrumInspection(s),
     debug: new Z80DebugService(s),
   };
 }

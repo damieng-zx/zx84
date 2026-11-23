@@ -83,6 +83,14 @@ frame):
 - `probe` — a `FrameProbe` whose `sample()` fills the shared `FrameIndicators`
   struct and **allocates nothing** (tier-3 hot path); `frameTick()` does the
   once-per-UI-frame device bookkeeping.
+- `inspect` — a `MachineInspection` with the pull-on-demand read-only views the
+  debug panes and the MCP's `basic_listing`/`basic_vars` tools bind to: the
+  memory map (`memoryMap`), the BASIC program and variables (`basicListing`,
+  `basicVars`), `hasSysvars`, and the Font pane's `romFontCandidate`. Unlike the
+  probe these may allocate freely and are read only when a pane is open or a
+  tool is called, so the BASIC parsers live here, not in `sample()`. Every
+  member is optional — omit what your machine has nothing to report for, and the
+  panes/tools decline. Omit `inspect` entirely if that is everything.
 
 ### 4. Optional `ui/` contributions
 

@@ -277,7 +277,7 @@ describe('C128 debugger views', () => {
   it('reports the memory map for either mode', () => {
     const m = new C128Machine(null);
     m.reset();
-    const map = m.services.probe.panes!.memoryMap!()!;
+    const map = m.services.inspect!.memoryMap!()!;
     expect(map.slots.map(s => s.range)).toContain('C000-FFFF');
     expect(map.registers.find(r => r.name === 'Mode')!.value).toContain('C128');
   });

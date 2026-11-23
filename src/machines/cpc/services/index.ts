@@ -14,6 +14,7 @@ import { CpcRomService } from './roms.ts';
 import { CpcSnapshotService } from './snapshots.ts';
 import { CpcMediaService } from './media.ts';
 import { CpcFrameProbe } from './frame-probe.ts';
+import { CpcInspection } from './inspect.ts';
 
 export interface CpcServices extends MachineServices {
   readonly media: CpcMediaService;
@@ -23,6 +24,7 @@ export interface CpcServices extends MachineServices {
   readonly snapshots: CpcSnapshotService;
   readonly input: CpcInputService;
   readonly probe: CpcFrameProbe;
+  readonly inspect: CpcInspection;
 }
 
 export function createCpcServices(c: CpcMachine): CpcServices {
@@ -36,6 +38,7 @@ export function createCpcServices(c: CpcMachine): CpcServices {
     media, roms, tape, disks, snapshots,
     input: new CpcInputService(c),
     probe: new CpcFrameProbe(c),
+    inspect: new CpcInspection(c),
     debug: new Z80DebugService(c),
   };
 }

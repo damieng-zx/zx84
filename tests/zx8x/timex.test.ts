@@ -243,7 +243,7 @@ describe.skipIf(!haveZx81Rom)(`on the real ZX81 ROM (skipped without ${ZX81_ROM_
 
     it('lists the program from the ROM-built program area', () => {
       const m = typed();
-      expect(m.services.probe.panes!.basicListing!()).toEqual([
+      expect(m.services.inspect!.basicListing!()).toEqual([
         { lineNumber: 10, text: 'PRINT 42' },
         { lineNumber: 20, text: 'LET A=7' },
         { lineNumber: 30, text: 'LET B$="HI"' },
@@ -253,7 +253,7 @@ describe.skipIf(!haveZx81Rom)(`on the real ZX81 ROM (skipped without ${ZX81_ROM_
     it('shows its variables once it has run, numbers and strings', () => {
       const m = typed();
       run(m);
-      expect(m.services.probe.panes!.basicVars!()).toEqual([
+      expect(m.services.inspect!.basicVars!()).toEqual([
         { name: 'A', kind: 'number', value: '7' },
         { name: 'B$', kind: 'string', value: 'HI' },
       ]);

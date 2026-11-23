@@ -5,6 +5,7 @@ import type { AtomMachine } from '../atom-machine.ts';
 import type { AtomTape } from '../atom-tape.ts';
 import { ATOM_STATE_SPEC } from '../snapshots/atom-state.ts';
 import { AtomFrameProbe } from './frame-probe.ts';
+import { AtomInspection } from './inspect.ts';
 import { AtomInputService } from './input.ts';
 import { AtomMediaService } from './media.ts';
 import { AtomRomService } from './roms.ts';
@@ -17,6 +18,7 @@ export interface AtomServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: AtomInputService;
   readonly probe: AtomFrameProbe;
+  readonly inspect: AtomInspection;
 }
 
 export function createAtomServices(machine: AtomMachine): AtomServices {
@@ -29,6 +31,7 @@ export function createAtomServices(machine: AtomMachine): AtomServices {
     snapshots,
     input: new AtomInputService(machine),
     probe: new AtomFrameProbe(machine),
+    inspect: new AtomInspection(machine),
     debug: new M6502DebugService(machine),
   };
 }

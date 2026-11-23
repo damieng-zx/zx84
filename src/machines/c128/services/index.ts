@@ -13,6 +13,7 @@ import { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
 import { tapFormat } from '@/media/tape/c64-tap.ts';
 import { C128DebugService } from './debug.ts';
 import { C128FrameProbe } from './frame-probe.ts';
+import { C128Inspection } from './inspect.ts';
 import { C128InputService } from './input.ts';
 import { C128MediaService } from './media.ts';
 import { C128RomService } from './roms.ts';
@@ -25,6 +26,7 @@ export interface C128Services extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: C128InputService;
   readonly probe: C128FrameProbe;
+  readonly inspect: C128Inspection;
 }
 
 export function createC128Services(m: C128Machine): C128Services {
@@ -45,6 +47,7 @@ export function createC128Services(m: C128Machine): C128Services {
     snapshots,
     input: new C128InputService(m),
     probe: new C128FrameProbe(m),
+    inspect: new C128Inspection(m),
     debug: new C128DebugService(m),
   };
 }

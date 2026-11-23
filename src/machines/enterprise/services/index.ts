@@ -11,6 +11,7 @@ import { EnterpriseInputService } from './input.ts';
 import { EnterpriseRomService } from './roms.ts';
 import { EnterpriseMediaService } from './media.ts';
 import { EnterpriseFrameProbe } from './frame-probe.ts';
+import { EnterpriseInspection } from './inspect.ts';
 import { EnterpriseDiskService } from './disks.ts';
 import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import { EP_STATE } from '../snapshots/ep-state.ts';
@@ -23,6 +24,7 @@ export interface EnterpriseServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: EnterpriseInputService;
   readonly probe: EnterpriseFrameProbe;
+  readonly inspect: EnterpriseInspection;
 }
 
 export function createEnterpriseServices(
@@ -39,6 +41,7 @@ export function createEnterpriseServices(
     snapshots,
     input: new EnterpriseInputService(m),
     probe: new EnterpriseFrameProbe(m),
+    inspect: new EnterpriseInspection(m),
     debug: new Z80DebugService(m),
   };
 }

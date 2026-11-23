@@ -16,7 +16,7 @@ describe('Einstein BASIC listing pane', () => {
     const prog = [0x08, 0x00, 0x0A, 0x00, 0xA2, 0x20, 0x46, 0x00, 0x00, 0x00];
     prog.forEach((b, i) => m.memory.writeByte(0x3E01 + i, b));
 
-    const listing = m.services.probe.panes?.basicListing?.();
+    const listing = m.services.inspect?.basicListing?.();
     expect(listing).toEqual([{ lineNumber: 10, text: 'PRINT F' }]);
   });
 });

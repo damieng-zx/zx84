@@ -12,6 +12,7 @@ import { CbmDiskService } from '@/machines/shared/cbm/disk-service.ts';
 import { CbmTapeService } from '@/machines/shared/cbm/tape-service.ts';
 import { tapFormat } from '@/media/tape/c64-tap.ts';
 import { C64FrameProbe } from './frame-probe.ts';
+import { C64Inspection } from './inspect.ts';
 import { C64InputService } from './input.ts';
 import { C64MediaService } from './media.ts';
 import { C64RomService } from './roms.ts';
@@ -24,6 +25,7 @@ export interface C64Services extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: C64InputService;
   readonly probe: C64FrameProbe;
+  readonly inspect: C64Inspection;
 }
 
 export function createC64Services(m: C64Machine): C64Services {
@@ -39,6 +41,7 @@ export function createC64Services(m: C64Machine): C64Services {
     snapshots,
     input: new C64InputService(m),
     probe: new C64FrameProbe(m),
+    inspect: new C64Inspection(m),
     debug: new M6502DebugService(m),
   };
 }

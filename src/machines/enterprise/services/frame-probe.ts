@@ -1,55 +1,20 @@
 /**
- * EnterpriseFrameProbe — the status bar's and Memory pane's view of the
- * Enterprise.
+ * EnterpriseFrameProbe — the status bar's view of the Enterprise: activity
+ * counters, tape transport and drive telemetry. The Memory pane's segment
+ * layout lives in `inspect.ts` (on demand, may allocate).
  */
 
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSnapshot,
+  FrameIndicators, FrameProbe,
 } from '@/machines/machine.ts';
 import { DRIVE_PROFILE, fixedDrive } from '@/media/floppy/floppy-sound.ts';
-import { hex8 } from '@/utils/hex.ts';
 import type { EnterpriseMachine } from '../enterprise-machine.ts';
-import { SEG_CARTRIDGE, SEG_EXDOS, SEG_HOSTFS } from '../constants.ts';
 
 /** The EXDOS card drove 3.5" drives. */
 const DRIVE = fixedDrive('3.5inch');
 
-function segmentName(m: EnterpriseMachine, seg: number): string {
-  if (seg >= m.memory.firstRamSegment) return seg >= 0xFC ? `VRAM ${hex8(seg)}` : `RAM ${hex8(seg)}`;
-  if (!m.memory.segment(seg)) return `empty ${hex8(seg)}`;
-  if (seg < SEG_CARTRIDGE) return `EXOS ${seg}`;
-  if (seg < SEG_CARTRIDGE + 4) return `Cartridge ${seg - SEG_CARTRIDGE}`;
-  if (seg === SEG_HOSTFS) return 'FILE: ROM';
-  if (seg >= SEG_EXDOS && seg < SEG_EXDOS + 2) return `EXDOS ${seg - SEG_EXDOS}`;
-  return `ROM ${hex8(seg)}`;
-}
-
-function memoryMap(m: EnterpriseMachine): MemoryMapSnapshot {
-  const slots = [];
-  for (let page = 3; page >= 0; page--) {
-    const base = page * 0x4000;
-    slots.push({
-      range: `${hex8(base >> 8)}00-${hex8((base + 0x3FFF) >> 8)}FF`,
-      read: segmentName(m, m.memory.pages[page]),
-    });
-  }
-  const waits = ['all accesses', 'M1 only', 'none', 'none'][m.dave.waitMode];
-  return {
-    slots,
-    registers: [
-      { name: 'Wait states', value: waits },
-      { name: 'LPT', value: `${hex8(m.nick.lptBase >> 8)}${hex8(m.nick.lptBase & 0xFF)}` },
-      { name: 'Border', value: hex8(m.nick.border) },
-    ],
-  };
-}
-
 export class EnterpriseFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
-
-  constructor(private readonly machine: EnterpriseMachine) {
-    this.panes = { memoryMap: () => memoryMap(this.machine) };
-  }
+  constructor(private readonly machine: EnterpriseMachine) {}
 
   sample(out: FrameIndicators): void {
     const m = this.machine;

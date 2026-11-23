@@ -13,6 +13,7 @@ import { tapFormat } from '@/media/tape/c64-tap.ts';
 import type { Vic20Machine } from '../vic20-machine.ts';
 import { VIC20_STATE } from '../snapshots/vic20-state.ts';
 import { Vic20FrameProbe } from './frame-probe.ts';
+import { Vic20Inspection } from './inspect.ts';
 import { Vic20InputService } from './input.ts';
 import { Vic20MediaService } from './media.ts';
 import { Vic20RomService } from './roms.ts';
@@ -25,6 +26,7 @@ export interface Vic20Services extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: Vic20InputService;
   readonly probe: Vic20FrameProbe;
+  readonly inspect: Vic20Inspection;
 }
 
 export function createVic20Services(m: Vic20Machine): Vic20Services {
@@ -45,6 +47,7 @@ export function createVic20Services(m: Vic20Machine): Vic20Services {
     snapshots,
     input: new Vic20InputService(m),
     probe: new Vic20FrameProbe(m),
+    inspect: new Vic20Inspection(m),
     debug: new M6502DebugService(m),
   };
 }

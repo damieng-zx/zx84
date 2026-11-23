@@ -99,8 +99,8 @@ describe('C64 chip_state', () => {
     expect(text).toContain('EasyFlash');
     expect(text).toContain('Ultimax');
     expect(text).toContain('ROMH $E000 in');
-    expect(m.services.probe.panes.memoryMap!()!.slots.find(s => s.range === 'E000-FFFF')?.read).toBe('Cartridge ROMH');
-    expect(m.services.probe.panes.memoryMap!()!.registers.some(r => r.name === 'Cartridge')).toBe(true);
+    expect(m.services.inspect.memoryMap!()!.slots.find(s => s.range === 'E000-FFFF')?.read).toBe('Cartridge ROMH');
+    expect(m.services.inspect.memoryMap!()!.registers.some(r => r.name === 'Cartridge')).toBe(true);
     m.destroy();
   });
 });

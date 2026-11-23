@@ -420,7 +420,7 @@ describe('cartridges in snapshots and through the services', () => {
 
   it('describes what is on the port to the memory map and chips panes', () => {
     const m = fit64(buildCrt(0, 1, 0, [{ bank: 0, load: 0xE000, data: rom8k(0x72) }]));
-    const map = m.services.probe.panes!.memoryMap!();
+    const map = m.services.inspect!.memoryMap!();
     expect(map?.slots.find(s => s.range === 'E000-FFFF')?.read).toBe('Cartridge ROMH');
     expect(map?.registers.find(r => r.name === 'Cartridge')?.value).toContain('Ultimax');
     expect(m.chips().some(c => c.name === 'cart')).toBe(true);
