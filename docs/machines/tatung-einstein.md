@@ -5,6 +5,11 @@ Tatung's Z80-based home computer: the TC-01 with a TMS9929A video chip and an
 zx84 emulates both as disk-only machines: the MOS boots to its monitor, and
 BASIC or Xtal DOS loads from a floppy image in drive A:.
 
+<p align="center">
+  <img src="../images/machines/tatung-einstein.png" alt="The Einstein TC-01 at the MOS prompt"><br>
+  <img src="../images/machines/tatung-einstein-keyboard.png" alt="The Einstein TC-01 keyboard, with its keypad">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Tatung |

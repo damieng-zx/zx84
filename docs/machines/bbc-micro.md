@@ -9,6 +9,11 @@ serial ports, and either of the two period disc interfaces (Intel 8271 or
 WD1770 Acorn DFS). The CPU is held for every access to the 1 MHz bus, as on
 the real machine.
 
+<p align="center">
+  <img src="../images/machines/bbc-micro.png" alt="The BBC Micro Model B at its BASIC prompt"><br>
+  <img src="../images/machines/bbc-micro-keyboard.png" alt="The Model B keyboard, with its red function keys">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Acorn Computers |

@@ -6,6 +6,11 @@ with no ROM at all. zx84 emulates the 8256, 8512, 9512 and 9256 around one gate
 array model, a Z80A and a uPD765A, booting CP/M Plus or LocoScript from the disc
 in drive A.
 
+<p align="center">
+  <img src="../images/machines/amstrad-pcw.png" alt="The PCW 8256 at power-on: with no system disc in drive A there is nothing to boot"><br>
+  <img src="../images/machines/amstrad-pcw-keyboard.png" alt="The PCW 8256 keyboard, with its word-processor keypad">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Amstrad |

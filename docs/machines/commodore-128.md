@@ -2,6 +2,11 @@
 
 Commodore's 1985 successor to the 64: an 8502 that runs the 128's own BASIC 7.0 and can drop to 1 MHz C64 mode, a Z80 that exists only to bring the machine up and hand over at power-on, two video chips (the 40-column VIC-IIe and the 80-column 8563 VDC), and a serial bus built for the 1571's burst mode. zx84 emulates the MMU's two 64K blocks and page relocation, both video chips on one canvas, C64 mode through the real 64 ROMs, and a drive-level 1571 that speaks burst.
 
+<p align="center">
+  <img src="../images/machines/commodore-128.png" alt="The Commodore 128 at its BASIC 7.0 banner"><br>
+  <img src="../images/machines/commodore-128-keyboard.png" alt="The Commodore 128 keyboard, with its numeric keypad">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Commodore Business Machines |

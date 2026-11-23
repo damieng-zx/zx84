@@ -8,6 +8,11 @@ joystick ports read through the AY. zx84 emulates them as one model of the Spect
 machine in two TV standards, sharing its CPU, tape, snapshot and software tooling with the
 [TC2048](timex-computer-2048.md), whose SCLD video it reuses.
 
+<p align="center">
+  <img src="../images/machines/timex-sinclair-2068.png" alt="The Timex Sinclair 2068 at boot"><br>
+  <img src="../images/machines/timex-sinclair-2068-keyboard.png" alt="The TS2068 keyboard, with its cartridge and Spectrum keys">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Timex Computer Corporation (US, the TS2068) and Timex Computer (Portugal, the TC2068) |

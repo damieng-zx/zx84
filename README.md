@@ -2,7 +2,7 @@
 
 <img src="public/mascot.svg" align="right" width="100" height="140" alt="Blip, the ZX84 robot mascot">
 
-**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (and the Pentagon and Scorpion clones), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn Atom, Oric-1 and Oric Atmos, Acorn BBC Micro and Electron, the Apple I and the Apple II family, and the Enterprise 64/128, with an MCP server for automated testing.**
+**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (with the Pentagon and Scorpion clones and the Timex 2048 and 2068), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn Atom, Acorn System, Oric-1 and Oric Atmos, BBC Micro and Electron, the Apple I and the Apple II family, the Atari 8-bit line, the Enterprise 64/128, and the Commodore 64, 128 and VIC-20, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -64,6 +64,8 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | --- | --- |
 | Spectrum | Snapshots: `.sna`, `.z80`, `.szx`, `.sp`; tapes: `.tap`, `.tzx`, `.cdt`, `.csw`; +3 disks: `.dsk`, `.hfe`, `.scp` |
 | Spectrum peripherals | Interface 2: `.rom`; Interface 1: `.mdr`, `.mdv`; MGT +D: `.mgt`, `.img`, `.hfe`, `.scp`; Beta Disk: `.trd`, `.scl`, `.hfe`, `.scp` |
+| Spectrum clones | Snapshots: `.szx`, `.z80` (Pentagon 128); tapes: `.tap`, `.tzx`, `.csw`; Beta Disk: `.trd`, `.scl`, `.hfe`, `.scp` |
+| Timex 2048 / 2068 | Snapshots: `.szx`, `.z80`, `.sna`, `.sp` (2048); `.szx`, `.z80`, `.sna`, `.sp` and `.dck` cartridges (2068) |
 | CPC | Snapshots: `.sna`; tapes: `.cdt`, `.tzx`, `.tap`; disks: `.dsk`, `.hfe`, `.scp` on disk-capable models; Plus cartridges: `.cpr` |
 | Einstein | Disks: `.dsk`, `.hfe`, `.scp` |
 | ZX80 / ZX81 | Programs: `.o` (ZX80), `.p`, `.81`, `.p81` (ZX81); cassettes: `.tzx`, `.wav` |
@@ -71,12 +73,17 @@ Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compati
 | Memotech MTX | ROM packs: `.rom`; logical cassettes: `.mtx`; FDX/SDX Type 03/07 disks: `.mfloppy`, `.mfloppy-03`, `.mfloppy-07` |
 | Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
 | Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw`; snapshots: `.ace` |
+| Acorn System | Disks: `.ssd`, `.dsd`, `.img`, `.dsk`, `.hfe`, `.scp`; tapes: `.uef`, `.csw`, `.wav` |
 | Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`, `.hfe`, `.scp`; tapes: `.uef`, `.csw` |
 | Acorn Atom | Tapes: `.uef`, `.csw`, `.wav`; listings typed in at the keyboard: `.txt`, `.bas`; snapshots: `.atmstate` |
 | Oric-1 / Oric Atmos | Tapes: `.tap`; disks: `.dsk` (Microdisc); listings typed in at the keyboard: `.txt`, `.bas`; snapshots: `.oricstate` |
 | Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, discs: `.adf`, `.ads`, `.adm`, `.adl`, `.ssd`, `.dsd`, `.img`, `.dsk`, `.hfe`, `.scp`; with the Plus 1, cartridges: `.rom` |
 | Apple I | Listings typed in at the keyboard: `.txt`, `.hex`; with the cassette interface fitted, cassettes: `.wav` |
 | Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through), `.nib`, `.woz`, `.2mg`, `.d13`; cassettes: `.wav` |
+| Atari 8-bit | Disks: `.atr`, `.xfd`; tapes: `.cas`; executables: `.xex`, `.com`; cartridges: `.rom`, `.car`, `.bin`; snapshots: `.a8state` |
+| Commodore 64 | Tapes: `.tap`; programs: `.t64`, `.prg`; disks: `.d64`, `.g64`, `.g41`, `.d71`, `.d81`; cartridges: `.crt`; snapshots: `.c64state` |
+| Commodore 128 | Tapes: `.tap`; programs: `.t64`, `.prg`; disks: `.d64`, `.g64`, `.g41`, `.d71`, `.d81`; snapshots: `.c128state` |
+| Commodore VIC-20 | Tapes: `.tap`; programs: `.t64`, `.prg`; disks: `.d64`, `.g64`, `.d71`, `.d81`; cartridges: `.crt`, `.a0`, `.20`, `.40`, `.60`; snapshots: `.vic20state` |
 | Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
 | Enterprise | EXOS programs: `.com`, `.bas` (and multi-file `.zip` sets) through the FILE: device; with the EXDOS card, disks: `.img`, `.dsk`, `.hfe`, `.scp` |
 
@@ -102,10 +109,18 @@ The starting machine can be chosen with `?model=` (alias `?machine=`), e.g.
 becomes the new saved choice, and is removed from the address bar once applied.
 Values are case-insensitive, and the same ids drive the MCP server's `model`
 tool. The Spectrum's earlier ids (`48k`, `+3`, `plus2a`, …) still work in URLs.
-Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3` `pentagon128` `pentagon512` `pentagon1024` `scorpion256` `zx80` `zx81` `jupiter-ace`
-`cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512`
-`pcw9256` `pcw9512` `einstein-tc01` `einstein-256` `hx-10` `hb-55` `hb-55p` `mtx500` `mtx512`
-`rs128` `lynx48` `lynx96` `lynx128` `bbc-b` `electron` `atom` `atmos` `oric1` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c` `c64` `ep64` `ep128`.
+Known models:
+
+`zx16k` `zx48k` `tc2048` `ts2068` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3`
+`pentagon128` `pentagon512` `pentagon1024` `scorpion256` `zx80` `zx81` `ts1000` `ts1500`
+`cpc464` `cpc664` `cpc6128` `cpc6128plus` `gx4000` `pcw8256` `pcw8512` `pcw9256` `pcw9512`
+`einstein-tc01` `einstein-256` `hx-10` `hb-55` `hb-55p` `mtx500` `mtx512` `rs128`
+`lynx48` `lynx96` `lynx128` `jupiter-ace` `ep64` `ep128`
+`acorn-system2` `acorn-system3` `acorn-system4` `acorn-system5` `atom`
+`atmos` `oric1`
+`bbc-b` `bbc-a` `electron` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c`
+`atari400` `atari800` `atari600xl` `atari800xl` `atari1200xl` `atari65xe` `atari800xe` `atari130xe`
+`c64` `c128` `vic20`.
 
 ### Display And Audio
 
@@ -126,7 +141,7 @@ Known models: `zx16k` `zx48k` `zx128k` `zx128kplus2` `zx128kplus2a` `zx128kplus3
 
 ### Saving, Library, And Persistence
 
-- Export Spectrum `.szx` and `.z80` snapshots and CPC `.sna` snapshots, and zx84's own exact save states on every other machine (`.acestate`, `.zx8xstate`, `.lynxstate`, `.mtxstate`, `.msxstate`, `.einstate`, `.pcwstate`, `.epstate`, `.bbcstate`, `.elkstate`, `.a1state`, `.a2state`, `.a8state`, `.atmstate`, `.oricstate`, `.c64state`), plus screenshots and supported screen/RAM exports.
+- Export Spectrum `.szx` and `.z80` snapshots and CPC `.sna` snapshots, and zx84's own exact save states on every other machine (`.acestate`, `.zx8xstate`, `.lynxstate`, `.mtxstate`, `.msxstate`, `.einstate`, `.pcwstate`, `.epstate`, `.bbcstate`, `.elkstate`, `.a1state`, `.a2state`, `.a8state`, `.atmstate`, `.oricstate`, `.c64state`, `.c128state`, `.vic20state`), plus screenshots and supported screen/RAM exports.
 - Every machine resumes where it left off after a browser refresh.
 - Record what software SAVEs to cassette and download it as a tape the machine loads back (`.tzx` on the Spectrum, `.cdt` on the CPC, `.wav` on the Apple I and II, and the machine's own format elsewhere), and download what the BBC Micro, Electron and PCW sent to their printers as text.
 - Persist settings, pane layout, custom ROMs and fonts, and supported media in browser storage.

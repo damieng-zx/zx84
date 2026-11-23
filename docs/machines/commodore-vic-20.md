@@ -2,6 +2,11 @@
 
 Commodore's 1980/81 6502-based home computer, the first computer to sell a million units. zx84 emulates the PAL machine (6561 VIC) and the NTSC one (6560 VIC): video and sound, both 6522 VIAs, expansion RAM, the Datasette, a drive-level 1541, 1571 or 1581 on the serial bus, cartridges and paddles.
 
+<p align="center">
+  <img src="../images/machines/commodore-vic-20.png" alt="The VIC-20 at its BASIC banner"><br>
+  <img src="../images/machines/commodore-vic-20-keyboard.png" alt="The VIC-20 breadbin keyboard">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Commodore Business Machines |

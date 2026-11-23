@@ -6,6 +6,11 @@ Atari's 8-bit home computer line: a 6502 with three custom chips — ANTIC
 the XL/XE machines, both TV standards, and runs the open-source AltirraOS and
 Altirra BASIC in place of Atari's firmware.
 
+<p align="center">
+  <img src="../images/machines/atari-8bit.png" alt="The Atari 800XL at the Altirra BASIC prompt"><br>
+  <img src="../images/machines/atari-8bit-keyboard.png" alt="The Atari 800XL keyboard, with its console keys">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Atari, Inc. |

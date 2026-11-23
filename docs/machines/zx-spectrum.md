@@ -5,6 +5,11 @@ emulates the whole family from the 16K to the +3, with the Ferranti ULA and the
 Amstrad gate array modelled separately, and most of the period disk, ROM and
 input add-ons.
 
+<p align="center">
+  <img src="../images/machines/zx-spectrum.png" alt="The ZX Spectrum 48K at its © 1982 copyright prompt"><br>
+  <img src="../images/machines/zx-spectrum-keyboard.png" alt="The 48K rubber membrane keyboard, every cap carrying its keyword and symbol legends">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Sinclair Research (16K–128K); Amstrad (+2, +2A, +3). Spanish models by Investrónica |

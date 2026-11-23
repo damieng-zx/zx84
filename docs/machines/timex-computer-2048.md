@@ -6,6 +6,11 @@ Spectrum machine, so it shares the Spectrum's CPU, keyboard, tape, snapshot and
 software tooling, with the SCLD's port 0xFF screen modes (including the 512-pixel
 hi-res mode), its built-in Kempston joystick port and its port decoding.
 
+<p align="center">
+  <img src="../images/machines/timex-computer-2048.png" alt="The Timex Computer 2048 at its copyright prompt"><br>
+  <img src="../images/machines/timex-computer-2048-keyboard.png" alt="The TC2048 keyboard, with its Portuguese legends">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Timex Computer (Portugal), from a Timex Sinclair 2068 design |
