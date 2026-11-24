@@ -156,6 +156,15 @@ with play armed and waits for `*TAPE` then `CHAIN""` (or `*RUN`). Blank discs ca
 layout a sector dump cannot hold (a protection track, deleted-data or bad-CRC
 sectors) is saved as `.hfe` instead of `.ssd`, so nothing on it is lost.
 
+The DFS sees a double-sided drive's two heads as two volumes: `*DRIVE 0`/`1`
+are the physical drives and `*DRIVE 2`/`3` their reverse sides (side 1 of
+drive 0 and 1), which the control latch selects with its side bit. An image
+therefore only answers for the sides it holds — a single-sided dump of a
+"flippy" disc has no reverse side, and a loader that reads drive 2/3 faults on
+it. Ultimate's *Alien 8* does exactly that (its clean `.ssd` carries side 0
+only, so a boot ends in "Disc fault 18 at :2"); the `[h3]` image has the check
+removed and runs.
+
 **Snapshots.** `.bbcstate` is zx84's native save state, in the same container as the Atari's `.a8state` (a CRC-32 and length checked before the machine is touched, deflated when saved from the Save menu), magic
 `ZXBB`: the 6502 (with the one-instruction IRQ lag after CLI/SEI/PLP), the
 32 KB of RAM and the ROM select latch, the 6845's registers and raster
