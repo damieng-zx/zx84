@@ -1,6 +1,14 @@
 import type { HostKeyEvent, InputService, JoystickInput, MouseSink } from '@/machines/machine.ts';
 import type { BbcMachine } from '../bbc-machine.ts';
 
+/** A host-style event for a literal character: letters get their key code (the
+ *  BBC types case from CAPS LOCK, so the code alone is the key) and printable
+ *  symbols get no code, leaving `BBC_CHAR_KEYS` to place them. */
+function bbcCharEvent(char: string): HostKeyEvent | null {
+  const letter = /^[A-Za-z]$/.test(char) ? `Key${char.toUpperCase()}` : '';
+  return { code: letter, key: char, shift: false, ctrl: false, alt: false };
+}
+
 export class BbcInputService implements InputService {
   constructor(private readonly machine: BbcMachine) {}
 
@@ -14,6 +22,23 @@ export class BbcInputService implements InputService {
     const handled = this.machine.keyboard.handleEvent(event, false);
     if (handled) this.machine.keyboardActivity();
     return handled;
+  }
+
+  /** The BBC's own shifted-symbol table, driven through the same matrix event
+   *  path so SHIFT is asserted for the symbols that need it. Letters go by
+   *  position (their case comes from the machine's CAPS LOCK state). */
+  charDown(char: string): boolean {
+    const event = bbcCharEvent(char);
+    if (!event) return false;
+    const handled = this.machine.keyboard.handleEvent(event, true);
+    if (handled) this.machine.keyboardActivity();
+    return handled;
+  }
+
+  charUp(char: string): void {
+    const event = bbcCharEvent(char);
+    if (!event) return;
+    if (this.machine.keyboard.handleEvent(event, false)) this.machine.keyboardActivity();
   }
 
   releaseAll(): void {

@@ -49,6 +49,13 @@ export interface InitMachineOptions {
   zx81MemotechHrg?: boolean;
   /** ZX81 QuickSilva high-resolution graphics board. */
   zx81QuickSilvaHrg?: boolean;
+  /** Acorn Electron Plus 1 (cartridges, printer, analogue sticks). Fitted at
+   *  build time, so changing it rebuilds the machine. */
+  electronPlus1?: boolean;
+  /** Acorn Electron Plus 3 (WD1770 disc interface + ADFS). */
+  electronPlus3?: boolean;
+  /** The Plus 3's drives run the ACP 1770 DFS instead of ADFS (needs the Plus 3). */
+  electronDfs?: boolean;
 }
 
 export async function initMachine(m: MachineModel, options: InitMachineOptions = {}): Promise<string> {

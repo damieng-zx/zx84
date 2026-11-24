@@ -12,8 +12,12 @@
  */
 
 import type { CpcAmxMouse } from '@/machines/cpc/peripherals/cpc-amx-mouse.ts';
+import type { HostKeyEvent } from '@/machines/machine.ts';
 
 const LINES = 10;
+
+/** SHIFT's matrix cell — character-intent typing holds it for shifted legends. */
+const SHIFT_CELL: Cell = [2, 5];
 
 /** Matrix line carrying joystick 0 — and the AMX mouse, which is wired here. */
 const JOY0_LINE = 9;
@@ -53,9 +57,69 @@ const KEY_MAP: Record<string, Cell> = {
   Numpad8: [1, 3], Numpad9: [0, 3], NumpadDecimal: [0, 7], NumpadEnter: [0, 6],
 };
 
+/**
+ * UK CPC (464/664/6128, BASIC 1.0/1.1) unshifted and shifted legends for every
+ * printable key, measured from the real firmware by pressing each matrix cell at
+ * the BASIC prompt and reading the echoed character back. This is the CPC's own
+ * legend, which is NOT the PC's: the caps carry `↑`/`£` on the PC's `= +` key,
+ * `:`/`*` on `; +`, `;`/`+` on `, <`, and `@`/`|` left of Z.
+ *
+ * `[cell, unshifted, shifted]`; a legend equal to its unshifted form means the
+ * key ignores SHIFT (the number row's digits take their shifted symbol from
+ * SHIFT, but the keypad's duplicate digits stay unshifted — see `CPC_CHAR_MAP`).
+ */
+const KEY_LEGEND: ReadonlyArray<readonly [Cell, string, string]> = [
+  // Number row (unshifted digit to the SHIFT symbol above it on the cap)
+  [[8, 0], '1', '!'], [[8, 1], '2', '"'], [[7, 1], '3', '#'], [[7, 0], '4', '$'],
+  [[6, 1], '5', '%'], [[6, 0], '6', '&'], [[5, 1], '7', "'"], [[5, 0], '8', '('],
+  [[4, 1], '9', ')'], [[4, 0], '0', '_'],
+  [[3, 1], '-', '='], [[3, 0], '↑', '£'],
+  // QWERTY rows
+  [[2, 1], '[', '{'], [[2, 3], ']', '}'], [[2, 6], '\\', '`'], [[3, 2], '@', '|'],
+  [[3, 3], 'p', 'P'], [[3, 4], ';', '+'], [[3, 5], ':', '*'],
+  [[3, 6], '/', '?'], [[3, 7], '.', '>'],
+  [[4, 2], 'o', 'O'], [[4, 3], 'i', 'I'], [[4, 4], 'l', 'L'], [[4, 5], 'k', 'K'],
+  [[4, 6], 'm', 'M'], [[4, 7], ',', '<'],
+  [[5, 2], 'u', 'U'], [[5, 3], 'y', 'Y'], [[5, 4], 'h', 'H'], [[5, 5], 'j', 'J'],
+  [[5, 6], 'n', 'N'],
+  [[6, 2], 'r', 'R'], [[6, 3], 't', 'T'], [[6, 4], 'g', 'G'], [[6, 5], 'f', 'F'],
+  [[6, 6], 'b', 'B'], [[6, 7], 'v', 'V'],
+  [[7, 2], 'e', 'E'], [[7, 3], 'w', 'W'], [[7, 4], 's', 'S'], [[7, 5], 'd', 'D'],
+  [[7, 6], 'c', 'C'], [[7, 7], 'x', 'X'],
+  [[8, 3], 'q', 'Q'], [[8, 5], 'a', 'A'], [[8, 7], 'z', 'Z'],
+  // Keypad (the CPC's function-key block prints digits unshifted)
+  [[1, 7], '0', '0'], [[1, 5], '1', '1'], [[1, 6], '2', '2'], [[0, 5], '3', '3'],
+  [[2, 4], '4', '4'], [[1, 4], '5', '5'], [[0, 4], '6', '6'], [[1, 2], '7', '7'],
+  [[1, 3], '8', '8'], [[0, 3], '9', '9'],
+  // Whitespace
+  [[5, 7], ' ', ' '],
+];
+
+export interface CpcCharKey { readonly cell: Cell; readonly shift: boolean; }
+
+/**
+ * Character → matrix cell + SHIFT state, for character-intent typing (the MCP
+ * `type` tool and the shell's text entry), so a PC key legend types the CPC
+ * character it reads as rather than landing on some other matrix cell.
+ *
+ * The first legend wins, so the number row's shifted symbols are not shadowed by
+ * the keypad's SHIFT-ignoring digit legends.
+ */
+export const CPC_CHAR_MAP: Readonly<Record<string, CpcCharKey>> = (() => {
+  const map: Record<string, CpcCharKey> = {};
+  for (const [cell, un, sh] of KEY_LEGEND) {
+    if (map[un] === undefined) map[un] = { cell, shift: false };
+    if (sh !== un && map[sh] === undefined) map[sh] = { cell, shift: true };
+  }
+  return map;
+})();
+
 export class CpcKeyboard {
   /** Per-line state, active-low. 0xFF = all keys on that line released. */
   private readonly matrix = new Uint8Array(LINES).fill(0xFF);
+
+  /** Physical SHIFT held by the host (its own matrix bit, not a typed char). */
+  private physShift = false;
 
   /** Live matrix view for the CPC-owned on-screen keyboard highlighter. */
   get rows(): Uint8Array {
@@ -91,12 +155,60 @@ export class CpcKeyboard {
     else this.matrix[line] |= mask;
   }
 
+  /** Set of characters currently held through the character-intent path, so
+   *  SHIFT is only released once every shifted legend it was raised for is up. */
+  private readonly heldChars = new Map<string, CpcCharKey>();
+
   /** Handle a host key event by physical code. Returns true if mapped. */
   handleKeyEvent(code: string, pressed: boolean): boolean {
     const cell = KEY_MAP[code];
     if (!cell) return false;
     this.setKey(cell[0], cell[1], pressed);
     return true;
+  }
+
+  /**
+   * Character-intent input: press the CPC key whose legend is `ch`, deriving the
+   * matrix cell and the SHIFT state from the measured UK legend. A PC keyboard
+   * sends `+` as Shift+`=`, but on a CPC `+` is Shift+`;` — so mapping on the
+   * physical code alone types the wrong character (and `|`/`@` are a third case
+   * again).
+   *
+   * A physically held SHIFT is not applied on top: a browser already folds the
+   * modifier into `event.key` (US Shift+2 arrives as `@`), so adding matrix SHIFT
+   * again would type `|` instead of `@`. The character decides the shift state,
+   * and the CPC's own firmware then produces the shifted glyph for a shifted
+   * legend.
+   *
+   * Non-character keys (Enter, the cursors, F-keys) fall through to the physical
+   * code matrix, and so do characters the CPC legend has no key for.
+   */
+  handleEvent(event: HostKeyEvent, pressed: boolean): boolean {
+    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+      this.physShift = pressed;
+      this.refreshShift();
+      return true;
+    }
+    const mapped = event.key.length === 1 ? CPC_CHAR_MAP[event.key] : undefined;
+    if (mapped) {
+      this.setCharKey(event.key, mapped, pressed);
+      return true;
+    }
+    return this.handleKeyEvent(event.code, pressed);
+  }
+
+  private setCharKey(ch: string, mapped: CpcCharKey, pressed: boolean): void {
+    if (pressed) this.heldChars.set(ch, mapped);
+    else this.heldChars.delete(ch);
+    this.setKey(mapped.cell[0], mapped.cell[1], pressed);
+    this.refreshShift();
+  }
+
+  /** Hold SHIFT while any held character needs it or the host holds it. */
+  private refreshShift(): void {
+    let needShift = this.physShift;
+    for (const held of this.heldChars.values()) if (held.shift) needShift = true;
+    this.setKey(SHIFT_CELL[0], SHIFT_CELL[1], needShift);
   }
 
   /**
@@ -114,5 +226,7 @@ export class CpcKeyboard {
   reset(): void {
     this.matrix.fill(0xFF);
     this.selectedLine = 0;
+    this.heldChars.clear();
+    this.physShift = false;
   }
 }

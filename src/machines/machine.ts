@@ -1122,6 +1122,21 @@ export interface InputService {
   keyUp(e: HostKeyEvent): boolean;
   /** Release everything (window blur). */
   releaseAll(): void;
+  /**
+   * Press (or release) the key that produces `char` on this machine, mapped
+   * onto its own keyboard layout. This is the character-level path a typed
+   * listing needs: every machine's layout differs (the Atom's shifted symbols,
+   * the BBC's SHIFT cells, an Oric's symbol keys, the Spectrum's SYM+key
+   * chords), so a caller that knows only "type a double quote" cannot pick a
+   * host key code and expect the right character there.
+   *
+   * Returns true when the character is printable here (the caller then
+   * releases it with `charUp`). A machine whose keyboard takes host key codes
+   * rather than characters omits these, and callers resolve the character
+   * themselves.
+   */
+  charDown?(char: string): boolean;
+  charUp?(char: string): void;
   readonly mouse: MouseSink | null;
   /** Mode-aware two-mouse routing, or null when the machine has no mice. */
   readonly mice?: MouseInput | null;

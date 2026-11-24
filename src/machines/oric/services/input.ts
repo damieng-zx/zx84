@@ -29,5 +29,16 @@ export class OricInputService implements InputService {
     this.machine.keyboard.releaseAll();
   }
 
+  /** The Oric's own symbol map (`ORIC_CHAR_KEYS`), which asserts SHIFT for the
+   *  shifted symbols itself. */
+  charDown(char: string): boolean {
+    this.machine.cancelPaste();
+    return this.machine.keyboard.pressChar(char);
+  }
+
+  charUp(): void {
+    this.machine.keyboard.releaseAll();
+  }
+
   readonly mouse: MouseSink | null = null;
 }

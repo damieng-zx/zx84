@@ -46,4 +46,13 @@ export class Vic20InputService implements InputService {
     this.m.setPaddleButton(0, false);
     this.m.setPaddleButton(1, false);
   }
+
+  /** The Commodore character chords, keyed by the produced character. */
+  charDown(char: string): boolean {
+    return this.m.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, true);
+  }
+
+  charUp(char: string): void {
+    this.m.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, false);
+  }
 }

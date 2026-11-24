@@ -18,5 +18,14 @@ export class AcornSystemInputService implements InputService {
     this.machine.keyboard.reset();
   }
 
+  /** The parallel ASCII keyboard takes the character's own code. */
+  charDown(char: string): boolean {
+    return this.machine.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, true);
+  }
+
+  charUp(char: string): void {
+    this.machine.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, false);
+  }
+
   readonly mouse: MouseSink | null = null;
 }
