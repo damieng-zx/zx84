@@ -50,11 +50,11 @@ export class CpcInputService implements InputService {
   }
 
   keyDown(e: HostKeyEvent): boolean {
-    return this.c.keyboard.handleKeyEvent(e.code, true);
+    return this.c.keyboard.handleEvent(e, true);
   }
 
   keyUp(e: HostKeyEvent): boolean {
-    return this.c.keyboard.handleKeyEvent(e.code, false);
+    return this.c.keyboard.handleEvent(e, false);
   }
 
   releaseAll(): void {

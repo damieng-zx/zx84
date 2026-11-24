@@ -104,15 +104,17 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'type',
-    { description: 'Type text through the active machine keyboard. Letters, digits, spaces, and backtick-delimited control names work on ZX80/ZX81; printable-symbol chords use Spectrum mappings.', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
+    { description: 'Type text through the active machine keyboard. Letters, digits and spaces work everywhere; backtick-delimited control names (`enter`, `shift`, …) press named keys. Printable symbols type each machine\'s own legend (a CPC `+` is Shift+`;`, not the PC Shift+`=`), and on the Spectrum they resolve through its symbol-shift chords.', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
     async ({ text: str }) => {
       const spec = state.spec;
       // Character-intent keyboards map a typed character onto their own key
       // layout, so we send the literal character rather than resolving a
       // Spectrum symbol-shift chord that would land on the wrong key. The MTX
       // has always worked this way; the Enterprise's input service also takes
-      // a bare character and presses its own keys (with SHIFT) for it.
-      const charIntent = spec.kind === 'mtx' || spec.kind === 'enterprise' || spec.kind === 'c64' || spec.kind === 'vic20' || spec.kind === 'c128';
+      // a bare character and presses its own keys (with SHIFT) for it. The CPC's
+      // UK legend differs from the PC's on nearly every symbol key ('+' is
+      // Shift+';', '|' is Shift+@, ':' is unshifted ':'), so it needs this too.
+      const charIntent = spec.kind === 'mtx' || spec.kind === 'enterprise' || spec.kind === 'cpc' || spec.kind === 'c64' || spec.kind === 'vic20' || spec.kind === 'c128';
 
       // Parse the string into actions: either code-based key names, or (for
       // character-intent machines) a literal character.
