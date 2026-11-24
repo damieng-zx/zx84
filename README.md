@@ -2,7 +2,7 @@
 
 <img src="public/mascot.svg" align="right" width="100" height="140" alt="Blip, the ZX84 robot mascot">
 
-**A browser-based 8-bit computer emulator for the Sinclair ZX80, ZX81 and ZX Spectrum (with the Pentagon and Scorpion clones and the Timex 2048 and 2068), Amstrad CPC (including the Plus range) and PCW, Tatung Einstein, MSX, Memotech MTX, Camputers Lynx, Jupiter Ace, Acorn Atom, Acorn System, Oric-1 and Oric Atmos, BBC Micro and Electron, the Apple I and the Apple II family, the Atari 8-bit line, the Enterprise 64/128, and the Commodore 64, 128 and VIC-20, with an MCP server for automated testing.**
+**A browser-based emulator for classic 8-bit computers: Sinclair and Timex, Amstrad, Acorn, Apple, Atari, Commodore, Oric, MSX, Enterprise and more, with an MCP server for automated testing.**
 
 https://zx84.envytech.workers.dev
 
@@ -60,32 +60,7 @@ See the [machine sheets](#supported-machines) for each machine's models, hardwar
 
 Load by picker or drag-and-drop. ZIP archives are unpacked and routed to compatible machines where supported.
 
-| Machine Or Device | Supported Media |
-| --- | --- |
-| Spectrum | Snapshots: `.sna`, `.z80`, `.szx`, `.sp`; tapes: `.tap`, `.tzx`, `.cdt`, `.csw`; +3 disks: `.dsk`, `.hfe`, `.scp` |
-| Spectrum peripherals | Interface 2: `.rom`; Interface 1: `.mdr`, `.mdv`; MGT +D: `.mgt`, `.img`, `.hfe`, `.scp`; Beta Disk: `.trd`, `.scl`, `.hfe`, `.scp` |
-| Spectrum clones | Snapshots: `.szx`, `.z80` (Pentagon 128); tapes: `.tap`, `.tzx`, `.csw`; Beta Disk: `.trd`, `.scl`, `.hfe`, `.scp` |
-| Timex 2048 / 2068 | Snapshots: `.szx`, `.z80`, `.sna`, `.sp` (2048); `.szx`, `.z80`, `.sna`, `.sp` and `.dck` cartridges (2068) |
-| CPC | Snapshots: `.sna`; tapes: `.cdt`, `.tzx`, `.tap`; disks: `.dsk`, `.hfe`, `.scp` on disk-capable models; Plus cartridges: `.cpr` |
-| Einstein | Disks: `.dsk`, `.hfe`, `.scp` |
-| ZX80 / ZX81 | Programs: `.o` (ZX80), `.p`, `.81`, `.p81` (ZX81); cassettes: `.tzx`, `.wav` |
-| MSX | Cartridges: `.rom`; cassettes: `.cas`, `.tsx`, `.tzx`, `.wav`; disks (interface fitted): `.dsk`, `.img`, `.dmk`, `.hfe`, `.scp`, `.td0`, `.edsk` |
-| Memotech MTX | ROM packs: `.rom`; logical cassettes: `.mtx`; FDX/SDX Type 03/07 disks: `.mfloppy`, `.mfloppy-03`, `.mfloppy-07` |
-| Camputers Lynx | Cassettes: `.tap`; disks: `.ldf` on the 96K/128K |
-| Jupiter Ace | Cassettes: `.tap`, `.tzx`, `.csw`; snapshots: `.ace` |
-| Acorn System | Disks: `.ssd`, `.dsd`, `.img`, `.dsk`, `.hfe`, `.scp`; tapes: `.uef`, `.csw`, `.wav` |
-| Acorn BBC Micro | Disks: `.ssd`, `.dsd`, `.img`, `.hfe`, `.scp`; tapes: `.uef`, `.csw` |
-| Acorn Atom | Tapes: `.uef`, `.csw`, `.wav`; listings typed in at the keyboard: `.txt`, `.bas`; snapshots: `.atmstate` |
-| Oric-1 / Oric Atmos | Tapes: `.tap`; disks: `.dsk` (Microdisc); listings typed in at the keyboard: `.txt`, `.bas`; snapshots: `.oricstate` |
-| Acorn Electron | Tapes: `.uef`, `.csw`; with the Plus 3, discs: `.adf`, `.ads`, `.adm`, `.adl`, `.ssd`, `.dsd`, `.img`, `.dsk`, `.hfe`, `.scp`; with the Plus 1, cartridges: `.rom` |
-| Apple I | Listings typed in at the keyboard: `.txt`, `.hex`; with the cassette interface fitted, cassettes: `.wav` |
-| Apple II | Disks: `.dsk`, `.do`, `.po` (sector order detected, MacBinary headers read through), `.nib`, `.woz`, `.2mg`, `.d13`; cassettes: `.wav` |
-| Atari 8-bit | Disks: `.atr`, `.xfd`; tapes: `.cas`; executables: `.xex`, `.com`; cartridges: `.rom`, `.car`, `.bin`; snapshots: `.a8state` |
-| Commodore 64 | Tapes: `.tap`; programs: `.t64`, `.prg`; disks: `.d64`, `.g64`, `.g41`, `.d71`, `.d81`; cartridges: `.crt`; snapshots: `.c64state` |
-| Commodore 128 | Tapes: `.tap`; programs: `.t64`, `.prg`; disks: `.d64`, `.g64`, `.g41`, `.d71`, `.d81`; snapshots: `.c128state` |
-| Commodore VIC-20 | Tapes: `.tap`; programs: `.t64`, `.prg`; disks: `.d64`, `.g64`, `.d71`, `.d81`; cartridges: `.crt`, `.a0`, `.20`, `.40`, `.60`; snapshots: `.vic20state` |
-| Amstrad PCW | Disks: `.dsk`, `.td0`, `.hfe`, `.scp` |
-| Enterprise | EXOS programs: `.com`, `.bas` (and multi-file `.zip` sets) through the FILE: device; with the EXDOS card, disks: `.img`, `.dsk`, `.hfe`, `.scp` |
+Each machine accepts the media its real hardware used: tapes, floppy disks, snapshots, cartridges and ROM packs, plus programs typed in at the keyboard on the machines that have no storage in their base configuration. Floppy images share common readers across machines, so `.dsk`, `.hfe` and `.scp` flux images work wherever a disk drive is emulated. The exact formats for each machine are listed under *Media formats* in its [machine sheet](#supported-machines).
 
 The tape deck provides block navigation, transport controls, fast ROM loading, turbo loading, loading sound where applicable, and original-media download. The disk UI supports drive selection, write protection, disk sounds, changed-image saving, blank image creation, and flippy disks.
 
@@ -141,7 +116,7 @@ Known models:
 
 ### Saving, Library, And Persistence
 
-- Export Spectrum `.szx` and `.z80` snapshots and CPC `.sna` snapshots, and zx84's own exact save states on every other machine (`.acestate`, `.zx8xstate`, `.lynxstate`, `.mtxstate`, `.msxstate`, `.einstate`, `.pcwstate`, `.epstate`, `.bbcstate`, `.elkstate`, `.a1state`, `.a2state`, `.a8state`, `.atmstate`, `.oricstate`, `.c64state`, `.c128state`, `.vic20state`), plus screenshots and supported screen/RAM exports.
+- Export standard snapshots where a machine has one (Spectrum `.szx` and `.z80`, CPC `.sna`) and zx84's own exact save states on every other machine, plus screenshots and supported screen/RAM exports.
 - Every machine resumes where it left off after a browser refresh.
 - Record what software SAVEs to cassette and download it as a tape the machine loads back (`.tzx` on the Spectrum, `.cdt` on the CPC, `.wav` on the Apple I and II, and the machine's own format elsewhere), and download what the BBC Micro, Electron and PCW sent to their printers as text.
 - Persist settings, pane layout, custom ROMs and fonts, and supported media in browser storage.
