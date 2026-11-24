@@ -644,8 +644,11 @@ export interface AuxRomRequest {
   /** Wire the fetched bytes into the peripheral's chip. */
   apply(data: Uint8Array): void;
   /** Await the load before continuing (ROM must be present before reset), or
-   *  fire-and-forget (Multiface — paged only on the button press). */
+   *  fire-and-forget (Multiface - paged only on the button press). */
   readonly awaitLoad: boolean;
+  /** A failure is not fatal: the machine still builds without this ROM (an
+   *  optional firmware such as the 13-sector Disk ][ boot PROM). */
+  readonly optional?: boolean;
 }
 
 // ── Media / device services ─────────────────────────────────────────────────

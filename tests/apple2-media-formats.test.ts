@@ -147,6 +147,17 @@ describe('WOZ images', () => {
     expect(woz.tracks[woz.tmap[1]].bitCount).toBe(30);     // still the bit track
   });
 
+  it('places a FLUX transition in its own cell, marking sub-cell collisions weak', () => {
+    // 16-tick gaps are half a 32-tick cell: two transitions land in every cell,
+    // which a real read amplifier cannot resolve to one stable bit.
+    const track = fluxToBits(new Uint8Array(64).fill(16), 32);
+    expect(track.bitCount).toBe(32);
+    expect(track.weak).toBeDefined();
+    for (let cell = 0; cell < track.bitCount; cell++) {
+      expect((track.weak![cell >> 3] >> (7 - (cell & 7))) & 1, `cell ${cell}`).toBe(1);
+    }
+  });
+
   it('writes WOZ 2: INFO/TMAP/TRKS in place, bits from block 3, CRC over the rest', () => {
     const t = encodeTrackBits(new Array(16).fill(new Uint8Array(256)), 0, 254, 16);
     const tmap = standardTmap(1);

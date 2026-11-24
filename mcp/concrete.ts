@@ -163,6 +163,7 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
     try {
       rom = await fetchRomSource(request.source);
     } catch (error) {
+      if (request.optional) continue;
       throw new Error(`${request.failMsg}: ${(error as Error).message}`);
     }
     request.apply(rom);

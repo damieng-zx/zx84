@@ -205,7 +205,11 @@ export class Disk2 {
       const phases = offset & 1 ? this.phases | bit : this.phases & ~bit;
       if (phases !== this.phases) {
         this.phases = phases;
-        this.moveHead();
+        // Head positioning needs the drive enabled. The controller's ENABLE
+        // stays on through the spin-down, so a coil changed while the disk is
+        // still coasting moves the head; one changed after the drive has
+        // stopped does not. (AppleWin gates the stepper the same way.)
+        if (this.spinning) this.moveHead();
       }
       return;
     }
@@ -260,7 +264,15 @@ export class Disk2 {
   private selectTrack(): void {
     const unit = this.currentDrive;
     const disk = this.disks[unit];
-    const slot = disk ? disk.apple2.bits.tmap[this.quarterTrack[unit]] : APPLE2_NO_TRACK;
+    const qt = this.quarterTrack[unit];
+    let slot = disk ? disk.apple2.bits.tmap[qt] : APPLE2_NO_TRACK;
+    // A synthesized image has no half-track data: between two whole tracks the
+    // head reads the one below it, as AppleWin's `phase >> 1` does. WOZ images
+    // keep their TMAP, where a blank quarter track is blank (noise).
+    if (disk && slot === APPLE2_NO_TRACK && disk.apple2.bits.roundHalfTracks) {
+      const whole = Math.min(disk.numTracks - 1, Math.floor(qt / 4));
+      slot = whole >= 0 ? disk.apple2.bits.tmap[whole * 4] : APPLE2_NO_TRACK;
+    }
     const track = disk && slot !== APPLE2_NO_TRACK ? disk.apple2.bits.tracks[slot] ?? null : null;
     this.track = track;
     this.trackSlot = track ? slot : -1;
@@ -335,14 +347,16 @@ export class Disk2 {
       cells -= skip;
     }
     const data = this.track?.data;
+    const weak = this.track?.weak;
     let reg = this.reg;
     let restart = this.restart;
     let win = this.window;
     for (let i = 0; i < cells; i++) {
       const raw = data !== undefined ? (data[pos >> 3] >> (7 - (pos & 7))) & 1 : 0;
+      const unstable = weak !== undefined && ((weak[pos >> 3] >> (7 - (pos & 7))) & 1) !== 0;
       if (++pos >= len) pos = 0;
       win = ((win << 1) | raw) & 0x0F;
-      const bit = win !== 0 ? (win >> 1) & 1 : this.nextNoise();
+      const bit = unstable ? this.nextNoise() : win !== 0 ? (win >> 1) & 1 : this.nextNoise();
       if (restart) { reg = 0x02 | bit; restart = false; }
       else if (reg & 0x80) { if (bit) restart = true; }
       else reg = (reg << 1) | bit;
@@ -459,13 +473,12 @@ export class Disk2 {
     this.q6 = r.bool(); this.q7 = r.bool(); this.reg = r.u8(); this.restart = r.bool();
     this.window = r.u8() & 0x0F; this.noise = r.u32();
     this.lastCycles = r.f64(); this.units = r.f64();
-    // The track under the head, found again without moving it.
+    // The track under the head, found again without moving it (the same
+    // quarter-track/tmap lookup a phase step uses, including a synthesized
+    // image's half-track rounding).
+    this.selectTrack();
     const unit = this.currentDrive;
-    const disk = this.disks[unit];
-    const slot = disk ? disk.apple2.bits.tmap[this.quarterTrack[unit]] : APPLE2_NO_TRACK;
-    const track = disk && slot !== APPLE2_NO_TRACK ? disk.apple2.bits.tracks[slot] ?? null : null;
-    this.track = track;
-    this.trackSlot = track ? slot : -1;
+    const track = this.track;
     if (track && this.bitPos[unit] >= track.bitCount) this.bitPos[unit] %= track.bitCount;
   }
 }

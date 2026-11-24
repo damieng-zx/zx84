@@ -1073,6 +1073,7 @@ describe('apple2-plus Disk II controller', () => {
     const clock = { t: 0 };
     const d = new Disk2(() => clock.t);
     d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+    d.read(0x09); d.read(0x0A);   // motor on, drive 1: positioning is enabled
     expect(d.getUnitQuarterTrack(0)).toBe(0);
     d.read(0x01);   // phase 0 on: already over it
     expect(d.getUnitQuarterTrack(0)).toBe(0);
@@ -1099,8 +1100,31 @@ describe('apple2-plus Disk II controller', () => {
     const clock = { t: 0 };
     const d = new Disk2(() => clock.t);
     d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+    d.read(0x09); d.read(0x0A);   // motor on, drive 1
     d.read(0x07);   // phase 3 on: two quarter tracks behind track 0
     expect(d.getUnitQuarterTrack(0)).toBe(0);
+  });
+
+  it('steps the head only while the drive is enabled, including the spin-down', () => {
+    const clock = { t: 0 };
+    const d = new Disk2(() => clock.t);
+    d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+
+    d.read(0x01);                       // phase 0 on with the motor off: no step
+    expect(d.getUnitQuarterTrack(0)).toBe(0);
+
+    d.read(0x09); d.read(0x0A);         // motor on, drive 1
+    d.read(0x03);                       // phase 1 on: half track
+    expect(d.getUnitQuarterTrack(0)).toBe(1);
+
+    d.read(0x08);                       // motor off: ENABLE stays on while coasting
+    clock.t += 100;
+    d.read(0x00);                       // phase 0 off: phase 1 alone pulls to the half track
+    expect(d.getUnitQuarterTrack(0)).toBe(2);
+
+    clock.t += 1_100_000;               // past the ~1 s spin-down: ENABLE is low
+    d.read(0x05);                       // phase 2 on would step to track 1 if enabled
+    expect(d.getUnitQuarterTrack(0)).toBe(2);
   });
 
   it('only turns with the motor on, and senses write protect through $C0EE', () => {

@@ -163,6 +163,20 @@ describe('quarter tracks', () => {
     const there = sample();
     expect(there.has(0xB5) && !there.has(0xD5)).toBe(true);
   });
+
+  it('rounds a synthesized image\'s half track down to the whole track below it', () => {
+    // A sector image has no half-track data. Between tracks 0 and 1 the head
+    // reads track 0, as AppleWin's `phase >> 1` does; a WOZ blank quarter
+    // track still reads noise (the test above).
+    const disk = parseApple2Media(new Uint8Array(35 * 16 * 256), 'x.dsk');
+    const { d, clock } = spinUp(disk);
+    d.read(0x01); d.read(0x03); d.read(0x00);  // phase 0 on, 1 on, 0 off: quarter track 2
+    expect(d.getUnitQuarterTrack(0)).toBe(2);
+    const seen = new Set<number>();
+    for (let i = 0; i < 4000; i++) { clock.t += 4; const v = d.read(0x0C); if (v & 0x80) seen.add(v); }
+    expect(seen.has(0xD5)).toBe(true);         // track 0's address prologue, not noise
+    expect(seen.has(0xAA) && seen.has(0x96)).toBe(true);
+  });
 });
 
 describe('Disk ][ writes', () => {
