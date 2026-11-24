@@ -27,14 +27,6 @@ function setKey(code: string, pressed: boolean): boolean {
   return pressed ? input.keyDown(event) : input.keyUp(event);
 }
 
-/** Deliver a literal character for character-intent keyboards (e.g. MTX): the
- *  machine maps the character onto its own key layout, so no code/chord. */
-function setCharKey(ch: string, pressed: boolean): boolean {
-  const input = state.spec.services.input;
-  const event: HostKeyEvent = { code: '', key: ch, shift: false, ctrl: false, alt: false };
-  return pressed ? input.keyDown(event) : input.keyUp(event);
-}
-
 /** The active CPU's port space. Machines whose CPU memory-maps its hardware
  *  instead of using an I/O port space (any 6502 machine) have none, and the
  *  port tools say so rather than throwing. */
@@ -104,17 +96,24 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'type',
-    { description: 'Type text through the active machine keyboard. Letters, digits and spaces work everywhere; backtick-delimited control names (`enter`, `shift`, …) press named keys. Printable symbols type each machine\'s own legend (a CPC `+` is Shift+`;`, not the PC Shift+`=`), and on the Spectrum they resolve through its symbol-shift chords.', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
+    {
+      description: 'Type text through the active machine keyboard. Letters, '
+        + 'digits and spaces work everywhere; backtick-delimited control names press '
+        + 'named keys. Printable symbols type each machine\'s own legend (a CPC `+` is '
+        + 'Shift+`;`, an Atom `"` is its Shift+2 cell), because a machine offering '
+        + '`InputService.charDown` maps the character itself; otherwise they resolve '
+        + 'through the Spectrum symbol-shift chords.',
+      inputSchema: {
+        text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"'),
+      },
+    },
     async ({ text: str }) => {
       const spec = state.spec;
-      // Character-intent keyboards map a typed character onto their own key
-      // layout, so we send the literal character rather than resolving a
-      // Spectrum symbol-shift chord that would land on the wrong key. The MTX
-      // has always worked this way; the Enterprise's input service also takes
-      // a bare character and presses its own keys (with SHIFT) for it. The CPC's
-      // UK legend differs from the PC's on nearly every symbol key ('+' is
-      // Shift+';', '|' is Shift+@, ':' is unshifted ':'), so it needs this too.
-      const charIntent = spec.kind === 'mtx' || spec.kind === 'enterprise' || spec.kind === 'cpc' || spec.kind === 'c64' || spec.kind === 'vic20' || spec.kind === 'c128';
+      const input = spec.services.input;
+      // Machines that map a produced character onto their own layout type it by
+      // character (`charDown`); the remainder resolve PC symbols through the
+      // Spectrum's symbol-shift chords, which is all a Spectrum needs.
+      const charIntent = input.charDown !== undefined;
 
       // Parse the string into actions: either code-based key names, or (for
       // character-intent machines) a literal character.
@@ -150,8 +149,9 @@ export function register(server: McpServer): void {
         }
       }
       const press = (action: Action, down: boolean): void => {
-        if ('char' in action) setCharKey(action.char, down);
-        else for (const k of action.keys) setKey(KEY_NAME_MAP[k], down);
+        if ('char' in action) {
+          if (down) input.charDown!(action.char); else input.charUp!(action.char);
+        } else for (const k of action.keys) setKey(KEY_NAME_MAP[k], down);
       };
       let hit: string | null = null;
       typeLoop: for (const action of actions) {

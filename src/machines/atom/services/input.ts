@@ -23,6 +23,17 @@ export class AtomInputService implements InputService {
     return this.machine.keyboard.handleEvent(event, false);
   }
 
+  /** The Atom's own shifted-symbol map (`ATOM_CHAR_KEYS`), which asserts its
+   *  own SHIFT line where the symbol needs it. */
+  charDown(char: string): boolean {
+    this.machine.cancelPaste();
+    return this.machine.keyboard.pressChar(char);
+  }
+
+  charUp(): void {
+    this.machine.keyboard.releaseAll();
+  }
+
   releaseAll(): void {
     this.machine.cancelPaste();
     this.machine.keyboard.releaseAll();

@@ -96,7 +96,7 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | `port_out` | `port`, `value` | Write an I/O port. |
 | `port_in` | `port` | Read an I/O port. |
 | `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. |
-| `type` | `text` | Type text; backtick-delimited control names are supported. |
+| `type` | `text` | Type text; backtick-delimited control names are supported. Printable symbols follow each machine's own legend (a machine that offers `InputService.charDown` maps the character itself; the Spectrum resolves them through its symbol-shift chords). |
 
 Common key names include `a`-`z`, `0`-`9`, `enter`, `space`, `shift`,
 `backspace`, cursor keys, and `escape`. ZX80/ZX81 also accept `period`;

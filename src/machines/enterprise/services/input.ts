@@ -24,6 +24,15 @@ export class EnterpriseInputService implements InputService {
 
   releaseAll(): void { this.m.keyboard.reset(); }
 
+  /** A literal character pressed on the typer's layer. */
+  charDown(char: string): boolean {
+    return this.m.keyboard.setTypedChar(char);
+  }
+
+  charUp(): void {
+    this.m.keyboard.setTypedChar(null);
+  }
+
   readonly mouse = null;
   readonly mice = null;
   readonly joystick = null;

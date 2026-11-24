@@ -24,6 +24,15 @@ export class ElectronInputService implements InputService {
     this.machine.releaseJoysticks();
   }
 
+  /** The Electron's own character chords (`ELK_CHAR_CHORDS`). */
+  charDown(char: string): boolean {
+    return this.machine.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, true);
+  }
+
+  charUp(char: string): void {
+    this.machine.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, false);
+  }
+
   private readonly plus1Joystick: JoystickInput = {
     press: (dir, pressed, _mode, player) => this.machine.joystickPress(dir, pressed, player),
     analog: (axis, value, player) => this.machine.joystickAnalog(axis, value, player),
