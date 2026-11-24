@@ -28,7 +28,7 @@
  */
 
 import {
-  APPLE2_BIT_TIMING, APPLE2_NO_TRACK, APPLE2_QUARTER_TRACKS, Apple2BitWriter, type Apple2BitTrack,
+  APPLE2_BIT_TIMING, APPLE2_NO_TRACK, APPLE2_QUARTER_TRACKS, type Apple2BitTrack,
 } from './apple2-bitstream.ts';
 
 const SIGNATURE_TAIL = [0xFF, 0x0A, 0x0D, 0x0A];
@@ -96,22 +96,40 @@ const ascii = (data: Uint8Array): string => new TextDecoder().decode(data);
 
 /**
  * Turn a flux track (transition intervals in 125 ns ticks) into bit cells at
- * `bitTiming` ticks per cell: each interval becomes a run of 0 cells closed by
- * a 1, its length the interval rounded to the nearest whole number of cells
- * (never less than one).
+ * `bitTiming` ticks per cell. Each transition is placed in the cell that
+ * contains it, by absolute time from the start of the revolution rather than
+ * by rounding each gap — so jitter and sub-cell transitions keep their real
+ * position. Two transitions in one cell (a flux event faster than the cell, as
+ * a weak-bit region) cannot be represented as one bit: that cell is marked in
+ * `weak`, and a reader gets the read amplifier's noise there.
  */
 export function fluxToBits(flux: Uint8Array, bitTiming: number): Apple2BitTrack {
-  const w = new Apple2BitWriter();
-  let ticks = 0;
+  // Absolute time of each transition, with 255 meaning "255 ticks and more".
+  const at: number[] = [];
+  let time = 0;
   for (let i = 0; i < flux.length; i++) {
-    ticks += flux[i];
+    time += flux[i];
     if (flux[i] === 255) continue;
-    const cells = Math.max(1, Math.round(ticks / bitTiming));
-    for (let k = 1; k < cells; k++) w.put(0);
-    w.put(1);
-    ticks = 0;
+    at.push(time);
   }
-  return w.finish();
+  if (at.length === 0) return { data: new Uint8Array(0), bitCount: 0 };
+  const bitCount = Math.max(1, Math.ceil(time / bitTiming));
+  const data = new Uint8Array((bitCount + 7) >> 3);
+  let weak: Uint8Array | null = null;
+  let last = -1;
+  for (const t of at) {
+    // A transition at time T belongs to the cell whose window is (cell-1, cell]
+    // — the same cell the gap-run writer below produced for exact multiples.
+    const cell = Math.min(bitCount - 1, Math.max(0, Math.floor((t - 1) / bitTiming)));
+    if (cell === last) {
+      weak ??= new Uint8Array(data.length);
+      weak[cell >> 3] |= 0x80 >> (cell & 7);
+    } else {
+      data[cell >> 3] |= 0x80 >> (cell & 7);
+    }
+    last = cell;
+  }
+  return weak ? { data, bitCount, weak } : { data, bitCount };
 }
 
 /** Parse a WOZ 1 / WOZ 2 / WOZ 2.1 image. Throws on a bad header, a CRC

@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { Apple2Machine } from '@/machines/apple2/apple2-machine.ts';
-import { Apple2Keyboard, apple2FaceByte } from '@/machines/apple2/apple2-keyboard.ts';
+import { Apple2Keyboard, apple2FaceByte, apple2KeyByte, apple2eKeyByte } from '@/machines/apple2/apple2-keyboard.ts';
 import type { HostKeyEvent } from '@/machines/machine.ts';
 
 const ev = (code: string, key: string, shift = false, ctrl = false): HostKeyEvent =>
@@ -50,6 +50,20 @@ describe('apple ][ encoder caps', () => {
 });
 
 describe('apple2 keyboard key tracking', () => {
+  it('maps a literal character (the MCP type tool) to the encoder byte', () => {
+    // The ][/][+ encoder is upper-case only and resolves SHIFT itself, so a
+    // literal character is simply the code it emits.
+    expect(apple2KeyByte(ev('', '"'))).toBe(0x22);
+    expect(apple2KeyByte(ev('', '@'))).toBe(0x40);
+    expect(apple2KeyByte(ev('', 'a'))).toBe(0x41);
+    expect(apple2KeyByte(ev('', 'Z'))).toBe(0x5A);
+    // The //e has lower case and takes the character as typed; CAPS LOCK still
+    // upper-cases a lower-case literal, as it does a key code.
+    expect(apple2eKeyByte(ev('', 'a'), false)).toBe(0x61);
+    expect(apple2eKeyByte(ev('', 'a'), true)).toBe(0x41);
+    expect(apple2eKeyByte(ev('', 'A'), false)).toBe(0x41);
+    expect(apple2eKeyByte(ev('', '"'), false)).toBe(0x22);
+  });
   it('releases a //e key even when SHIFT changed while it was down', () => {
     const kb = new Apple2Keyboard(true);
     kb.toggleCapsLock();                                       // caps off: SHIFT matters

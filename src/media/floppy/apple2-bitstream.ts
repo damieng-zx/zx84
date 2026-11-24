@@ -39,6 +39,10 @@ export interface Apple2BitTrack {
   data: Uint8Array;
   /** Cells in one revolution (the last byte may be partly used). */
   bitCount: number;
+  /** Cells whose flux could not be resolved to one stable bit (sub-cell or
+   *  overlapping transitions, as in a WOZ 2.1 FLUX track's weak bits); a read
+   *  returns the MC3470's noise for them instead of `data`. */
+  weak?: Uint8Array;
 }
 
 export interface Apple2BitDisk {
@@ -49,6 +53,13 @@ export interface Apple2BitDisk {
   bitTiming: number;
   /** The disk's write-protect notch is covered. */
   writeProtected: boolean;
+  /**
+   * A synthesized sector/nibble image has no half-track data of its own, so a
+   * head between two whole tracks reads the whole track below it — the
+   * convention AppleWin uses (`phase >> 1`). WOZ images keep their own TMAP:
+   * a blank quarter track there reads noise, as the WOZ reference says.
+   */
+  roundHalfTracks?: boolean;
 }
 
 /** One cell of a bit track. */

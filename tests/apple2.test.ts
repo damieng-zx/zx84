@@ -363,12 +363,22 @@ describe('apple ][ (original)', () => {
     expect(apple2Entry.romSources('apple2-plus')).toEqual(['apple2/apple2plus.rom']);
   });
 
-  it('boots a disk by jumping to the Disk II boot ROM, as C600G would', () => {
+  it('runs the Monitor reset handler before typing C600G, so its vectors are set', () => {
     // The original Monitor has no Autostart: a reset lands in the Monitor, not
     // in a slot scan, so booting from the media menu must do the typing itself.
+    // The typing happens after the Monitor's start-up code, which is what
+    // points the character-output vector ($36/$37) at COUT — a jump straight at
+    // $C600 leaves it nil and DOS's first PRINT writes NULs to the screen.
     const m = new Apple2Machine('apple2', null);
     try {
+      const rom = new Uint8Array(0x3000).fill(0xEA);
+      rom.set([0xA9, 0xFD, 0x85, 0x37, 0xA9, 0xF0, 0x85, 0x36, 0x4C, 0x0A, 0xD0], 0);
+      rom[0x2FFC] = 0x00;   // reset vector -> $D000
+      rom[0x2FFD] = 0xD0;
+      m.loadROM(rom);
       m.bootDisc();
+      expect(m.memory.ram[0x36]).toBe(0xF0);   // CSW = $FDF0, the Monitor's COUT-1
+      expect(m.memory.ram[0x37]).toBe(0xFD);
       expect(m.cpu.pc).toBe(0xC600);
     } finally { m.destroy(); }
   });
@@ -1063,6 +1073,7 @@ describe('apple2-plus Disk II controller', () => {
     const clock = { t: 0 };
     const d = new Disk2(() => clock.t);
     d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+    d.read(0x09); d.read(0x0A);   // motor on, drive 1: positioning is enabled
     expect(d.getUnitQuarterTrack(0)).toBe(0);
     d.read(0x01);   // phase 0 on: already over it
     expect(d.getUnitQuarterTrack(0)).toBe(0);
@@ -1089,8 +1100,31 @@ describe('apple2-plus Disk II controller', () => {
     const clock = { t: 0 };
     const d = new Disk2(() => clock.t);
     d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+    d.read(0x09); d.read(0x0A);   // motor on, drive 1
     d.read(0x07);   // phase 3 on: two quarter tracks behind track 0
     expect(d.getUnitQuarterTrack(0)).toBe(0);
+  });
+
+  it('steps the head only while the drive is enabled, including the spin-down', () => {
+    const clock = { t: 0 };
+    const d = new Disk2(() => clock.t);
+    d.insertDisk(parseApple2Disk(new Uint8Array(35 * 16 * 256), 'dos'), 0);
+
+    d.read(0x01);                       // phase 0 on with the motor off: no step
+    expect(d.getUnitQuarterTrack(0)).toBe(0);
+
+    d.read(0x09); d.read(0x0A);         // motor on, drive 1
+    d.read(0x03);                       // phase 1 on: half track
+    expect(d.getUnitQuarterTrack(0)).toBe(1);
+
+    d.read(0x08);                       // motor off: ENABLE stays on while coasting
+    clock.t += 100;
+    d.read(0x00);                       // phase 0 off: phase 1 alone pulls to the half track
+    expect(d.getUnitQuarterTrack(0)).toBe(2);
+
+    clock.t += 1_100_000;               // past the ~1 s spin-down: ENABLE is low
+    d.read(0x05);                       // phase 2 on would step to track 1 if enabled
+    expect(d.getUnitQuarterTrack(0)).toBe(2);
   });
 
   it('only turns with the motor on, and senses write protect through $C0EE', () => {
