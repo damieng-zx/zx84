@@ -96,7 +96,7 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | `port_out` | `port`, `value` | Write an I/O port. |
 | `port_in` | `port` | Read an I/O port. |
 | `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. |
-| `type` | `text` | Type text; backtick-delimited control names are supported. |
+| `type` | `text` | Type text; backtick-delimited control names are supported. Machines with character-intent keyboards (BBC, MTX, Enterprise, C64/128, VIC-20) type the literal character through their own layout, so shifted symbols such as the BBC's `*` and `"` land on the right key. |
 
 Common key names include `a`-`z`, `0`-`9`, `enter`, `space`, `shift`,
 `backspace`, cursor keys, and `escape`. ZX80/ZX81 also accept `period`;

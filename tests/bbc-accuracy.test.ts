@@ -85,6 +85,30 @@ describe('1 MHz bus cycle stretching', () => {
     m.destroy();
   });
 
+  it('User VIA T1 is already counting at power-up, so two reads differ', () => {
+    // What the Acornsoft disc loaders test for ("IC 69 missing / faulty" is
+    // printed when the two reads of the T1 counter low byte agree): the 6522
+    // counters are not gated by a load, so the second read has moved on.
+    //   LDA #$C0 / STA $FE6B      ACR: T1 free-run (no T1C-H write!)
+    //   LDA $FE64 / STA $70       first read of the counter low byte
+    //   LDA $FE64 / STA $71       second read
+    //   JMP $C015                 spin
+    const m = withCode([
+      0xA9, 0xC0, 0x8D, 0x6B, 0xFE,
+      0xAD, 0x64, 0xFE, 0x85, 0x70,
+      0xAD, 0x64, 0xFE, 0x85, 0x71,
+      0x4C, 0x15, 0xC0,
+    ]);
+    steps(m, 7);
+    const first = m.memory.readByte(0x70);
+    const second = m.memory.readByte(0x71);
+    expect(first).toBeLessThan(0xFF);              // it had already counted down
+    // The counter runs down: the second read is a few 1 MHz ticks lower.
+    expect((first - second) & 0xFF).toBeGreaterThan(0);
+    expect((first - second) & 0xFF).toBeLessThan(9);
+    m.destroy();
+  });
+
   it('holds a store to the 1 MHz bus the same way (write on the last cycle)', () => {
     // STA $FE60: 4 cycles, write on cycle 4 = begins on cycle 3 (odd) -> 6.
     const m = withCode([0x8D, 0x60, 0xFE]);

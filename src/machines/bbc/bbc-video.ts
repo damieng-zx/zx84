@@ -95,6 +95,10 @@ export class BbcVideo {
 
   private readonly saa = new Saa5050();
   private readonly cells: Saa5050Cell[] = createSaa5050Cells(40);
+  /** The previous teletext row's cells, so a double-height line's bottom half
+   *  can be drawn from the row above it. */
+  private readonly prevCells: Saa5050Cell[] = createSaa5050Cells(40);
+  private prevValid = false;
   private readonly rowBytes = new Uint8Array(40);
   /** Draw Mode 7 as the plain dots, one line per glyph row, leaving the
    *  character rounding and smoothing to the SAA5050 upscaler. */
@@ -143,6 +147,17 @@ export class BbcVideo {
     else this.renderBitmap(m, mode);
   }
 
+  /** Keep the row just rendered as the row above the next one. */
+  private pushCells(): void {
+    for (let c = 0; c < TELETEXT_COLS; c++) {
+      this.prevCells[c].pixels.set(this.cells[c].pixels);
+      this.prevCells[c].fg = this.cells[c].fg;
+      this.prevCells[c].bg = this.cells[c].bg;
+      this.prevCells[c].dh = this.cells[c].dh;
+    }
+    this.prevValid = true;
+  }
+
   /** Fetch the character row at `maRow` and run it through the SAA5050. */
   private teletextCells(m: BbcMachine, maRow: number): void {
     for (let c = 0; c < TELETEXT_COLS; c++) {
@@ -152,13 +167,21 @@ export class BbcVideo {
   }
 
   /** Draw scanline `k` (0-9) of teletext cells [from, to) at buffer row `y`:
-   *  one blended row, or in the hi-res layout the chip's two rounded rows. */
+   *  one blended row, or in the hi-res layout the chip's two rounded rows.
+   *  Columns belonging to a double-height line's top half take their bottom
+   *  half from the row kept above. */
   private teletextCellLine(k: number, y: number, from: number, to: number): void {
     const { hires, screenHeight: H } = this.layout;
     const xBase = BBC_BORDER_LEFT + ((BBC_ACTIVE_WIDTH - TELETEXT_COLS * CELL_W) >> 1);
     const pal = this.pal();
     for (let c = from; c < to; c++) {
-      const cell = this.cells[c];
+      const lower = this.prevValid && this.prevCells[c].dh;
+      const cell = lower ? this.prevCells[c] : this.cells[c];
+      const base = lower ? 10 : 0;
+      // A double-height cell shows one glyph row per buffer line (ten of the
+      // cell's twenty rows here, the other ten in the row below); a normal cell
+      // blends the two interlaced half-lines into each buffer line.
+      const step = (lower || cell.dh) ? 1 : 2;
       const fgCol = pal[cell.fg & 7];
       const bgCol = pal[cell.bg & 7];
       // 50/50 mix of the two (per 8-bit channel, alpha kept opaque).
@@ -170,7 +193,7 @@ export class BbcVideo {
           const py = y + h;
           if (py < 0 || py >= H) continue;
           const out = py * W;
-          const row = cell.pixels[k * 2 + h];
+          const row = cell.pixels[base + k * step + (step === 2 ? h : 0)];
           for (let x = 0; x < CELL_W; x++) {
             const px = x0 + x;
             if (px < 0 || px >= W) continue;
@@ -181,9 +204,9 @@ export class BbcVideo {
       }
       if (y < 0 || y >= H) continue;
       const out = y * W;
-      const even = cell.pixels[k * 2];
+      const even = cell.pixels[base + k * step];
       // Unrounded, both half-lines are the same dot row: draw it as is.
-      const odd = this.rawTeletext ? even : cell.pixels[k * 2 + 1];
+      const odd = (step === 1 || this.rawTeletext) ? even : cell.pixels[base + k * 2 + 1];
       for (let x = 0; x < CELL_W; x++) {
         const px = x0 + x;
         if (px < 0 || px >= W) continue;
@@ -211,8 +234,10 @@ export class BbcVideo {
     // but is re-initialised at the start of each field (frame).
     this.saa.reset();
     this.saa.rounding = !this.rawTeletext;
+    this.prevValid = false;
 
     for (let r = 0; r < rows; r++) {
+      if (r > 0) this.pushCells();
       this.teletextCells(m, start + r * stride);
       const y0 = yBase + r * ch;
       if (y0 + ch <= 0 || y0 >= H) continue;
@@ -309,6 +334,7 @@ export class BbcVideo {
     this.saa.reset();
     this.saa.rounding = !this.rawTeletext;
     this.cellsRow = -1;
+    this.prevValid = false;
     this.endLine();
   }
 
@@ -335,6 +361,7 @@ export class BbcVideo {
       // it; a write to the row after that shows from the next row down.
       const maRow = crtc.rowAddress;
       if (this.cellsRow !== maRow) {
+        if (this.cellsRow !== -1) this.pushCells();
         this.teletextCells(m, maRow);
         this.cellsRow = maRow;
       }

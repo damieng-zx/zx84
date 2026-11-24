@@ -111,8 +111,9 @@ export function register(server: McpServer): void {
       // layout, so we send the literal character rather than resolving a
       // Spectrum symbol-shift chord that would land on the wrong key. The MTX
       // has always worked this way; the Enterprise's input service also takes
-      // a bare character and presses its own keys (with SHIFT) for it.
-      const charIntent = spec.kind === 'mtx' || spec.kind === 'enterprise' || spec.kind === 'c64' || spec.kind === 'vic20' || spec.kind === 'c128';
+      // a bare character and presses its own keys (with SHIFT) for it, as do
+      // the CBM machines and the BBC (whose `*` and `"` are shifted symbols).
+      const charIntent = ['mtx', 'enterprise', 'c64', 'vic20', 'c128', 'bbc'].includes(spec.kind);
 
       // Parse the string into actions: either code-based key names, or (for
       // character-intent machines) a literal character.
