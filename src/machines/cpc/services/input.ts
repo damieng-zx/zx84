@@ -15,6 +15,12 @@ import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 /** How far a proportional axis must go to count as a digital direction. */
 const DIGITAL_THRESHOLD = 0.5;
 
+/** A host-style event carrying only a literal character, for the CPC's own
+ *  legend (`CPC_CHAR_MAP`) to place. */
+function charEvent(char: string): HostKeyEvent {
+  return { code: '', key: char, shift: false, ctrl: false, alt: false };
+}
+
 export class CpcInputService implements InputService {
   constructor(private readonly c: CpcMachine) {}
 
@@ -63,6 +69,17 @@ export class CpcInputService implements InputService {
     for (const h of this.axisHeld) h.up = h.down = h.left = h.right = false;
     this.updateAnalogue(0);
     this.updateAnalogue(1);
+  }
+
+  /** The CPC's own UK legend (`CPC_CHAR_MAP`), which is not the PC's: `+` is
+   *  Shift+`;`, `|` is Shift+`@`, `:` is unshifted `:`. It holds SHIFT itself
+   *  for the symbols that need it. */
+  charDown(char: string): boolean {
+    return this.c.keyboard.handleEvent(charEvent(char), true);
+  }
+
+  charUp(char: string): void {
+    this.c.keyboard.handleEvent(charEvent(char), false);
   }
 
   readonly mouse: MouseSink | null = null;
