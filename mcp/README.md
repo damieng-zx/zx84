@@ -95,7 +95,7 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | --- | --- | --- |
 | `port_out` | `port`, `value` | Write an I/O port. |
 | `port_in` | `port` | Read an I/O port. |
-| `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. |
+| `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. A joystick is pressed the same way: `joy-up`, `joy-down`, `joy-left`, `joy-right`, `joy-fire` (`joy-fire2` on a two-button stick), with `-p2` for player 2 — `joy-fire+joy-right`. Each player gets the interface at their position in the machine's list, as the Joystick pane gives it. |
 | `type` | `text` | Type text; backtick-delimited control names are supported. Printable symbols follow each machine's own legend (a machine that offers `InputService.charDown` maps the character itself; the Spectrum resolves them through its symbol-shift chords). |
 
 Common key names include `a`-`z`, `0`-`9`, `enter`, `space`, `shift`,
