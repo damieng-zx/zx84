@@ -62,6 +62,9 @@ const C128_UI: MachineUiCapabilities = {
   psgControls: ['sid-model'],
   statusLeds: ['kbd', 'load', 'dsk', 'chip', 'columns', 'text'],
   keyboardBus: 'matrix',
+  // The 128 shares the Commodore legend (its `"` is SHIFT+2, arithmetic caps
+  // are their own keys): the character decides, not the PC's position.
+  typedCharacters: true,
   tape: 'deck',
   tapeSound: false,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],

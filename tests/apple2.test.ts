@@ -363,12 +363,22 @@ describe('apple ][ (original)', () => {
     expect(apple2Entry.romSources('apple2-plus')).toEqual(['apple2/apple2plus.rom']);
   });
 
-  it('boots a disk by jumping to the Disk II boot ROM, as C600G would', () => {
+  it('runs the Monitor reset handler before typing C600G, so its vectors are set', () => {
     // The original Monitor has no Autostart: a reset lands in the Monitor, not
     // in a slot scan, so booting from the media menu must do the typing itself.
+    // The typing happens after the Monitor's start-up code, which is what
+    // points the character-output vector ($36/$37) at COUT — a jump straight at
+    // $C600 leaves it nil and DOS's first PRINT writes NULs to the screen.
     const m = new Apple2Machine('apple2', null);
     try {
+      const rom = new Uint8Array(0x3000).fill(0xEA);
+      rom.set([0xA9, 0xFD, 0x85, 0x37, 0xA9, 0xF0, 0x85, 0x36, 0x4C, 0x0A, 0xD0], 0);
+      rom[0x2FFC] = 0x00;   // reset vector -> $D000
+      rom[0x2FFD] = 0xD0;
+      m.loadROM(rom);
       m.bootDisc();
+      expect(m.memory.ram[0x36]).toBe(0xF0);   // CSW = $FDF0, the Monitor's COUT-1
+      expect(m.memory.ram[0x37]).toBe(0xFD);
       expect(m.cpu.pc).toBe(0xC600);
     } finally { m.destroy(); }
   });

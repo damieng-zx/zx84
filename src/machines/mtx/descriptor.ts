@@ -31,6 +31,9 @@ const MTX_UI: MachineUiCapabilities = {
   soundChip: 'SN76489',
   statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
+  // The MTX legend is its own (`#` and `£` are single caps, `;`/`+` share one):
+  // the character decides the cell and its SHIFT.
+  typedCharacters: true,
   tape: 'instant',
   tapeSound: false,
   tapeExtensions: ['.mtx', '.zip'],

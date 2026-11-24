@@ -9,22 +9,43 @@ import type { HostKeyEvent } from '../../src/machines/machine.ts';
  *  resume keyboard scanning before the next keystroke. */
 const ENTER_SETTLE_FRAMES = 30;
 
+/** Modifier keys currently held down. Each key event carries the modifiers'
+ *  state as well as being the press/release of the modifier itself: the Apple
+ *  II keyboard encoder (and the CPC, the Acorns and others) resolves SHIFT and
+ *  CTRL from the event that carries the character, so pressing a separate
+ *  Shift key event first is not enough. */
+const held = { shift: false, ctrl: false, alt: false };
+
+function modifierFlags(code: string): { shift: boolean; ctrl: boolean; alt: boolean } {
+  return {
+    shift: held.shift || code === 'ShiftLeft' || code === 'ShiftRight',
+    ctrl: held.ctrl || code === 'ControlLeft' || code === 'ControlRight',
+    alt: held.alt || code === 'AltLeft' || code === 'AltRight',
+  };
+}
+
 function hostKeyEvent(code: string): HostKeyEvent {
   const key = code.startsWith('Key') ? code.slice(3).toLowerCase()
     : code.startsWith('Digit') ? code.slice(5)
-      : code === 'Space' ? ' ' : code;
+      : code === 'Space' ? ' '
+        : code === 'ShiftLeft' || code === 'ShiftRight' ? 'Shift'
+          : code === 'ControlLeft' || code === 'ControlRight' ? 'Control'
+            : code === 'AltLeft' || code === 'AltRight' ? 'Alt'
+              : code;
   return {
     code, key,
-    shift: code === 'ShiftLeft' || code === 'ShiftRight',
-    ctrl: code === 'ControlLeft' || code === 'ControlRight',
-    alt: code === 'AltLeft' || code === 'AltRight',
+    ...modifierFlags(code),
   };
 }
 
 function setKey(code: string, pressed: boolean): boolean {
   const input = state.spec.services.input;
   const event = hostKeyEvent(code);
-  return pressed ? input.keyDown(event) : input.keyUp(event);
+  const consumed = pressed ? input.keyDown(event) : input.keyUp(event);
+  if (code === 'ShiftLeft' || code === 'ShiftRight') held.shift = pressed;
+  else if (code === 'ControlLeft' || code === 'ControlRight') held.ctrl = pressed;
+  else if (code === 'AltLeft' || code === 'AltRight') held.alt = pressed;
+  return consumed;
 }
 
 /** Deliver a literal character for character-intent keyboards (e.g. MTX): the
@@ -78,7 +99,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'key',
-    { description: 'Press a key through the active machine input service for N frames (default 5). Common keys: a-z, 0-9, enter, space, shift, backspace, arrows, period, escape. Spectrum also supports sym, capslock, and "+"-joined combos.', inputSchema: {
+    { description: 'Press a key through the active machine input service for N frames (default 5). Common keys: a-z, 0-9, enter, space, shift, ctrl (also sym), alt, backspace, arrows, period, escape. A "+"-joined combo such as "shift+2" carries its modifiers in the key event, so keyboards that resolve SHIFT/CTRL per event (the Apple II, the CPC) see the chord.', inputSchema: {
       name: z.string().describe('Key name, or "+"-joined combo (e.g. "enter", "a", "shift+sym")'),
       frames: z.number().int().positive().default(5).describe('How many frames to hold the key'),
     } },
@@ -104,15 +125,18 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'type',
-    { description: 'Type text through the active machine keyboard. Letters, digits, spaces, and backtick-delimited control names work on ZX80/ZX81; printable-symbol chords use Spectrum mappings.', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
+    { description: 'Type text through the active machine keyboard. Printable characters are typed by what they produce: a machine that maps keys by character (the Apples, Acorns, CPC, MTX, Enterprise, Commodores and others) presses its own caps, SHIFT and CTRL included, so its `"`, `*`, `|` and `@` land on the right keys; the Spectrum gets its SYM-SHIFT chords. Backtick-delimited control names work everywhere (e.g. `enter`).', inputSchema: { text: z.string().describe('Text to type, e.g. "LOAD \\"\\"`enter`" or "10 PRINT `shift`2`enter`"') } },
     async ({ text: str }) => {
       const spec = state.spec;
       // Character-intent keyboards map a typed character onto their own key
       // layout, so we send the literal character rather than resolving a
-      // Spectrum symbol-shift chord that would land on the wrong key. The MTX
-      // has always worked this way; the Enterprise's input service also takes
-      // a bare character and presses its own keys (with SHIFT) for it.
-      const charIntent = spec.kind === 'mtx' || spec.kind === 'enterprise' || spec.kind === 'c64' || spec.kind === 'vic20' || spec.kind === 'c128';
+      // Spectrum symbol-shift chord that would land on the wrong key. Which
+      // machines those are is the machine's own declaration
+      // (MachineUiCapabilities.typedCharacters) — the MTX, the Enterprise, the
+      // Commodores, the Acorns and the Electron all print their own symbols on
+      // keys a PC would put somewhere else, and the CPC's `+`, `|` and `@` are a
+      // third arrangement again.
+      const charIntent = spec.descriptor.ui.typedCharacters === true;
 
       // Parse the string into actions: either code-based key names, or (for
       // character-intent machines) a literal character.

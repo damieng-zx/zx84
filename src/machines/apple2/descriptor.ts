@@ -41,6 +41,9 @@ const APPLE2_UI: MachineUiCapabilities = {
   psgControls: [],
   statusLeds: ['kbd', 'dsk', 'beep', 'text'],
   keyboardBus: 'matrix',
+  // The encoder resolves SHIFT itself, so the MCP's `type` sends the character
+  // it wants and the machine's keyboard maps it to the byte the encoder emits.
+  typedCharacters: true,
   tape: 'deck',
   tapeSound: false,
   tapeExtensions: ['.wav'],

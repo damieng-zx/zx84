@@ -382,10 +382,18 @@ export class Apple2Machine extends BaseMachine implements Machine {
    *  with a disk in place is exactly how a real machine starts DOS: the ROM
    *  scans the slots and jumps into the Disk II card's boot ROM. The original
    *  ][ has no Autostart — its Reset drops into the Monitor — so the boot is
-   *  what the user would have typed, `C600G`. */
+   *  what the user would have typed, `C600G`. That command is typed *after* the
+   *  ROM's reset handler has run, though: the Monitor's start-up clears and
+   *  tests RAM and points the character-output vector ($36/$37) at its COUT
+   *  routine. Jumping straight at $C600 leaves that vector nil, and DOS's
+   *  first PRINT then fills the screen with NULs. Let the reset handler reach
+   *  its input loop first, as a user would before typing the command. */
   bootDisc(): void {
     this.resetHardware();
-    if (!this.modelInfo.autostart && this.options.disk2) this.cpu.pc = 0xC600;
+    if (!this.modelInfo.autostart && this.options.disk2) {
+      this.runUntil(10);
+      this.cpu.pc = 0xC600;
+    }
     this.setStatus('Boot: drive 1');
   }
 

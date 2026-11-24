@@ -60,6 +60,13 @@ export function apple2KeyByte(event: HostKeyEvent): number | null {
   if (punctuation) return event.shift ? punctuation[1] : punctuation[0];
   const named = NAMED_KEYS[event.code];
   if (named !== undefined) return named;
+  // A literal character (the MCP's `type` on an upper-case-only keyboard): the
+  // encoder has no lower case, so a lower-case letter comes out as its capital.
+  const ch = event.key.length === 1 ? event.key.charCodeAt(0) : 0;
+  if (ch >= 0x20 && ch < 0x7F) {
+    if (event.ctrl) return ch & 0x1F;
+    return ch >= 0x61 && ch <= 0x7A ? ch - 0x20 : ch;
+  }
   return null;
 }
 
@@ -85,7 +92,13 @@ export function apple2eKeyByte(event: HostKeyEvent, capsLock: boolean): number |
   if (named !== undefined) return named;
   if (letter !== null) return (event.shift || capsLock) ? letter : letter + 0x20;
   const ch = event.key.length === 1 ? event.key.charCodeAt(0) : 0;
-  if (ch >= 0x20 && ch < 0x7F) return ch;
+  if (ch >= 0x20 && ch < 0x7F) {
+    if (event.ctrl) return ch & 0x1F;
+    // A literal character (the MCP's `type`): CAPS LOCK still applies to a
+    // letter, exactly as it does to a key code. An upper-case literal is
+    // already what was asked for, whatever the lock says.
+    return ch >= 0x61 && ch <= 0x7A && capsLock && !event.shift ? ch - 0x20 : ch;
+  }
   const punctuation = CHAR_KEYS[event.code];
   if (punctuation) return event.shift ? punctuation[1] : punctuation[0];
   return null;

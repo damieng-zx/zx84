@@ -55,6 +55,9 @@ const VIC20_UI: MachineUiCapabilities = {
   psgControls: [],
   statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
+  // VIC-20 characters follow the Commodore legend (its `"` is SHIFT+2, and the
+  // arithmetic caps are their own keys): the character decides.
+  typedCharacters: true,
   tape: 'deck',
   tapeSound: false,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
