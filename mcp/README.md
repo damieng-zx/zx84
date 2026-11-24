@@ -173,6 +173,12 @@ These use the active +3 or CPC uPD765A where fitted.
 | `mtx512kram` | `action`: `on`, `off`, `status` | Control the 512 KiB SDX/FDX RAM expansion (576 KiB total on an MTX512, 640 KiB on an RS128); the bundled CP/M disk exposes it as type-43 SiDisc drive F:. |
 | `mtxcpm` | `action`: `on`, `off`, `status` | Configure the MTX512 CP/M profile, fetch its public Type-07 system disk when needed, and reset. |
 
+### Acorn Electron Expansions
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `electronexp` | `plus1`, `plus3`, `dfs` (all optional) | Fit or remove the Plus 1 (cartridge slot, printer port, analogue joysticks) and Plus 3 (WD1770 disc interface with ADFS and two drives), and pick `dfs` to run the drives as the ACP 1770 DFS instead of ADFS. Each expansion loads a ROM at build time, so a change rebuilds the machine. Omit every parameter to report what is fitted. Fitting the Plus 3 is what makes `load` accept `.adf`/`.adl`/`.ssd`/`.dsd`/`.img`/`.hfe`/`.scp`; fitting the Plus 1 is what makes it accept `.rom` cartridges. |
+
 ## Address Values
 
 Address and register-value strings are parsed by the shared MCP parser:

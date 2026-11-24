@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { variantForModel, variantLabel } from '../../src/machines/spectrum/peripherals/multiface.ts';
 import { isPlusDCapable, isBetaDiskCapable, isUspeechCapable } from '../../src/models.ts';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
-import { state } from '../state.ts';
-import { activeCbm64, activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
+import { state, initMachine } from '../state.ts';
+import { activeCbm64, activeElectron, activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
 import { C64_DRIVE_ROM_SOURCES } from '../../src/machines/c64/models.ts';
 import { fetchRomSource, fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
@@ -455,6 +455,45 @@ export function register(server: McpServer): void {
         `MTX CP/M system ${action === 'on' ? 'enabled' : 'disabled'}. ` +
         `${action === 'on' ? 'System disk mounted in drive B:. ' : ''}Machine reset.`,
       );
+    },
+  );
+
+  server.registerTool(
+    'electronexp',
+    {
+      description: 'Fit, remove, or inspect the Acorn Electron expansions (the model must be electron). The Plus 1 adds the cartridge slot, printer port and analogue joysticks; the Plus 3 adds the WD1770 disc interface with ADFS and two drives; dfs swaps the Plus 3\'s ADFS ROM for the ACP 1770 DFS so .ssd/.dsd discs work. Each loads a ROM at build time, so fitting one rebuilds the machine (and, with nothing mounted, resets it). Fitting the Plus 3 is what makes `load` accept .adf/.adl/.ssd/.dsd/.img/.hfe/.scp discs; fitting the Plus 1 is what makes it accept .rom cartridges.',
+      inputSchema: {
+        plus1: z.boolean().optional().describe('Fit (true) or remove (false) the Plus 1'),
+        plus3: z.boolean().optional().describe('Fit (true) or remove (false) the Plus 3'),
+        dfs: z.boolean().optional().describe('Run the Plus 3\'s drives as DFS (true) or ADFS (false)'),
+      },
+    },
+    async ({ plus1, plus3, dfs }) => {
+      const m = activeElectron();
+      if (!m) return text('The Plus 1 and Plus 3 are Acorn Electron expansions — switch to the electron model first.');
+      // Read the state off whichever machine is live: initMachine below replaces
+      // it, so re-narrow rather than closing over the old instance.
+      const describe = (machine = activeElectron()!): string => {
+        const drives = machine.plus3Fitted
+          ? `  drives=${machine.driveCount}  filing system=${machine.dfsFitted ? 'DFS' : 'ADFS'}`
+          : '';
+        return `Electron: Plus 1 ${machine.plus1Fitted ? 'ON' : 'OFF'}${machine.plus1Fitted ? ` (cartridge: ${machine.cartridgeName || 'none'})` : ''}  Plus 3 ${machine.plus3Fitted ? 'ON' : 'OFF'}${drives}`;
+      };
+      if (plus1 === undefined && plus3 === undefined && dfs === undefined) return text(describe(m));
+      const wantPlus1 = plus1 ?? m.plus1Fitted;
+      const wantPlus3 = plus3 ?? m.plus3Fitted;
+      // DFS needs the Plus 3 (it swaps its ADFS ROM); without it the flag is
+      // meaningless, so the machine's own rules settle what sticks.
+      const wantDfs = dfs ?? m.dfsFitted;
+      if (wantPlus1 === m.plus1Fitted && wantPlus3 === m.plus3Fitted && (!wantPlus3 || wantDfs === m.dfsFitted)) {
+        return text(`Already set. ${describe(m)}`);
+      }
+      const msg = await initMachine('electron', {
+        electronPlus1: wantPlus1,
+        electronPlus3: wantPlus3,
+        electronDfs: wantDfs,
+      });
+      return text(`${describe()}\n${msg}`);
     },
   );
 
