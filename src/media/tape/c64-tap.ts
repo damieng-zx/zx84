@@ -53,20 +53,31 @@ export interface TapFormat {
   readonly kernal: KernalPulses;
 }
 
+/** The Plus/4's and C16's KERNAL pulses, in their own cycles: the C16/Plus/4
+ *  KERNAL's tape timings are the C64's KERNAL constants counted on a roughly
+ *  twice-as-fast clock, so in its own cycles a pulse is a little over half the
+ *  C64's. Measured from the C16 KERNAL's own SAVE and read back here. */
+export const PLUS4_KERNAL_PULSES: KernalPulses = { short: 0x1A * 8, medium: 0x24 * 8, long: 0x2F * 8 };
+
 /** The clock a .tap's pulses count, from its platform and video standard
- *  bytes: the C64's or the VIC-20's, PAL or NTSC. Anything else is taken as
- *  a PAL C64, as tapes have always been read here. */
+ *  bytes: the C64's, the VIC-20's or the C16/Plus/4's, PAL or NTSC. Anything
+ *  else is taken as a PAL C64, as tapes have always been read here. */
 export function tapClock(platform: number, video: number): number {
   if (platform === 1) return video === 1 ? 1_022_727 : 1_108_405;
+  if (platform === 2) return video === 1 ? 1_789_772 : 1_773_447;
   if (platform === 0 && video === 1) return 1_022_727;
   return C64_TAP_CLOCK;
 }
 
+/** The KERNAL's pulse lengths for a platform, in its own clock's cycles. */
+function kernalPulses(platform: number): KernalPulses {
+  if (platform === 1) return VIC20_KERNAL_PULSES;
+  if (platform === 2) return PLUS4_KERNAL_PULSES;
+  return C64_KERNAL_PULSES;
+}
+
 export function tapFormat(platform: number, video: number): TapFormat {
-  return {
-    platform, video, clock: tapClock(platform, video),
-    kernal: platform === 1 ? VIC20_KERNAL_PULSES : C64_KERNAL_PULSES,
-  };
+  return { platform, video, clock: tapClock(platform, video), kernal: kernalPulses(platform) };
 }
 
 /** The PAL C64's tapes. */

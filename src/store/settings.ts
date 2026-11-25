@@ -138,6 +138,7 @@ const DEFAULTS = {
   'c128-vdc-ram':   '16k',
   'c128-vdc-chip':  'r8',
   'c128-display':   'auto',
+  'plus4-drive':    'on',
   'drive-counts':   '{}',
   'drive-models':   '{}',
   'apple2-langcard': 'on',
@@ -491,7 +492,7 @@ export const [c128VdcRam, setC128VdcRam] = signal(savedText('c128-vdc-ram') as '
 export const [c128VdcChip, setC128VdcChip] = signal(savedText('c128-vdc-chip') as 'r7a' | 'r8' | '8568');
 /** Which video chip the one canvas shows: 'auto' (the 40/80 key), '40' or '80'. */
 export const [c128Display, setC128Display] = signal(savedText('c128-display') as 'auto' | '40' | '80');
-
+export const [plus4Drive, setPlus4Drive] = signal(savedFlag('plus4-drive'));
 export const [apple1BasicRam, setApple1BasicRam] = signal(savedFlag('apple1-basic-ram'));
 export const [apple1Aci, setApple1Aci] = signal(savedFlag('apple1-aci'));
 
@@ -688,6 +689,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'c128-vdc-ram', set: setC128VdcRam, type: 'string' },
     { key: 'c128-vdc-chip', set: setC128VdcChip, type: 'string' },
     { key: 'c128-display', set: setC128Display, type: 'string' },
+    { key: 'plus4-drive', set: setPlus4Drive, type: 'bool' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
     { key: 'apple2-joystick', set: setApple2Joystick, type: 'bool' },
     { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },

@@ -33,6 +33,7 @@ export type { Vic20Model } from '@/machines/vic20/models.ts';
 export type { C128Model } from '@/machines/c128/models.ts';
 export type { AtomModel } from '@/machines/atom/models.ts';
 export type { OricModel } from '@/machines/oric/models.ts';
+export type { Plus4Model } from '@/machines/plus4/models.ts';
 
 // ── Per-family classification helpers (re-exported from each machine folder) ─
 export {
@@ -74,6 +75,7 @@ export { isVic20Model } from '@/machines/vic20/models.ts';
 export { isC128Model } from '@/machines/c128/models.ts';
 export { isAtomModel } from '@/machines/atom/models.ts';
 export { isOricModel } from '@/machines/oric/models.ts';
+export { isPlus4Model, isC16Model } from '@/machines/plus4/models.ts';
 
 // ── System-ROM slot geometry (dispatches per family) ───────────────────────
 //
@@ -167,6 +169,7 @@ import type { Vic20Model } from '@/machines/vic20/models.ts';
 import type { C128Model } from '@/machines/c128/models.ts';
 import type { AtomModel } from '@/machines/atom/models.ts';
 import type { OricModel } from '@/machines/oric/models.ts';
+import type { Plus4Model } from '@/machines/plus4/models.ts';
 
 /** Any machine ZX84 can emulate. */
 export type MachineModel =
@@ -190,4 +193,5 @@ export type MachineModel =
   | Vic20Model
   | C128Model
   | AtomModel
-  | OricModel;
+  | OricModel
+  | Plus4Model;

@@ -25,7 +25,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'acorn-system' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64' | 'vic20' | 'c128' | 'atom' | 'oric';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'acorn-system' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64' | 'vic20' | 'c128' | 'atom' | 'oric' | 'plus4';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -383,6 +383,7 @@ export type SaveMenuItem =
   | 'snapshot-c128state'
   | 'snapshot-atomstate'
   | 'snapshot-oricstate'
+  | 'snapshot-plus4state'
   | 'screenshot-png'
   | 'screen-scr'
   /** The multicolour screen (`.mlt`): offered where the hardware can show an attribute per 8x1 line. */
