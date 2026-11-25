@@ -159,6 +159,15 @@ export class Vic20Machine extends BaseMachine implements Machine {
 
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
+  /** Whether the Datasette's EAR line is mixed into the audio (the tape-sound
+   *  setting), as the loading sound. */
+  tapeSoundEnabled = true;
+
+  /** The EAR line as loading sound, only while the tape is actually running. */
+  private tapeAudioLevel(): number {
+    return this.tapeSoundEnabled && this.tape.playing && !this.tape.paused ? this.tape.earBit : 0;
+  }
+
   /** Joystick directions held: `up`/`down`/`left`/`fire` bits for VIA 1 and
    *  the right bit for VIA 2, active high here. */
   private joyVia1 = 0;
@@ -187,7 +196,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.display = display;
     this.timing = vic20Timing(ntsc);
     this.mixer = new AudioMixer(this.timing.clockHz);
-    this.mixer.beeperGain = 0;
+    this.mixer.beeperGain = 1;
     this.mixer.psgGain = 1;
     this.vic = new Vic(this.memory, this.timing);
     this.sound = new VicSound(this.vic.regs, this.timing.clockHz);
@@ -439,6 +448,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeTurbo = view.get('tape-turbo-load', true);
+    this.tapeSoundEnabled = view.get('tape-sound', true);
     this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
   }
 
@@ -702,7 +712,7 @@ export class Vic20Machine extends BaseMachine implements Machine {
       this.updateInterrupts();
       this.sound.advanceTo(cpu.tStates);
       if (!skipAudio) {
-        this.mixer.accumulate(0, cpu.tStates - before);
+        this.mixer.accumulateLevel(this.tapeAudioLevel(), cpu.tStates - before);
         this.mixer.generateSamples(this.audio, this.sound, true);
       }
       if (stopped) {

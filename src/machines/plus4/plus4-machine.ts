@@ -175,6 +175,15 @@ export class Plus4Machine extends BaseMachine implements Machine {
 
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
+  /** Whether the Datasette's EAR line is mixed into the audio (the tape-sound
+   *  setting), as the loading sound. */
+  tapeSoundEnabled = true;
+
+  /** The EAR line as loading sound, only while the tape is actually running. */
+  private tapeAudioLevel(): number {
+    return this.tapeSoundEnabled && this.tape.playing && !this.tape.paused ? this.tape.earBit : 0;
+  }
+
   constructor(model: Plus4Model, display: IScreenRenderer | null = null, ntsc = false) {
     super();
     this.model = model;
@@ -187,7 +196,7 @@ export class Plus4Machine extends BaseMachine implements Machine {
     this.mixer = new AudioMixer(this.timing.clockHz);
     this._pixels = new Uint8Array(this.ted.pixels.buffer);
     this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
-    this.mixer.beeperGain = 0;
+    this.mixer.beeperGain = 1;
     this.mixer.psgGain = 1;
     this.deferAccessStamps = true;
 
@@ -496,6 +505,7 @@ export class Plus4Machine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeTurbo = view.get('tape-turbo-load', true);
+    this.tapeSoundEnabled = view.get('tape-sound', true);
     this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
   }
 
@@ -747,7 +757,7 @@ export class Plus4Machine extends BaseMachine implements Machine {
       this.stepTape();
       this.updateInterrupts(cpu.tStates);
       if (!skipAudio) {
-        this.mixer.accumulate(0, cpu.tStates - before);
+        this.mixer.accumulateLevel(this.tapeAudioLevel(), cpu.tStates - before);
         this.mixer.generateSamples(this.audio, this.sound, true);
       }
       if (stopped) {

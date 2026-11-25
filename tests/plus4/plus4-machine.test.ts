@@ -312,7 +312,6 @@ describe('Plus/4 descriptor', () => {
 });
 
 // ── The 1 MHz mode ─────────────────────────────────────────────────────
-
 /** A ROM that turns the display off, sets $FF13, then loops on a 16-bit counter. */
 function counterRom(slow: boolean): Uint8Array {
   const a = new Asm(0xC000);
@@ -357,6 +356,30 @@ describe('the 1 MHz mode', () => {
     expect(m.oneMhzMode).toBe(true);
     expect(m.cpuClockHz).toBe(m.timing.clockHz / 2);
     expect(m.tStatesPerFrame).toBe(m.timing.cyclesPerFrame);
+  });
+});
+
+// ── Datasette loading sound ────────────────────────────────────────────
+
+describe('Datasette loading sound', () => {
+  it('mixes the EAR line while the tape runs, and follows the setting', () => {
+    const m = machine(firmware());
+    const levels: number[] = [];
+    const real = m.mixer.accumulateLevel.bind(m.mixer);
+    m.mixer.accumulateLevel = (level, elapsed) => { levels.push(level); real(level, elapsed); };
+    // A tape parked on a level-1 block and a long tone: it is playing, and the
+    // EAR line holds high for the whole frame.
+    m.tape.blocks = [{ kind: 'set-level', level: 1 }, { kind: 'tone', pulseLen: 4_000_000, count: 1 }];
+    m.tape.startPlayback();
+    m.tick();
+    expect(levels.length).toBeGreaterThan(0);
+    expect(levels).toContain(1);
+    // With loading sounds off the same tape contributes silence.
+    levels.length = 0;
+    m.tapeSoundEnabled = false;
+    m.tick();
+    expect(levels.length).toBeGreaterThan(0);
+    expect(levels.every(l => l === 0)).toBe(true);
   });
 });
 

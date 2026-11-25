@@ -59,7 +59,7 @@ const VIC20_UI: MachineUiCapabilities = {
   // arithmetic caps are their own keys): the character decides.
   typedCharacters: true,
   tape: 'deck',
-  tapeSound: false,
+  tapeSound: true,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
   // 'tape-tap' downloads what the KERNAL has SAVEd to tape (as a VIC-20 .tap).
   saveMenu: ['snapshot-vic20state', 'tape-tap', 'screenshot-png', 'ram-bin'],

@@ -62,7 +62,7 @@ banked map), so it is not a socket of its own.
 | 6551A ACIA | `plus4` | ◐ | [`src/cores/mc6551.ts`](../../src/cores/mc6551.ts). The four registers at `$FD00`-`$FD03`, mirrored through the page: data, status (with TDRE, RDRF, overrun, the DSR/DCD handshake bits and IRQ), command and control (including the baud divisor). The transmit and receive shifters are the minimum the KERNAL's RS-232 routines need: nothing is connected to the socket, so a byte the host sends appears at once |
 | Keyboard | all | ✅ | An 8 × 8 matrix scanned with the TED and PIO 2, from the host keyboard. The cells are the board's real key positions (the function keys carry both halves on one cap, and the four cursor keys are their own caps). There is no RESTORE key: the RESET button is hardware. The Keyboard pane is the shared breadbin face driving `PLUS4_MATRIX` |
 | ROM banking | all | ✅ | `$FDD0`-`$FDDF` selects a ROM pair for `$8000-$BFFF` and `$C000-$FFFF`: BASIC and the KERNAL, the two 3+1 ROMs, or a cartridge. `$FF3F` banks the ROMs out altogether, which is how BASIC gets 60K; a write to a ROM bleeds through to the RAM under it |
-| Datasette | all | ✅ | See Peripherals |
+| Datasette | all | ✅ | See Peripherals. Its EAR line is mixed into the audio as the loading sound when the tape runs, gated by the Tape pane's "Loading sounds" setting |
 | Joystick ports | all | ✅ | Two control ports read through the TED's keyboard register, as on the C64 |
 
 ---
@@ -144,7 +144,6 @@ there are several.
 - The 256K memory expansions (Hannes and CSORY) that a few C16 owners fitted.
 - The speech chip of the V364 prototype.
 - Banked cartridge boards (Magic Desk, the JACINT 1MB, the midi/speedy carts) and the SIDcard; only plain ROM cartridges are taken.
-- Datasette sound.
 
 ## Faithful quirks
 

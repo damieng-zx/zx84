@@ -56,7 +56,7 @@ const PLUS4_UI: MachineUiCapabilities = {
   statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
   tape: 'deck',
-  tapeSound: false,
+  tapeSound: true,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
   saveMenu: ['snapshot-plus4state', 'tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
