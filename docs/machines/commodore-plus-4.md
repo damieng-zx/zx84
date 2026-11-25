@@ -73,7 +73,7 @@ banked map), so it is not a socket of its own.
 | --- | --- | --- | --- | --- |
 | Datasette (tape) | Tape | all | ✅ | The 7501's port carries it: bit 4 is the read line, bit 3 the motor (low = on), bit 1 the write line, and PIO 1 bit 2 is the PLAY sense. A mounted tape has PLAY down; the motor moves it; the read line's falling edges drive the TED's timer 1 interrupt. Turbo follows the TED's status-register reads and the write line. Dropping a `.prg` or `.t64` also mounts a generated KERNAL-format tape of it |
 | Commodore 1541 / 1571 / 1581 | Disk | all | ✅ | The shared drive-level model on the shared open-collector serial bus, bit-banged on the 7501's port (ATN bit 7, CLK bit 6, DATA bit 5 out, the two line levels back on the same bits). Up to four drives, devices 8 to 11, each chosen in the Drives pane. The DOS ROMs share the C64's files and cache |
-| Cartridges | Expansion port | all | ✅ | `.crt` (plain ROM chips, bank 0 low and bank 1 high) and raw `.bin` images of 16K, 32K or 64K placed from `$8000` up; the `$FDD0` bank select decides which answers. Fitting or ejecting one is a power cycle, and snapshots carry it |
+| Cartridges | Expansion port | all | ✅ | Plain `.crt`/`.bin` ROMs, and the banked boards: the c264 magic cart (128K-2MB, bank at `$FDFE`), the Plus/4 multi cart (2MB/4MB, bank at `$FDA0`) and the JACINT 1MB (64 banks, bank at `$FE00`); a raw `.bin` of 16K, 32K or 64K is placed from `$8000` up. The Speedy freezer (type 4) is refused. The `$FDD0` bank select decides which window answers. Fitting or ejecting one is a power cycle, and snapshots carry it |
 | Joystick | Input | all | ✅ | Control port 1 or 2 per player (Joystick pane). Nothing analogue: the TED has no paddle inputs |
 
 **Combination rules:** none; the drive is optional and independent of the tape.
@@ -93,7 +93,7 @@ there are several.
 | `.d64` / `.g64` / `.g41` | Disk | A 1541 (device 8-11) | ✅ | ✅ | The shared GCR formats |
 | `.d71` | Disk | A 1571 | ✅ | ✅ | Both sides of a 5.25" disk |
 | `.d81` | Disk | A 1581 | ✅ | ✅ | 3.5" 800K disks |
-| `.crt` / `.bin` | Cartridge | Expansion port | ✅ | — | Plain ROM chips, or a raw ROM image from `$8000` up |
+| `.crt` / `.bin` | Cartridge | Expansion port | ✅ | — | Plain ROM chips, the magic cart, the multi cart and the JACINT 1MB; or a raw ROM image from `$8000` up |
 | `.plus4state` | Snapshot | Machine | ✅ | ✅ | zx84's own exact save state, including the drive (its CPU, its chips and the disk) and the cartridge |
 
 **Save menu exports:** snapshot (`.plus4state`), tape (`.tap`), screenshot (PNG), RAM (`.bin`).
@@ -142,7 +142,7 @@ there are several.
 - The light pen, and the 1551's parallel-bus TIA (only the serial drives).
 - The 256K memory expansions (Hannes and CSORY) that a few C16 owners fitted.
 - The speech chip of the V364 prototype.
-- Banked cartridge boards (Magic Desk, the JACINT 1MB, the midi/speedy carts) and the SIDcard; only plain ROM cartridges are taken.
+- The Speedy freezer cartridge (hardware type 4) and the SIDcard. The magic cart, multi cart and JACINT 1MB banked boards are emulated.
 
 ## Faithful quirks
 
@@ -163,6 +163,7 @@ there are several.
 | [`tests/plus4/plus4-basic.test.ts`](../../tests/plus4/plus4-basic.test.ts) | BASIC 3.5's keyword table against the ROM's own entries, including the tokens past V2's `$CB`, the quoted-string and REM payload rules, and the variable tables | 2026-11-25 |
 | [`tests/plus4/mc6551.test.ts`](../../tests/plus4/mc6551.test.ts) | The ACIA's frame timing on transmit and receive, the stop and parity bits in the frame, the transmit interrupt, and overrun | 2026-11-25 |
 | [`tests/plus4/plus4-ocr.test.ts`](../../tests/plus4/plus4-ocr.test.ts) | The TEXT overlay's hires-bitmap matching (direct and inverse), non-glyph tiles, the multicolour bitmap being left alone, and multicolour text cells | 2026-11-25 |
+| [`tests/plus4/plus4-media.test.ts`](../../tests/plus4/plus4-media.test.ts) | Cartridge parsing (plain and the three banked boards, and the Speedy refusal), the bank registers, media routing, the .tap platform and the TEXT overlay on the real ROM's banner | 2026-11-25 |
 | [`tests/machine-capabilities.test.ts`](../../tests/machine-capabilities.test.ts) | Every registered model's declared capability held against the service that has to honour it, including both Plus/4 models | 2026-11-22 |
 
 Tests that need the Commodore ROMs read them from `mcp/.cache/plus4-dev` (the

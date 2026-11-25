@@ -340,6 +340,8 @@ export class Plus4Machine extends BaseMachine implements Machine {
         if (reg === 0x3F) memory.setRomVisible(false);
         return;
       }
+      // A banked cartridge answers at its own register before the board's I/O.
+      if (this._cart?.mapper.writeRegister(addr, value)) return;
       switch (addr & 0xFFF0) {
         case 0xFD00:
           if ((addr & 0x0F) < 4 && this.aciaFitted) this.acia.write(addr & 3, value);
@@ -629,7 +631,8 @@ export class Plus4Machine extends BaseMachine implements Machine {
   /** Fit a cartridge's banks, or take it out (null). */
   setCartridge(cart: Plus4Cartridge | null): void {
     this._cart = cart;
-    this.memory.setCartridge(cart?.low ?? null, cart?.high ?? null);
+    cart?.mapper.reset();
+    this.memory.setCartridgeMapper(cart?.mapper ?? null, cart?.low ?? null, cart?.high ?? null);
     if (cart === null) this.cartridgeFile = '';
   }
 

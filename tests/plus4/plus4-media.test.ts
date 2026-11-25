@@ -45,6 +45,30 @@ function crt(low: Uint8Array, high: Uint8Array): Uint8Array {
 }
 
 describe('Plus/4 cartridges', () => {
+  /** A banked .crt of the given hardware type. */
+  function bankedCrt(type: number, chips: { bank: number; addr: number; fill: number }[]): Uint8Array {
+    const header = 0x40;
+    const chipLen = 0x10 + 0x4000;
+    const out = new Uint8Array(header + chipLen * chips.length);
+    const be32 = (at: number, v: number): void => {
+      out[at] = (v >>> 24) & 0xFF; out[at + 1] = (v >>> 16) & 0xFF; out[at + 2] = (v >>> 8) & 0xFF; out[at + 3] = v & 0xFF;
+    };
+    const be16 = (at: number, v: number): void => { out[at] = (v >> 8) & 0xFF; out[at + 1] = v & 0xFF; };
+    out.set(new Uint8Array([...'C64 CARTRIDGE '].map(c => c.charCodeAt(0))), 0);
+    be32(0x10, header);
+    be16(0x16, type);
+    chips.forEach((c, i) => {
+      const at = header + i * chipLen;
+      out.set(new Uint8Array([...'CHIP'].map(ch => ch.charCodeAt(0))), at);
+      be32(at + 4, chipLen);
+      be16(at + 8, c.bank);
+      be16(at + 0x0C, c.addr);
+      be16(at + 0x0E, 0x4000);
+      out.fill(c.fill, at + 0x10, at + 0x10 + 0x4000);
+    });
+    return out;
+  }
+
   it('parses a .crt into the two banks, and the bank select reaches them', () => {
     const low = new Uint8Array(0x4000).fill(0x11);
     const high = new Uint8Array(0x4000).fill(0x22);
@@ -62,6 +86,52 @@ describe('Plus/4 cartridges', () => {
     // With the ROMs banked out the cartridge is gone with them.
     m.memory.setRomVisible(false);
     expect(m.memory.readByte(0x8000)).not.toBe(0x11);
+  });
+
+  it('banks the 1MB cartridge at $FE00', () => {
+    const chips = Array.from({ length: 64 }, (_, i) => ({ bank: i, addr: 0x8000, fill: i }));
+    const parsed = parsePlus4Cartridge(bankedCrt(3, chips), 'jacint.crt');
+    if ('error' in parsed) throw new Error(parsed.error);
+    const m = bareMachine();
+    m.setCartridge(parsed.cart);
+    m.memory.setBank(10);                       // both windows on the cartridge
+    m.memory.writeByte(0xFE00, 5);
+    expect(m.memory.readByte(0x8000)).toBe(5);
+    m.memory.writeByte(0xFE00, 0x3F);
+    expect(m.memory.readByte(0xBFFF)).toBe(0x3F);
+  });
+
+  it('banks the c264 magic cart at $FDFE', () => {
+    const chips = Array.from({ length: 8 }, (_, i) => ({ bank: i, addr: 0x8000, fill: 0x10 + i }));
+    const parsed = parsePlus4Cartridge(bankedCrt(1, chips), 'magic.crt');
+    if ('error' in parsed) throw new Error(parsed.error);
+    const m = bareMachine();
+    m.setCartridge(parsed.cart);
+    m.memory.setBank(10);
+    m.memory.writeByte(0xFDFE, 3);
+    expect(m.memory.readByte(0x8000)).toBe(0x13);
+    // It answers only in the low window.
+    expect(m.memory.readByte(0xC000)).not.toBe(0x13);
+  });
+
+  it('maps the multi cart\'s low and high halves, banked at $FDA0', () => {
+    const chips = [
+      ...Array.from({ length: 64 }, (_, i) => ({ bank: i, addr: 0x8000, fill: 0x40 + i })),
+      ...Array.from({ length: 64 }, (_, i) => ({ bank: i, addr: 0xC000, fill: 0xC0 + i })),
+    ];
+    const parsed = parsePlus4Cartridge(bankedCrt(2, chips), 'multi.crt');
+    if ('error' in parsed) throw new Error(parsed.error);
+    const m = bareMachine();
+    m.setCartridge(parsed.cart);
+    m.memory.setBank(10);
+    m.memory.writeByte(0xFDA0, 2);
+    expect(m.memory.readByte(0x8000), 'the low half').toBe(0x42);
+    expect(m.memory.readByte(0xC000), 'the high half').toBe(0xC2);
+  });
+
+  it('refuses the Speedy freezer with its reason', () => {
+    const parsed = parsePlus4Cartridge(bankedCrt(4, [{ bank: 0, addr: 0x8000, fill: 0 }]), 'speedy.crt');
+    expect('error' in parsed && parsed.error).toMatch(/Speedy/);
   });
 
   it('takes a raw image from $8000 up, padded to two banks', () => {

@@ -57,10 +57,12 @@ export class Plus4Memory implements IMachineMemory {
   readonly basic = new Uint8Array(0x4000);
   readonly funcLow = new Uint8Array(0x4000);
   readonly funcHigh = new Uint8Array(0x4000);
-  /** The cartridge's ROM banks, when one is fitted. */
+  /** The cartridge's ROM banks, when one is fitted (the $8000/$C000 windows). */
   readonly cartLow = new Uint8Array(0x4000);
   readonly cartHigh = new Uint8Array(0x4000);
   cartFitted = false;
+  /** The fitted cartridge's ROM (a banked board maps a window of it). */
+  private cartSource: { readLow(addr: number): number; readHigh(addr: number): number } | null = null;
   /** Which system ROMs are actually installed. An uninstalled one does not
    *  answer, so a write to its address shows the RAM beneath. */
   private readonly romLoaded = { kernal: false, basic: false, funcLow: false, funcHigh: false };
@@ -109,7 +111,7 @@ export class Plus4Memory implements IMachineMemory {
     this.bankSelect = 0;
     this.portDir = 0;
     this.portData = 0;
-    this.cartFitted = false;
+    this.cartFitted = this.cartSource !== null;
   }
 
   // ── ROM banks ───────────────────────────────────────────────────────────
@@ -120,7 +122,6 @@ export class Plus4Memory implements IMachineMemory {
     switch (this.bankSelect & 3) {
       case ROM_LOW_BASIC: return this.romLoaded.basic ? this.basic : null;
       case ROM_LOW_FUNC: return this.romLoaded.funcLow ? this.funcLow : null;
-      case ROM_LOW_CART: return this.cartFitted ? this.cartLow : null;
       default: return null;
     }
   }
@@ -131,9 +132,15 @@ export class Plus4Memory implements IMachineMemory {
     switch ((this.bankSelect >> 2) & 3) {
       case ROM_HIGH_KERNAL: return this.romLoaded.kernal ? this.kernal : null;
       case ROM_HIGH_FUNC: return this.romLoaded.funcHigh ? this.funcHigh : null;
-      case ROM_HIGH_CART: return this.cartFitted ? this.cartHigh : null;
       default: return null;
     }
+  }
+
+  /** The cartridge's answer for `addr`, when the bank select names it. */
+  private cartByte(addr: number): number | null {
+    if (!this.romVisible || !this.cartSource) return null;
+    if (addr < 0xC000) return (this.bankSelect & 3) === ROM_LOW_CART ? this.cartSource.readLow(addr) : null;
+    return ((this.bankSelect >> 2) & 3) === ROM_HIGH_CART ? this.cartSource.readHigh(addr) : null;
   }
 
   /** Install the system ROM: KERNAL, BASIC and (on the Plus/4) the 3+1 ROMs,
@@ -148,7 +155,25 @@ export class Plus4Memory implements IMachineMemory {
 
   /** Fit a cartridge's two 16K banks (null takes it out). */
   setCartridge(low: Uint8Array | null, high: Uint8Array | null): void {
-    this.cartFitted = low !== null || high !== null;
+    const source = low !== null || high !== null
+      ? {
+        readLow: (addr: number) => low ? low[addr & 0x3FFF] : 0xFF,
+        readHigh: (addr: number) => high ? high[addr & 0x3FFF] : 0xFF,
+      }
+      : null;
+    this.setCartridgeMapper(source, low, high);
+  }
+
+  /** Fit a banked cartridge: `source` answers the two windows, and `low`/`high`
+   *  are the banks the debugger's memory view shows. */
+  setCartridgeMapper(
+    source: { readLow(addr: number): number; readHigh(addr: number): number } | null,
+    low: Uint8Array | null, high: Uint8Array | null,
+  ): void {
+    this.cartSource = source;
+    this.cartFitted = source !== null;
+    this.cartLow.fill(0xFF);
+    this.cartHigh.fill(0xFF);
     if (low) this.cartLow.set(low.subarray(0, 0x4000));
     if (high) this.cartHigh.set(high.subarray(0, 0x4000));
   }
@@ -177,8 +202,11 @@ export class Plus4Memory implements IMachineMemory {
       if (addr === 1) return this.onPortRead();
     }
     if (addr >= 0xFD00 && addr < 0xFE00) return this.ioRead(addr);
+    if (addr >= 0xFE00 && addr < 0xFF00) return this.ioRead(addr);
     if (addr >= 0xFF00) {
       if (addr < 0xFF40) return this.ioRead(addr);
+      const cart = this.cartByte(addr);
+      if (cart !== null) return cart;
       const bank = this.highBank;
       if (bank) return bank[addr & 0x3FFF];
       return this.ram[this.ramIndex(addr)];
@@ -188,6 +216,8 @@ export class Plus4Memory implements IMachineMemory {
       if (addr < 0xFD00) return this.kernal[addr & 0x3FFF];
       return this.openBus();
     }
+    const cart = this.cartByte(addr);
+    if (cart !== null) return cart;
     const bank = addr >= 0x8000 ? (addr < 0xC000 ? this.lowBank : this.highBank) : null;
     if (bank) return bank[addr & 0x3FFF];
     if (addr >= 0x8000 && addr < 0xC000) return this.ram[this.ramIndex(addr)];
@@ -208,6 +238,7 @@ export class Plus4Memory implements IMachineMemory {
       return;
     }
     if (addr >= 0xFD00 && addr < 0xFE00) { this.ioWrite(addr, v); return; }
+    if (addr >= 0xFE00 && addr < 0xFF00) { this.ioWrite(addr, v); return; }
     if (addr >= 0xFC00) { this.ram[this.ramIndex(addr)] = v; return; }
     if (addr >= 0x8000) {
       // A write to a banked ROM reaches the RAM beneath.
@@ -225,13 +256,18 @@ export class Plus4Memory implements IMachineMemory {
       if (addr === 1) return this.onPortRead();
     }
     if (addr >= 0xFD00 && addr < 0xFE00) return this.ioPeek(addr);
+    if (addr >= 0xFE00 && addr < 0xFF00) return this.ioPeek(addr);
     if (addr >= 0xFF00) {
       if (addr < 0xFF40) return this.ioPeek(addr);
+      const cart = this.cartByte(addr);
+      if (cart !== null) return cart;
       const bank = this.highBank;
       if (bank) return bank[addr & 0x3FFF];
       return this.ram[this.ramIndex(addr)];
     }
     if (addr >= 0xFC00) return this.kernal[addr & 0x3FFF];
+    const cart = this.cartByte(addr);
+    if (cart !== null) return cart;
     const bank = addr >= 0x8000 ? (addr < 0xC000 ? this.lowBank : this.highBank) : null;
     if (bank) return bank[addr & 0x3FFF];
     if (addr >= 0x8000) return this.ram[this.ramIndex(addr)];
