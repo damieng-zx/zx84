@@ -38,10 +38,13 @@
  *
  * The Plus/4 wires no other line than the two handshake bits it can read back,
  * so the transmit and receive shifters are the minimum the KERNAL's RS-232
- * routines need: TDRE is set whenever the transmitter holds no byte, and a byte
- * the host sends appears in the receiver at once. The chip never calls back
- * into the machine beyond `onTxByte` (the host's transmit sink, if one is
- * attached) and the handshake inputs the board drives.
+ * routines need: TDRE clears while a byte is shifting out and returns after the
+ * frame's ten bit times, and a byte the host sends into the receiver becomes
+ * available after its frame time. Nothing is connected to the socket, so there
+ * are no line-noise framing or parity errors to report, and the modem handshake
+ * bits are the board's. The chip never calls back into the machine beyond
+ * `onTxByte` (the host's transmit sink, if one is attached) and the handshake
+ * inputs the board drives.
  *
  * Reference: Motorola MC6551 datasheet; the Plus/4 registers as documented in
  * the +4 memory maps ($FD00 data, $FD01 status, $FD02 command, $FD03 control).
@@ -70,6 +73,21 @@ export class Mc6551 {
     return cpuClock / (2 * d);
   }
 
+  /** The bits in one character frame: start, data, parity (if enabled) and
+   *  stop, from the control register's word format (bits 3-1). */
+  private get frameBits(): number {
+    const format = (this.control >> 1) & 0x07;
+    const data = 8 - (format & 0x03);
+    const stop = format >= 4 ? 2 : 1;
+    const parity = (this.command & 0x20) !== 0 ? 1 : 0;
+    return 1 + data + parity + stop;
+  }
+
+  /** CPU cycles one frame takes: the chip's baud divisor is 2 cycles a bit. */
+  private get frameCycles(): number {
+    return this.frameBits * 2 * BAUD_DIVISORS[(this.control >> 5) & 0x0F];
+  }
+
   /** A byte has started shifting out of the transmitter. */
   onTxByte: ((value: number, startCycle: number) => void) | null = null;
 
@@ -81,6 +99,11 @@ export class Mc6551 {
   private dcdPin = false;
   private dsrPin = false;
   private now = 0;
+  /** The transmitter is shifting a byte out, done at this cycle; a received
+   *  byte is on its way, available at this cycle (-1 when none). */
+  private txDoneAt = 0;
+  private rxDoneAt = -1;
+  private rxPending = -1;
 
   constructor() {
     this.reset();
@@ -92,13 +115,16 @@ export class Mc6551 {
     this.status = 0;
     this.rxData = 0;
     this.txData = 0;
+    this.txDoneAt = 0;
+    this.rxDoneAt = -1;
+    this.rxPending = -1;
     this.refreshStatus();
   }
 
   /** Recompute the derived status bits and the IRQ line. */
   private refreshStatus(): void {
     let s = this.status & (ST_PE | ST_FE | ST_OVRN | ST_RDRF);
-    s |= ST_TDRE;
+    if (this.now >= this.txDoneAt) s |= ST_TDRE;
     if (this.dcdPin) s |= ST_DCD;
     if (this.dsrPin) s |= ST_DSR;
     const rxInt = ((this.command >> 2) & 3) !== 0
@@ -145,6 +171,9 @@ export class Mc6551 {
     switch (rs & 3) {
       case 0:
         this.txData = v;
+        // A write to an idle transmitter starts a frame; TDRE stays clear
+        // until its last bit has gone.
+        if (this.now >= this.txDoneAt) this.txDoneAt = this.now + this.frameCycles;
         if (this.onTxByte) this.onTxByte(v, this.now);
         this.refreshStatus();
         break;
@@ -172,16 +201,41 @@ export class Mc6551 {
   /** The /DSR input (true = the modem is ready). */
   setDsr(high: boolean): void { this.dsrPin = high; this.refreshStatus(); }
 
-  /** A byte arrives from the host: latch it into the receiver, or overrun. */
+  /** A byte arrives from the host: it becomes available once its frame has
+   *  been clocked in, or overruns a receiver that still holds one. */
   receive(byte: number): void {
-    if ((this.status & ST_RDRF) !== 0) this.status |= ST_OVRN;
-    else { this.rxData = byte & 0xFF; this.status |= ST_RDRF; }
+    if (this.rxPending >= 0 || (this.status & ST_RDRF) !== 0) {
+      this.status |= ST_OVRN;
+      this.refreshStatus();
+      return;
+    }
+    this.rxPending = byte & 0xFF;
+    this.rxDoneAt = this.now + this.frameCycles;
     this.refreshStatus();
   }
 
   get irq(): boolean { this.refreshStatus(); return (this.status & ST_IRQ) !== 0; }
 
-  tick(now: number): void { this.now = now; }
+  tick(now: number): void {
+    this.now = now;
+    if (this.rxPending >= 0 && now >= this.rxDoneAt) {
+      this.rxData = this.rxPending;
+      this.rxPending = -1;
+      this.rxDoneAt = -1;
+      this.status |= ST_RDRF;
+    }
+    this.refreshStatus();
+  }
+
+  /** Cycles until the transmitter's current frame finishes (0 when idle). */
+  get txBusyCycles(): number {
+    return this.txDoneAt > this.now ? this.txDoneAt - this.now : 0;
+  }
+
+  /** Cycles until a byte being received is complete (0 when none is). */
+  get rxBusyCycles(): number {
+    return this.rxPending >= 0 && this.rxDoneAt > this.now ? this.rxDoneAt - this.now : 0;
+  }
 
   // ── Snapshot state ────────────────────────────────────────────────────────
 
@@ -189,11 +243,15 @@ export class Mc6551 {
     w.u8(this.control); w.u8(this.command); w.u8(this.status);
     w.u8(this.rxData); w.u8(this.txData);
     w.bool(this.dcdPin); w.bool(this.dsrPin); w.f64(this.now);
+    w.f64(this.txDoneAt); w.f64(this.rxDoneAt);
+    w.bool(this.rxPending >= 0); w.u8(this.rxPending < 0 ? 0 : this.rxPending);
   }
 
   loadState(r: StateSource): void {
     this.control = r.u8(); this.command = r.u8(); this.status = r.u8();
     this.rxData = r.u8(); this.txData = r.u8();
     this.dcdPin = r.bool(); this.dsrPin = r.bool(); this.now = r.f64();
+    this.txDoneAt = r.f64(); this.rxDoneAt = r.f64();
+    this.rxPending = r.bool() ? r.u8() : -1;
   }
 }

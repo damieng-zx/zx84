@@ -289,10 +289,13 @@ describe('the 6529B and the 6551A', () => {
     const plus4 = machine(firmware(), 'plus4');
     plus4.acia.write(2, 0x02);          // transmitter interrupt enable
     plus4.acia.write(0, 0x41);
-    // TDRE is set (the transmitter is empty), so the enabled source raises IRQ.
-    const status = plus4.memory.readByte(0xFD01);
-    expect(status & 0x10, 'TDRE').toBe(0x10);
+    // TDRE is clear while the frame shifts; it returns 320 cycles later (ten
+    // bits at the control register's 16-divisor, two cycles a bit).
+    expect(plus4.acia.peek(1) & 0x10, 'TDRE while sending').toBe(0x00);
+    plus4.acia.tick(320);
+    expect(plus4.acia.peek(1) & 0x10, 'TDRE').toBe(0x10);
     plus4.acia.receive(0x55);
+    plus4.acia.tick(640);               // its frame has been clocked in
     expect(plus4.memory.readByte(0xFD01) & 0x08, 'RDRF').toBe(0x08);
     expect(plus4.memory.readByte(0xFD00), 'the received byte').toBe(0x55);
     expect(plus4.memory.readByte(0xFD01) & 0x08, 'and the read clears it').toBe(0x00);
