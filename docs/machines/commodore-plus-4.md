@@ -106,7 +106,7 @@ there are several.
 | --- | --- | --- |
 | Bad-line bus hold | ✅ | 88 of a line's 114 cycles on the line the TED fetches a character row on; the raster compare interrupt is timed to it |
 | Display modes | ✅ | Standard, multicolour and extended-background text, hires and multicolour bitmap; 24/25 rows, 38/40 columns, X/Y scroll, reverse video |
-| 1 MHz mode | ◐ | The `$FF13` bit 1 clock halving is not modelled: the machine always runs at its nominal clock. Software that sets it loses no correctness, only the speed change |
+| 1 MHz mode | ✅ | The `$FF13` bit 1 clock is modelled: the CPU runs at half the TED's clock while video, sound and the timers keep their own, so a frame still takes 114×312 TED cycles and the CPU gets half as many of them. A write to the register takes effect from the next instruction |
 | Tape auto-PLAY and turbo | ✅ | PLAY is pressed when the KERNAL polls the sense line; load time shrinks with the turbo setting |
 | Disk turbo | ✅ | Runs flat out while a drive's motor is on and its controller or the serial bus is moving bytes |
 | Border size | ✅ | Normal, small, none |
@@ -140,7 +140,6 @@ there are several.
 
 ## Not emulated
 
-- The 1 MHz mode's clock halving (`$FF13` bit 1). Programs that select it run at full speed.
 - The light pen, and the 1551's parallel-bus TIA (only the serial drives).
 - The 256K memory expansions (Hannes and CSORY) that a few C16 owners fitted.
 - The speech chip of the V364 prototype.

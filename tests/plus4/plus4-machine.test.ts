@@ -18,7 +18,7 @@ import { Ted } from '@/machines/plus4/ted.ts';
 import { plus4Descriptor, plus4Entry } from '@/machines/plus4/descriptor.ts';
 import { PLUS4_PALETTE } from '@/machines/plus4/palette.ts';
 import { PLUS4_CYCLES_PER_LINE, PLUS4_PAL_LINES, plus4Timing } from '@/machines/plus4/constants.ts';
-import { expectExactFromFile, romImage } from '../snapshot/native-state-helpers.ts';
+import { expectExactFromFile, Asm, OP, romImage } from '../snapshot/native-state-helpers.ts';
 import { firmware, machine } from './firmware.ts';
 
 // ── Memory map ─────────────────────────────────────────────────────────────
@@ -308,6 +308,55 @@ describe('Plus/4 descriptor', () => {
     expect(detect(new Uint8Array(0x10000), 'plus4'), 'a Plus/4 whole').toBe('plus4');
     expect(detect(new Uint8Array(0x8000), 'plus4'), 'a C16 whole').toBe('c16');
     expect(detect(new Uint8Array(0x4000), 'plus4'), 'one chip alone').toBe(null);
+  });
+});
+
+// ── The 1 MHz mode ─────────────────────────────────────────────────────
+
+/** A ROM that turns the display off, sets $FF13, then loops on a 16-bit counter. */
+function counterRom(slow: boolean): Uint8Array {
+  const a = new Asm(0xC000);
+  a.label('reset').b(OP.SEI, OP.CLD, OP.LDX_IMM, 0xFF, OP.TXS);
+  // Display off: no bad lines, so the loop costs only its own cycles.
+  a.b(OP.LDA_IMM, 0x00).abs(OP.STA_ABS, 0xFF06);
+  // $FF13 bit 1: the 1 MHz mode (bit 2 would move the character base).
+  a.b(OP.LDA_IMM, slow ? 0x02 : 0x00).abs(OP.STA_ABS, 0xFF13);
+  // 16 cycles a pass: INC $04, BNE back, INC $05 on the wrap, JMP back.
+  a.label('loop').b(OP.INC_ZP, 0x04).br(OP.BNE, 'loop');
+  a.b(OP.INC_ZP, 0x05).abs(OP.JMP, 'loop');
+  const code = a.assemble();
+  const kernal = new Uint8Array(0x4000);
+  kernal.set(code, 0);
+  kernal[0x3FFC] = a.addr('reset') & 0xFF;
+  kernal[0x3FFD] = a.addr('reset') >> 8;
+  const rom = new Uint8Array(0x8000);
+  rom.set(kernal, 0);
+  return rom;
+}
+
+/** Loop passes completed in one frame, from the 16-bit counter at $04. */
+function loopPasses(slow: boolean): number {
+  const m = machine(counterRom(slow));
+  m.tick();
+  return m.memory.readByte(0x05) * 256 + m.memory.readByte(0x04);
+}
+
+describe('the 1 MHz mode', () => {
+  it('halves the CPU clock while $FF13 bit 1 is set, and leaves the frame alone', () => {
+    const fast = loopPasses(false);
+    const slow = loopPasses(true);
+    // 35568 master cycles a frame, 8 CPU cycles a pass, less the boot's few
+    // hundred cycles: ~4400 passes at 1.77 MHz, ~2200 in the slowed mode.
+    expect(fast).toBeGreaterThanOrEqual(4380);
+    expect(fast).toBeLessThanOrEqual(4455);
+    expect(Math.abs(slow * 2 - fast)).toBeLessThanOrEqual(24);
+    // The mode is the TED's register and the reported clock follows it.
+    const m = machine(counterRom(true));
+    expect(m.oneMhzMode).toBe(false);
+    m.tick();
+    expect(m.oneMhzMode).toBe(true);
+    expect(m.cpuClockHz).toBe(m.timing.clockHz / 2);
+    expect(m.tStatesPerFrame).toBe(m.timing.cyclesPerFrame);
   });
 });
 

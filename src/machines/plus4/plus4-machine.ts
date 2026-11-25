@@ -170,6 +170,8 @@ export class Plus4Machine extends BaseMachine implements Machine {
   /** Where the instruction last run started, for the bad-line hold. */
   private insnStart = 0;
   private insnOp = -1;
+  /** Whether the instruction in progress runs on the halted clock ($FF13 bit 1). */
+  private slowNow = false;
 
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
@@ -220,7 +222,11 @@ export class Plus4Machine extends BaseMachine implements Machine {
 
   /** The cycle a register access of the instruction in progress lands on. */
   private accessT(addr: number, write: boolean): number {
-    return accessTime(this.insnStart, this.insnOp, this.insnPc, addr, write, false);
+    const t = accessTime(this.insnStart, this.insnOp, this.insnPc, addr, write, false);
+    // In 1 MHz mode a CPU cycle is two TED cycles, so an access stamped in CPU
+    // cycles lands twice as far from the instruction's start on the master
+    // (TED) clock the chips count in.
+    return this.slowNow ? this.insnStart + (t - this.insnStart) * 2 : t;
   }
 
   /** Bring the chips' clocks to cycle `t`. */
@@ -479,8 +485,11 @@ export class Plus4Machine extends BaseMachine implements Machine {
   get frameWidth(): number { return this.ted.width; }
   get frameHeight(): number { return this.ted.height; }
   get tStatesPerFrame(): number { return this.timing.cyclesPerFrame; }
-  get cpuClockHz(): number { return this.timing.clockHz; }
+  get cpuClockHz(): number { return this.oneMhzMode ? this.timing.clockHz / 2 : this.timing.clockHz; }
   protected override get frameHz(): number { return this.timing.clockHz / this.timing.cyclesPerFrame; }
+
+  /** The TED's $FF13 bit 1 halves the CPU clock; video keeps its own clock. */
+  get oneMhzMode(): boolean { return (this.ted.regs[0x13] & 0x02) !== 0; }
 
   attachHost(host: MachineHost): void { this.host = host; }
 
@@ -729,7 +738,11 @@ export class Plus4Machine extends BaseMachine implements Machine {
       this.beforeInsn(pc);
       this.insnStart = before;
       this.insnOp = cpu.interruptPending() ? -1 : this.memory.peekByte(pc);
+      this.slowNow = this.oneMhzMode;
       cpu.step();
+      // The TED keeps the 1.77 MHz clock; with $FF13 bit 1 the CPU's cycles are
+      // half as long, so charge each one twice on the master clock.
+      if (this.slowNow) cpu.tStates = before + (cpu.tStates - before) * 2;
       const stopped = this.afterInsn();
       this.stepTape();
       this.updateInterrupts(cpu.tStates);
