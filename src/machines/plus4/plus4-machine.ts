@@ -49,7 +49,7 @@ import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
 import { plus4RomChipSizes, plus4RomSize, type Plus4Model } from './models.ts';
-import { Plus4Memory } from './memory.ts';
+import { Plus4Memory, type Plus4Expansion } from './memory.ts';
 import { Plus4Keyboard } from './keyboard.ts';
 import { Ted, type TedBus } from './ted.ts';
 import { TedSound } from './ted-sound.ts';
@@ -175,6 +175,17 @@ export class Plus4Machine extends BaseMachine implements Machine {
 
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
+  /** The 256K expansion fitted, from the Hardware pane. */
+  private expansion: Plus4Expansion = 'none';
+
+  /** Fit (or remove) the 256K expansion; the pane rebuilds the machine. */
+  setMemoryExpansion(type: Plus4Expansion): void {
+    this.expansion = type;
+    this.memory.setExpansion(type);
+  }
+
+  get memoryExpansion(): Plus4Expansion { return this.expansion; }
+
   /** Whether the Datasette's EAR line is mixed into the audio (the tape-sound
    *  setting), as the loading sound. */
   tapeSoundEnabled = true;
@@ -217,7 +228,7 @@ export class Plus4Machine extends BaseMachine implements Machine {
   /** What the TED needs of this board. */
   private tedBus(): TedBus {
     return {
-      read: (addr) => this.memory.readByte(addr),
+      read: (addr) => this.memory.readTedByte(addr),
       keyboardColumns: () => {
         // PIO 2's latch selects the lines the TED scans: a set bit is a line
         // being read, and a key down on it pulls its column's bit low.
@@ -508,6 +519,8 @@ export class Plus4Machine extends BaseMachine implements Machine {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeTurbo = view.get('tape-turbo-load', true);
     this.tapeSoundEnabled = view.get('tape-sound', true);
+    const expansion = view.get<string>('plus4-expansion', 'none');
+    this.setMemoryExpansion(expansion === 'hannes' || expansion === 'csory' ? expansion : 'none');
     this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
   }
 
@@ -846,7 +859,7 @@ export class Plus4Machine extends BaseMachine implements Machine {
       mode: this.ted.videoMode,
       reverse: this.ted.reverseMode,
       background: this.ted.background,
-      read: a => mem.readByte(a & 0xFFFF),
+      read: a => mem.readTedByte(a & 0xFFFF),
     });
   }
 

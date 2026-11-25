@@ -48,6 +48,9 @@ export const ROM_HIGH_CART = 2;
 export type IoRead = (addr: number) => number;
 export type IoWrite = (addr: number, value: number) => void;
 
+/** The 256K RAM boards the machine can carry. */
+export type Plus4Expansion = 'none' | 'hannes' | 'csory';
+
 export class Plus4Memory implements IMachineMemory {
   readonly model: Plus4Model;
   /** The whole 64K, so RAM sits at its own address; a C16's 16K is mirrored. */
@@ -74,6 +77,12 @@ export class Plus4Memory implements IMachineMemory {
   /** The 7501's own port, and its data direction. */
   portDir = 0;
   portData = 0;
+
+  /** The 256K board fitted, its $40000 of RAM and its two registers. */
+  private expansionType: Plus4Expansion = 'none';
+  private readonly expRam = new Uint8Array(0x40000);
+  private hannesReg = 0xFF;
+  private csoryReg = 0;
 
   /** The I/O handlers the machine wires: $FD00-$FDFF and $FF00-$FF3F. */
   ioRead: IoRead = () => 0xFF;
@@ -184,6 +193,62 @@ export class Plus4Memory implements IMachineMemory {
   /** Write the bank select register (`$FDD0`-`$FDDF`). */
   setBank(value: number): void { this.bankSelect = value & 0x1F; }
 
+  // ── 256K RAM expansions ─────────────────────────────────────────────────
+
+  /** Fit one of the 256K boards (or none): Hannes-style 64K banking, or the
+   *  CSORY's 16K window, both with their control registers at `$FD15`/`$FD16`. */
+  setExpansion(type: Plus4Expansion): void {
+    this.expansionType = type;
+    this.hannesReg = 0xFF;
+    this.csoryReg = 0;
+    this.expRam.fill(0);
+  }
+
+  get expansion(): Plus4Expansion { return this.expansionType; }
+  /** The 64K bank the Hannes register selects (3 is the always-fitted one). */
+  get expansionBank(): number { return this.hannesReg & 3; }
+  /** The Hannes control register (`$FD16`) as last written. */
+  get expansionRegister(): number { return this.hannesReg; }
+
+  /** Hannes-style 64K banking, active unless the CSORY window mode is chosen. */
+  private get hannesActive(): boolean {
+    return this.expansionType !== 'none'
+      && (this.expansionType === 'hannes' || (this.hannesReg & 0x30) !== 0x20);
+  }
+
+  /** The CSORY 16K window (register `$FD15`), when its mode bits select it. */
+  private get csoryActive(): boolean {
+    return this.expansionType === 'csory' && (this.hannesReg & 0x30) === 0x20;
+  }
+
+  /** What the fitted expansion answers at `addr`, or null for the main board. */
+  private expansionByte(addr: number): number | null {
+    if (this.csoryActive) {
+      if ((addr >> 14) !== ((this.csoryReg >> 6) & 3)) return null;
+      return this.expRam[((((this.csoryReg & 0x0F) << 14) | (addr & 0x3FFF)) & 0x3FFFF)];
+    }
+    if (!this.hannesActive) return null;
+    const bank = this.hannesReg & 3;
+    if (bank === 3 || addr < 0x1000) return null;
+    if ((this.hannesReg & 0x80) !== 0 && addr < 0x4000) return null;
+    return this.expRam[((bank << 16) | addr) & 0x3FFFF];
+  }
+
+  /** Write into the fitted expansion's RAM when it answers at `addr`. */
+  private writeExpansion(addr: number, value: number): boolean {
+    if (this.csoryActive) {
+      if ((addr >> 14) !== ((this.csoryReg >> 6) & 3)) return false;
+      this.expRam[((((this.csoryReg & 0x0F) << 14) | (addr & 0x3FFF)) & 0x3FFFF)] = value;
+      return true;
+    }
+    if (!this.hannesActive) return false;
+    const bank = this.hannesReg & 3;
+    if (bank === 3 || addr < 0x1000) return false;
+    if ((this.hannesReg & 0x80) !== 0 && addr < 0x4000) return false;
+    this.expRam[((bank << 16) | addr) & 0x3FFFF] = value;
+    return true;
+  }
+
   // ── RAM ────────────────────────────────────────────────────────────────
 
 
@@ -195,16 +260,21 @@ export class Plus4Memory implements IMachineMemory {
 
   // ── CPU bus ──────────────────────────────────────────────────────────────
 
-  readByte(addr: number): number {
+  readByte(addr: number, expansion = true): number {
     addr &= 0xFFFF;
     if (addr < 0x100) {
       if (addr === 0) return this.portDir;
       if (addr === 1) return this.onPortRead();
     }
+    // The expansion's own registers sit in the user-port page.
+    if (addr === 0xFD16 && this.expansionType !== 'none') return this.hannesReg;
+    if (addr === 0xFD15 && this.expansionType === 'csory') return 0xFF;
     if (addr >= 0xFD00 && addr < 0xFE00) return this.ioRead(addr);
     if (addr >= 0xFE00 && addr < 0xFF00) return this.ioRead(addr);
     if (addr >= 0xFF00) {
       if (addr < 0xFF40) return this.ioRead(addr);
+      const exp = expansion ? this.expansionByte(addr) : null;
+      if (exp !== null) return exp;
       const cart = this.cartByte(addr);
       if (cart !== null) return cart;
       const bank = this.highBank;
@@ -216,12 +286,24 @@ export class Plus4Memory implements IMachineMemory {
       if (addr < 0xFD00) return this.kernal[addr & 0x3FFF];
       return this.openBus();
     }
+    if (expansion) {
+      const exp = this.expansionByte(addr);
+      if (exp !== null) return exp;
+    }
     const cart = this.cartByte(addr);
     if (cart !== null) return cart;
     const bank = addr >= 0x8000 ? (addr < 0xC000 ? this.lowBank : this.highBank) : null;
     if (bank) return bank[addr & 0x3FFF];
     if (addr >= 0x8000 && addr < 0xC000) return this.ram[this.ramIndex(addr)];
     return this.ram[this.ramIndex(addr)];
+  }
+
+  /** What the TED fetches: the default 64K unless a Hannes bit 6 lets it follow
+   *  the CPU's bank. */
+  readTedByte(addr: number): number {
+    if (this.expansionType === 'none') return this.readByte(addr);
+    const follow = this.expansionType === 'hannes' && (this.hannesReg & 0x40) !== 0;
+    return this.readByte(addr, follow);
   }
 
   writeByte(addr: number, value: number): void {
@@ -231,8 +313,11 @@ export class Plus4Memory implements IMachineMemory {
       if (addr === 0) { this.portDir = v & 0xDF; return; }
       if (addr === 1) { this.portData = v; this.onPortWrite(v); return; }
     }
+    if (addr === 0xFD16 && this.expansionType !== 'none') { this.hannesReg = v; return; }
+    if (addr === 0xFD15 && this.expansionType === 'csory') { this.csoryReg = v; return; }
     if (addr >= 0xFF00) {
       if (addr < 0xFF40) { this.ioWrite(addr, v); return; }
+      if (this.writeExpansion(addr, v)) return;
       // A write to the ROM always bleeds through to the RAM under it.
       this.ram[this.ramIndex(addr)] = v;
       return;
@@ -240,6 +325,7 @@ export class Plus4Memory implements IMachineMemory {
     if (addr >= 0xFD00 && addr < 0xFE00) { this.ioWrite(addr, v); return; }
     if (addr >= 0xFE00 && addr < 0xFF00) { this.ioWrite(addr, v); return; }
     if (addr >= 0xFC00) { this.ram[this.ramIndex(addr)] = v; return; }
+    if (this.writeExpansion(addr, v)) return;
     if (addr >= 0x8000) {
       // A write to a banked ROM reaches the RAM beneath.
       this.ram[this.ramIndex(addr)] = v;
@@ -249,16 +335,20 @@ export class Plus4Memory implements IMachineMemory {
   }
 
   /** What the CPU would read, without I/O side effects (for the debugger). */
-  peekByte(addr: number): number {
+  peekByte(addr: number, expansion = true): number {
     addr &= 0xFFFF;
     if (addr < 0x100) {
       if (addr === 0) return this.portDir;
       if (addr === 1) return this.onPortRead();
     }
+    if (addr === 0xFD16 && this.expansionType !== 'none') return this.hannesReg;
+    if (addr === 0xFD15 && this.expansionType === 'csory') return 0xFF;
     if (addr >= 0xFD00 && addr < 0xFE00) return this.ioPeek(addr);
     if (addr >= 0xFE00 && addr < 0xFF00) return this.ioPeek(addr);
     if (addr >= 0xFF00) {
       if (addr < 0xFF40) return this.ioPeek(addr);
+      const exp = expansion ? this.expansionByte(addr) : null;
+      if (exp !== null) return exp;
       const cart = this.cartByte(addr);
       if (cart !== null) return cart;
       const bank = this.highBank;
@@ -266,6 +356,10 @@ export class Plus4Memory implements IMachineMemory {
       return this.ram[this.ramIndex(addr)];
     }
     if (addr >= 0xFC00) return this.kernal[addr & 0x3FFF];
+    if (expansion) {
+      const exp = this.expansionByte(addr);
+      if (exp !== null) return exp;
+    }
     const cart = this.cartByte(addr);
     if (cart !== null) return cart;
     const bank = addr >= 0x8000 ? (addr < 0xC000 ? this.lowBank : this.highBank) : null;
@@ -299,6 +393,7 @@ export class Plus4Memory implements IMachineMemory {
     w.raw(this.ram);
     w.bool(this.romVisible); w.u8(this.bankSelect);
     w.u8(this.portDir); w.u8(this.portData); w.bool(this.cartFitted);
+    w.str(this.expansionType); w.u8(this.hannesReg); w.u8(this.csoryReg); w.raw(this.expRam);
     for (const k of ['kernal', 'basic', 'funcLow', 'funcHigh'] as const) w.bool(this.romLoaded[k]);
   }
 
@@ -306,6 +401,8 @@ export class Plus4Memory implements IMachineMemory {
     r.rawInto(this.ram);
     this.romVisible = r.bool(); this.bankSelect = r.u8();
     this.portDir = r.u8(); this.portData = r.u8(); this.cartFitted = r.bool();
+    this.expansionType = r.str() as Plus4Expansion; this.hannesReg = r.u8(); this.csoryReg = r.u8();
+    r.rawInto(this.expRam);
     for (const k of ['kernal', 'basic', 'funcLow', 'funcHigh'] as const) this.romLoaded[k] = r.bool();
   }
 }

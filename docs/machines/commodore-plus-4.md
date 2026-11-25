@@ -62,6 +62,7 @@ banked map), so it is not a socket of its own.
 | 6551A ACIA | `plus4` | ◐ | [`src/cores/mc6551.ts`](../../src/cores/mc6551.ts). The four registers at `$FD00`-`$FD03`, mirrored through the page: data, status (with TDRE, RDRF, overrun, the DSR/DCD handshake bits and IRQ), command and control (including the baud divisor). A transmitted byte holds TDRE clear for its frame (start, data, parity and stop bits at two cycles a bit times the divisor) and a received byte becomes available after its frame; nothing is connected to the socket, so the modem's handshake bits are the board's and line noise is not modelled |
 | Keyboard | all | ✅ | An 8 × 8 matrix scanned with the TED and PIO 2, from the host keyboard. The cells are the board's real key positions (the function keys carry both halves on one cap, and the four cursor keys are their own caps). There is no RESTORE key: the RESET button is hardware. The Keyboard pane is the shared breadbin face driving `PLUS4_MATRIX` |
 | ROM banking | all | ✅ | `$FDD0`-`$FDDF` selects a ROM pair for `$8000-$BFFF` and `$C000-$FFFF`: BASIC and the KERNAL, the two 3+1 ROMs, or a cartridge. `$FF3F` banks the ROMs out altogether, which is how BASIC gets 60K; a write to a ROM bleeds through to the RAM under it |
+| 256K expansion | all | ✅ | The Hannes/Solder board's four 64K banks at `$FD16` (bank bits 0-1, the `$1000`/`$4000` switch bound in bit 7, and bit 6 for whether the TED follows the CPU bank), and the CSORY board's 16K block in the window `$FD15` names. Chosen in the Hardware pane |
 | Datasette | all | ✅ | See Peripherals. Its EAR line is mixed into the audio as the loading sound when the tape runs, gated by the Tape pane's "Loading sounds" setting |
 | Joystick ports | all | ✅ | Two control ports read through the TED's keyboard register, as on the C64 |
 
@@ -140,9 +141,8 @@ there are several.
 ## Not emulated
 
 - The light pen, and the 1551's parallel-bus TIA (only the serial drives).
-- The 256K memory expansions (Hannes and CSORY) that a few C16 owners fitted.
 - The speech chip of the V364 prototype.
-- The Speedy freezer cartridge (hardware type 4) and the SIDcard. The magic cart, multi cart and JACINT 1MB banked boards are emulated.
+- The Speedy freezer cartridge (hardware type 4) and the SIDcard.
 
 ## Faithful quirks
 
@@ -164,6 +164,7 @@ there are several.
 | [`tests/plus4/mc6551.test.ts`](../../tests/plus4/mc6551.test.ts) | The ACIA's frame timing on transmit and receive, the stop and parity bits in the frame, the transmit interrupt, and overrun | 2026-11-25 |
 | [`tests/plus4/plus4-ocr.test.ts`](../../tests/plus4/plus4-ocr.test.ts) | The TEXT overlay's hires-bitmap matching (direct and inverse), non-glyph tiles, the multicolour bitmap being left alone, and multicolour text cells | 2026-11-25 |
 | [`tests/plus4/plus4-media.test.ts`](../../tests/plus4/plus4-media.test.ts) | Cartridge parsing (plain and the three banked boards, and the Speedy refusal), the bank registers, media routing, the .tap platform and the TEXT overlay on the real ROM's banner | 2026-11-25 |
+| [`tests/plus4/plus4-expansion.test.ts`](../../tests/plus4/plus4-expansion.test.ts) | The Hannes 64K banks, the `$1000`/`$4000` switch bound and the TED's bank bit, and the CSORY 16K window (and that the TED does not see it) | 2026-11-25 |
 | [`tests/machine-capabilities.test.ts`](../../tests/machine-capabilities.test.ts) | Every registered model's declared capability held against the service that has to honour it, including both Plus/4 models | 2026-11-22 |
 
 Tests that need the Commodore ROMs read them from `mcp/.cache/plus4-dev` (the

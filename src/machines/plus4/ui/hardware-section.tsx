@@ -32,6 +32,25 @@ export function Plus4HardwareSection() {
           Disk drive (device 8)
         </label>
       </div>
+      <div class="slider-row plus4-hw-row">
+        <span title="Fit a 256K RAM board: the Hannes/Solder 64K banking, or the CSORY 16K window (both use $FD15/$FD16)">
+          256K expansion
+        </span>
+        <select
+          id="plus4-expansion-select"
+          value={settings.plus4Expansion()}
+          onChange={(event) => {
+            const value = (event.target as HTMLSelectElement).value as 'none' | 'hannes' | 'csory';
+            settings.setPlus4Expansion(value);
+            settings.persistSetting('plus4-expansion', value);
+            rebuild();
+          }}
+        >
+          <option value="none">None</option>
+          <option value="hannes">Hannes 256K</option>
+          <option value="csory">CSORY 256K</option>
+        </select>
+      </div>
     </>
   );
 }
