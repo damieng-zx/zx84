@@ -60,6 +60,54 @@ describe('m6522 — T1 timer', () => {
     via.addCycles(4);
     expect(via.t1Counter).toBe(1);
   });
+
+  it('counts down from power-up without being loaded', () => {
+    // RES leaves the counters alone and does not gate the count, so a counter
+    // read twice without a T1C-H write moves - the chip-presence test the
+    // Acornsoft loaders use.
+    const via = new M6522();
+    const first = via.read(4);
+    via.addCycles(7);
+    const second = via.read(4);
+    expect(first).not.toBe(second);
+    expect(via.t1Counter).toBe(0xFFFF - 7);
+  });
+
+  it('an unloaded timer runs but sets no interrupt flag', () => {
+    const via = new M6522();
+    via.write(14, VIA_IFR_ANY | VIA_IFR_T1);  // enable T1 interrupts
+    via.addCycles(0x10001);                   // past a whole counter wrap
+    expect(via.ifr & VIA_IFR_T1).toBe(0);
+    expect(via.irq).toBe(false);
+  });
+
+  it('a one-shot sets the flag only once, until the timer is reloaded', () => {
+    const via = new M6522();
+    via.write(14, VIA_IFR_ANY | VIA_IFR_T1);
+    via.write(4, 0x02);
+    via.write(5, 0x00);        // counter = 2, one-shot
+    via.addCycles(3);          // underflow: flag set
+    expect(via.ifr & VIA_IFR_T1).toBe(VIA_IFR_T1);
+    via.read(4);               // clears the flag
+    expect(via.ifr & VIA_IFR_T1).toBe(0);
+    via.addCycles(0x10001);    // carries on past zero: no second flag
+    expect(via.ifr & VIA_IFR_T1).toBe(0);
+    expect(via.irq).toBe(false);
+  });
+
+  it('free-run sets the flag again on every time-out', () => {
+    const via = new M6522();
+    via.write(11, 0x40);       // ACR: T1 free-run
+    via.write(14, VIA_IFR_ANY | VIA_IFR_T1);
+    via.write(4, 0x02);
+    via.write(5, 0x00);        // period 3 cycles
+    via.addCycles(3);
+    expect(via.ifr & VIA_IFR_T1).toBe(VIA_IFR_T1);
+    via.read(4);
+    expect(via.ifr & VIA_IFR_T1).toBe(0);
+    via.addCycles(3);
+    expect(via.ifr & VIA_IFR_T1).toBe(VIA_IFR_T1);
+  });
 });
 
 describe('m6522 — T2 timer', () => {
@@ -72,6 +120,15 @@ describe('m6522 — T2 timer', () => {
     via.addCycles(1);
     expect(via.ifr & VIA_IFR_T2).toBe(VIA_IFR_T2);
     expect(via.t2Counter).toBe(0xFFFF);
+  });
+
+  it('counts from power-up but sets no flag until it is loaded', () => {
+    const via = new M6522();
+    via.write(14, VIA_IFR_ANY | VIA_IFR_T2);
+    via.addCycles(3);
+    expect(via.t2Counter).toBe(0xFFFF - 3);
+    via.addCycles(0x10001);
+    expect(via.ifr & VIA_IFR_T2).toBe(0);
   });
 });
 

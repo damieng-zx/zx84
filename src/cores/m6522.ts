@@ -36,6 +36,13 @@ export class M6522 {
   ier = 0;
 
   // ── Timers ──────────────────────────────────────────────────────────────
+  /** The counters are clocked continuously, from power-up: RES does not gate
+   *  the count, so software reading a counter for entropy or as a chip-presence
+   *  check sees it move without loading it first - the Acornsoft disc loaders
+   *  rely on exactly that, reading the User VIA's T1 counter twice and
+   *  reporting "IC 69 missing" if the two reads agree. Loading T1C-H/T2C-H
+   *  re-arms the *interrupt*, which is what these two flags record: false until
+   *  the timer has been loaded, and false again once a one-shot has run out. */
   t1Counter = 0xFFFF;
   t1Latch = 0xFFFF;
   t1Running = false;
@@ -178,6 +185,9 @@ export class M6522 {
         this.t1Counter = this.t1Latch;
         this.t1Running = true;
         this.ifr &= ~VIA_IFR_T1;
+        // With PB7 output enabled (ACR bit 7) the load drives PB7 low; it
+        // returns high at the time-out (one-shot) or toggles each time-out.
+        if (this.acr & 0x80) this.pb7 = false;
         return;
       case 6: this.t1Latch = (this.t1Latch & 0xFF00) | val; return;
       case 7:
@@ -232,28 +242,38 @@ export class M6522 {
     this.stepTimer2(n);
   }
 
-  /** T1 counts down once per cycle; on underflow it sets the flag and, in
-   *  free-run mode (ACR bit 6), reloads from the latch. The counter keeps
-   *  running after a one-shot underflow so callers can read the elapsed time. */
+  /** T1 counts down once per cycle, continuously (see the field comment); on
+   *  underflow it sets the flag and, in free-run mode (ACR bit 6), reloads from
+   *  the latch. In one-shot mode the counter carries on past zero - so the
+   *  elapsed time stays readable - but the flag is not set again until the
+   *  timer is loaded (T1C-H). */
   private stepTimer1(n: number): void {
-    if (!this.t1Running) return;
     let remaining = n;
+    const freeRun = (this.acr & 0x40) !== 0;
     while (remaining > 0) {
       if (remaining <= this.t1Counter) {
         this.t1Counter -= remaining;
         return;
       }
       remaining -= this.t1Counter + 1; // cycles to wrap past zero
-      this.t1Counter = 0xFFFF;
+      if (!this.t1Running) {           // one-shot already timed out
+        this.t1Counter = 0xFFFF;
+        continue;
+      }
       this.ifr |= VIA_IFR_T1;
-      if (this.acr & 0x40) this.t1Counter = this.t1Latch;
-      if (this.acr & 0x80) this.pb7 = !this.pb7;
+      if (this.acr & 0x80) this.pb7 = freeRun ? !this.pb7 : true;
+      if (freeRun) {
+        this.t1Counter = this.t1Latch;
+      } else {
+        this.t1Running = false;
+        this.t1Counter = 0xFFFF;
+      }
     }
   }
 
-  /** T2 is a one-shot: on underflow it sets the flag and does not reload. */
+  /** T2 is a one-shot: after an underflow it sets the flag, is not re-armed,
+   *  and the counter carries on decrementing. */
   private stepTimer2(n: number): void {
-    if (!this.t2Running) return;
     let remaining = n;
     while (remaining > 0) {
       if (remaining <= this.t2Counter) {
@@ -262,7 +282,9 @@ export class M6522 {
       }
       remaining -= this.t2Counter + 1;
       this.t2Counter = 0xFFFF;
+      if (!this.t2Running) continue;
       this.ifr |= VIA_IFR_T2;
+      this.t2Running = false;
     }
   }
 

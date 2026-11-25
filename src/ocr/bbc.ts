@@ -52,25 +52,41 @@ interface TeletextState {
   fg: number;
   bg: number;
   graphics: boolean;
+  concealed: boolean;
 }
 
 function resetState(s: TeletextState): void {
   s.fg = 7;
   s.bg = 0;
   s.graphics = false;
+  s.concealed = false;
 }
 
 /** Apply a control code (0x00-0x1F), mirroring `Saa5050.applyControl`. */
 function applyControl(s: TeletextState, c: number): void {
-  if (c >= 0x1C) {
-    if (c === 0x1C) s.bg = 0;          // black background
-    else if (c === 0x1D) s.bg = s.fg;  // new background
-    // 0x1E/0x1F hold/release mosaics affect only the mosaic glyph, which reads
-    // as blank either way — nothing for the text state to track.
+  if (c < 0x08) {                     // alpha colour: clears graphics/conceal
+    s.fg = c;
+    s.graphics = false;
+    s.concealed = false;
     return;
   }
-  s.fg = c & 7;
-  s.graphics = (c & 0x08) !== 0;
+  if (c < 0x10) return;               // flash, box start/end, normal/double height
+  if (c < 0x18) {                     // graphics colour
+    s.fg = c & 7;
+    s.graphics = true;
+    s.concealed = false;
+    return;
+  }
+  switch (c) {
+    case 0x18: s.concealed = true; break;
+    case 0x19: s.graphics = true; s.concealed = false; break;  // contiguous
+    case 0x1A: s.graphics = true; s.concealed = false; break;  // separated
+    case 0x1B: break;                                         // ESC
+    case 0x1C: s.bg = 0; break;                               // black background
+    case 0x1D: s.bg = s.fg; break;                            // new background
+    // 0x1E/0x1F hold/release mosaics affect only the mosaic glyph, which reads
+    // as blank either way - nothing for the text state to track.
+  }
 }
 
 /** Inputs describing the Mode 7 display to transcribe. */
@@ -105,7 +121,7 @@ function decode(
 ): { text: string; html: string; mask: boolean[]; paper: number[] } {
   const { ram, displayStart, stride, palette } = input;
   const cols = BBC_MODE7_COLS, rows = BBC_MODE7_ROWS;
-  const state: TeletextState = { fg: 7, bg: 0, graphics: false };
+  const state: TeletextState = { fg: 7, bg: 0, graphics: false, concealed: false };
   resetState(state);
 
   const mask: boolean[] = styled ? new Array(cols * rows) : [];
@@ -123,7 +139,9 @@ function decode(
       if (code < 0x20) {
         applyControl(state, code);
       } else if (state.graphics) {
-        ch = ' ';                        // mosaic — no text meaning
+        ch = ' ';                        // mosaic - no text meaning
+      } else if (state.concealed) {
+        ch = ' ';                        // concealed cells are not shown
       } else if (code === 0x7F) {
         ch = ' ';
       } else {

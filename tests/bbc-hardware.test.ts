@@ -12,7 +12,7 @@ import { SAA5050_FONT, SAA5050_GLYPH_ROWS } from '@/cores/saa5050-font.ts';
 import { BbcMachine } from '@/machines/bbc/bbc-machine.ts';
 import { writeIc32 } from '@/machines/bbc/bbc-io.ts';
 import {
-  BBC_BORDER_LEFT, BBC_BORDER_TOP, BBC_SCREEN_WIDTH,
+  BBC_ACTIVE_WIDTH, BBC_BORDER_LEFT, BBC_BORDER_TOP, BBC_SCREEN_WIDTH,
 } from '@/machines/bbc/constants.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { SettingsView } from '@/machines/machine.ts';
@@ -67,23 +67,65 @@ describe('saa5050 — alpha', () => {
     expect(cells[2].fg).toBe(2);
     expect(cells[2].bg).toBe(2);
   });
+
+  it('0x0C/0x0D select normal and double height, not a colour', () => {
+    // Double height is not a colour code: the cell keeps the colour set before
+    // it (yellow here) instead of turning into a graphics colour.
+    const cells = saaRow(0x03, 0x0D, 0x41);
+    expect(cells[1].fg).toBe(3);
+    expect(cells[1].dh).toBe(true);
+    expect(cells[2].fg).toBe(3);
+    expect(cells[2].dh).toBe(true);
+    // 0x0C goes back to single height from that cell on.
+    const normal = saaRow(0x0D, 0x41, 0x0C, 0x42);
+    expect(normal[1].dh).toBe(true);
+    expect(normal[3].dh).toBe(false);
+  });
+
+  it('a double-height row is followed by the bottom half drawn on next row', () => {
+    const saa = new Saa5050();
+    const cells = createSaa5050Cells(6);
+    saa.renderRow(Uint8Array.from([0x07, 0x0D, 0x41, 0x20, 0x20, 0x20]), 6, cells);
+    expect(cells[2].dh).toBe(true);
+    // The row below carries the bottom halves, not its own characters.
+    saa.renderRow(Uint8Array.from([0x41, 0x41, 0x41, 0x41, 0x41, 0x41]), 6, cells);
+    expect(cells.every(c => c.pixels.every(p => p === 0))).toBe(true);
+    // ...and the row after that is single height again, drawing its own text.
+    saa.renderRow(Uint8Array.from([0x41, 0x20, 0x20, 0x20, 0x20, 0x20]), 6, cells);
+    expect(cells[0].dh).toBe(false);
+    expect(cells[0].pixels.some(p => p !== 0)).toBe(true);
+  });
+
+  it('0x18 conceals until the next colour code', () => {
+    const cells = saaRow(0x07, 0x18, 0x41, 0x01, 0x41);
+    expect(cells[2].pixels.every(p => p === 0)).toBe(true);   // 'A' hidden
+    expect(cells[4].pixels.some(p => p !== 0)).toBe(true);    // red 'A' shown
+    expect(cells[4].fg).toBe(1);
+  });
 });
 
 describe('saa5050 — mosaics', () => {
   it('renders a contiguous 2×3 mosaic from the six bits', () => {
-    const cells = saaRow(0x0B, 0x3F); // mosaic yellow, all six blocks
+    const cells = saaRow(0x13, 0x3F); // graphics yellow, all six blocks
     expect(cells[1].fg).toBe(3);
     for (let r = 0; r < 20; r++) expect(cells[1].pixels[r]).toBe(0xFFF);
   });
 
   it('a separated mosaic leaves gaps', () => {
-    const cells = saaRow(0x1B, 0x3F); // separated mosaic yellow, all six blocks
-    expect(cells[1].fg).toBe(3);
+    const cells = saaRow(0x13, 0x1A, 0x3F); // graphics yellow, separated, all six blocks
+    expect(cells[2].fg).toBe(3);
     // Top block row: columns 0,1 and 4,5 lit -> 0x33 doubled to 0xF0F.
-    expect(cells[1].pixels[0]).toBe(0xF0F);
-    expect(cells[1].pixels[2]).toBe(0xF0F);
+    expect(cells[2].pixels[0]).toBe(0xF0F);
+    expect(cells[2].pixels[2]).toBe(0xF0F);
     // The one-line gap below the top block lands on doubled rows 4-5.
-    expect(cells[1].pixels[4]).toBe(0x000);
+    expect(cells[2].pixels[4]).toBe(0x000);
+  });
+
+  it('graphics colour codes keep the chosen separated style', () => {
+    // 0x1A selects separated, 0x12 is a graphics colour: still separated.
+    const cells = saaRow(0x1A, 0x12, 0x3F);
+    expect(cells[2].fg).toBe(2);
+    expect(cells[2].pixels[4]).toBe(0x000);
   });
 });
 
@@ -744,6 +786,36 @@ describe('bbc — Mode 7 rendering', () => {
       m.memory.ram[0x7C00] = 0x20;
       m.video.render(m);
       expect(nonBlackPixels(m)).toBeGreaterThan(0);
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('draws a double-height line across the row beneath it', () => {
+    const m = makeBbc();
+    try {
+      setupMode7(m);
+      // Row 0: white, double height, then 'A'. Row 1 holds spaces only, so any
+      // ink in its band must be the bottom half of row 0's glyph, which is how
+      // a teletext double-height line gets its second half.
+      m.memory.ram[0x7C00] = 0x07;
+      m.memory.ram[0x7C01] = 0x0D;
+      m.memory.ram[0x7C02] = 0x41;
+      m.video.render(m);
+      const bandInk = (rowTop: number): number => {
+        let n = 0;
+        for (let y = rowTop; y < rowTop + 10; y++) {
+          for (let x = 0; x < BBC_ACTIVE_WIDTH; x++) {
+            const i = ((y + BBC_BORDER_TOP) * BBC_SCREEN_WIDTH + x + BBC_BORDER_LEFT) * 4;
+            if (m.pixels[i] || m.pixels[i + 1] || m.pixels[i + 2]) n++;
+          }
+        }
+        return n;
+      };
+      // The 25 rows of 10 lines are centred in the 256-line active area.
+      const y0 = 3;
+      expect(bandInk(y0)).toBeGreaterThan(0);
+      expect(bandInk(y0 + 10)).toBeGreaterThan(0);
     } finally {
       m.destroy();
     }

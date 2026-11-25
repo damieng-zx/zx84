@@ -86,10 +86,38 @@ describe('BbcScreenText.ocr', () => {
   it('blanks a mosaic cell once the graphics control code is active', () => {
     const m = makeMode7();
     try {
-      // 0x09 selects graphics; the following 'A' byte draws a mosaic, not text.
-      m.memory.ram[BASE] = 0x09;
+      // 0x13 selects graphics (yellow); the following 'A' byte draws a mosaic,
+      // not text.
+      m.memory.ram[BASE] = 0x13;
       m.memory.ram[BASE + 1] = 0x41;
       expect(new BbcScreenText().ocr(input(m))).toBe('');
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('keeps reading text after a double-height code', () => {
+    const m = makeMode7();
+    try {
+      // 0x0D is double height, not a graphics colour: the text after it still
+      // reads (the Acornsoft title screens put it before their heading).
+      m.memory.ram[BASE] = 0x0D;
+      m.memory.ram[BASE + 1] = 0x41;
+      m.memory.ram[BASE + 2] = 0x42;
+      expect(new BbcScreenText().ocr(input(m))).toBe(' AB');
+    } finally {
+      m.destroy();
+    }
+  });
+
+  it('blanks concealed cells until the next colour code', () => {
+    const m = makeMode7();
+    try {
+      m.memory.ram[BASE] = 0x18;      // conceal (cell 0)
+      m.memory.ram[BASE + 1] = 0x41;  // hidden (cell 1)
+      m.memory.ram[BASE + 2] = 0x07;  // white: reveal (cell 2)
+      m.memory.ram[BASE + 3] = 0x42;  // shown (cell 3)
+      expect(new BbcScreenText().ocr(input(m))).toBe('   B');
     } finally {
       m.destroy();
     }

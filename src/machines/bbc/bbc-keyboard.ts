@@ -40,6 +40,20 @@ export class BbcKeyboard {
       if (mapped.shift) this.setCell(0, 0, down);
       return true;
     }
+    // A bare character with no code (a host that types by character, e.g. a
+    // paste or the debugger's `type`): letters are positional, upper case
+    // taking SHIFT. Everything else needs its BBC chord above.
+    if (event.code === '' && event.key.length === 1) {
+      const upper = event.key.toUpperCase();
+      if (upper >= 'A' && upper <= 'Z') {
+        const cell = BBC_KEY_MATRIX['Key' + upper];
+        if (!cell) return false;
+        this.setCell(cell[0], cell[1], down);
+        if (event.key === upper) this.setCell(0, 0, down);   // capital: SHIFT
+        return true;
+      }
+      return false;
+    }
     if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') return false;
     const cell = BBC_KEY_MATRIX[event.code];
     if (!cell) return false;
