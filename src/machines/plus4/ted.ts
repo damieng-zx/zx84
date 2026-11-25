@@ -72,6 +72,13 @@ export const TED_IRQ_ANY = 0x80;
 /** The TED takes the bus for 43 characters + 3 fetches, doubled, on a bad
  *  line: 88 of its 114 cycles. */
 const BAD_LINE_HOLD = 88;
+/** The TED's 40-column window begins on this cycle of the line; a character
+ *  takes two cycles, so a cycle is four pixels of the display. */
+const DISPLAY_START_CYCLE = 15;
+/** Registers whose value can change the picture part-way through a line. */
+const DISPLAY_REGS: ReadonlySet<number> = new Set([
+  0x06, 0x07, 0x0C, 0x0D, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x3E, 0x3F,
+]);
 
 /** What the chip needs of the machine it is on. */
 export interface TedBus {
@@ -141,6 +148,9 @@ export class Ted {
   /** CPU cycle the frame being drawn started at, and how far it is drawn. */
   private frameStart = 0;
   private drawn = 0;
+  /** The cycle the line being painted started at, and how far it is painted. */
+  private lineStartT = 0;
+  private linePaintT = 0;
 
   /** The 40 screen bytes and their colour bytes of the row last fetched. */
   private readonly vbuf = new Uint8Array(PLUS4_COLUMNS);
@@ -219,6 +229,13 @@ export class Ted {
     reg &= 0x3F;
     const v = value & 0xFF;
     this.advanceTo(t);
+    if (DISPLAY_REGS.has(reg)) {
+      // A picture register written part-way through a line changes the display
+      // from the cycle it lands on: catch the beam up, and paint what it has
+      // passed with the values it passed it with, before they change.
+      this.drawTo(t);
+      this.paintLineTo(t);
+    }
     switch (reg) {
       case 0x00: this.timers[0].latch = (this.timers[0].latch & 0xFF00) | v; this.timers[0].running = false; break;
       case 0x01: this.timers[0].latch = (this.timers[0].latch & 0x00FF) | (v << 8); this.timers[0].start(); break;
@@ -338,6 +355,8 @@ export class Ted {
   beginFrame(t: number): void {
     this.frameStart = t;
     this.drawn = t;
+    this.lineStartT = t;
+    this.linePaintT = t;
     this.rowFetched = -1;
   }
 
@@ -373,6 +392,8 @@ export class Ted {
   /** The start of a raster line: the compare interrupt, then the fetch. */
   startLine(): void {
     const line = this.raster;
+    this.lineStartT = this.drawn;
+    this.linePaintT = this.drawn;
     const { row } = this.rowOf(line);
     this.badLine = this.isBadLine(line);
     if (this.badLine || this.rowFetched !== row) {
@@ -386,9 +407,9 @@ export class Ted {
     }
   }
 
-  /** The end of a raster line: draw it and step the raster counter. */
+  /** The end of a raster line: finish painting it and step the raster counter. */
   endLine(): void {
-    this.drawLine(this.raster);
+    this.paintLineTo(this.drawn);
     this.raster++;
     if (this.raster >= this.timing.linesPerFrame) {
       this.raster = 0;
@@ -411,39 +432,61 @@ export class Ted {
     this.busValue = this.vbuf[PLUS4_COLUMNS - 1];
   }
 
-  /** Paint one raster line: the border colour, then what the mode draws. */
-  private drawLine(line: number): void {
-    const y = line + this.timing.rasterOffset;
-    if (y < 0 || y >= this.height) return;
-    const px = this.pixels;
-    const w = this.width;
-    const rowBase = y * w;
-    px.fill(PLUS4_PALETTE[this.background], rowBase, rowBase + w);
+  /** Where the beam is in the row buffer at cycle `t` of the current line. */
+  private pixelForCycle(t: number): number {
+    const x = this.fieldX + (this.narrow ? 7 : 0) + this.xscroll
+      + (Math.floor(t - this.lineStartT) - DISPLAY_START_CYCLE) * 4;
+    return x < 0 ? 0 : x > this.width ? this.width : x;
+  }
 
+  /**
+   * Paint the current raster line from where it was left up to cycle `t` of
+   * the frame. Called at every line end, and when a display register is
+   * written part-way through a line, so the beam paints with the values that
+   * were in the register at the time it passed.
+   */
+  private paintLineTo(t: number): void {
+    if (t <= this.linePaintT) return;
+    const from = this.pixelForCycle(this.linePaintT);
+    const to = this.pixelForCycle(t);
+    this.linePaintT = t;
+    const y = this.raster + this.timing.rasterOffset;
+    if (y < 0 || y >= this.height || to <= from) return;
+    const rowBase = y * this.width;
+    const px = this.pixels;
+    // The border and the paper behind the display are the background colour.
+    px.fill(PLUS4_PALETTE[this.background], rowBase + from, rowBase + to);
     if (!this.displayOn || this.illegalMode) return;
-    if (line < this.displayStart || line >= this.displayStop) return;
-    const { sub } = this.rowOf(line);
+    if (this.raster < this.displayStart || this.raster >= this.displayStop) return;
+    const { sub } = this.rowOf(this.raster);
     const rowLine = (sub - this.yscroll) & 7;
     const x0 = this.fieldX + (this.narrow ? 7 : 0) + this.xscroll;
     switch (this.videoMode) {
-      case 0: this.drawText(px, rowBase, x0, rowLine, false, false); break;
-      case 1: this.drawText(px, rowBase, x0, rowLine, true, false); break;
-      case 2: this.drawBitmap(px, rowBase, x0, rowLine, false); break;
-      case 3: this.drawBitmap(px, rowBase, x0, rowLine, true); break;
-      case 4: this.drawText(px, rowBase, x0, rowLine, false, true); break;
+      case 0: this.drawText(px, rowBase, x0, rowLine, false, false, from, to); break;
+      case 1: this.drawText(px, rowBase, x0, rowLine, true, false, from, to); break;
+      case 2: this.drawBitmap(px, rowBase, x0, rowLine, false, from, to); break;
+      case 3: this.drawBitmap(px, rowBase, x0, rowLine, true, from, to); break;
+      case 4: this.drawText(px, rowBase, x0, rowLine, false, true, from, to); break;
       default: break;
     }
   }
 
-  /** Standard, multicolour and extended text modes. */
+  /** Paint pixels `from`..`to` of one cell, clipped to the row. */
+  private plot(px: Uint32Array, rowBase: number, at: number, colour: number, from: number, to: number): void {
+    if (at < from || at >= to || at >= this.width) return;
+    px[rowBase + at] = colour;
+  }
+
+  /** Standard, multicolour and extended text modes, from `from` to `to`. */
   private drawText(
     px: Uint32Array, rowBase: number, x0: number, rowLine: number,
-    multicolour: boolean, extended: boolean,
+    multicolour: boolean, extended: boolean, from: number, to: number,
   ): void {
     const reverseMode = this.reverseMode;
     const background = PLUS4_PALETTE[this.background];
     for (let col = 0; col < PLUS4_COLUMNS; col++) {
       const cellX = x0 + col * 8;
+      if (cellX + 8 <= from || cellX >= to) continue;
       const raw = this.vbuf[col];
       const attr = this.cbuf[col] & 0x7F;
       const code = raw & (reverseMode ? 0xFF : 0x7F);
@@ -458,35 +501,32 @@ export class Ted {
           this.background, this.regs[0x17] & 0x7F, this.regs[0x18] & 0x7F, attr & 0x77,
         ];
         for (let pair = 0; pair < 4; pair++) {
-          const idx = colours[(bits >> (6 - pair * 2)) & 3] & 0x7F;
-          const at = rowBase + cellX + pair * 2;
-          if (at + 1 < rowBase + this.width) {
-            px[at] = PLUS4_PALETTE[idx];
-            px[at + 1] = PLUS4_PALETTE[idx];
-          }
+          const colour = PLUS4_PALETTE[colours[(bits >> (6 - pair * 2)) & 3] & 0x7F];
+          this.plot(px, rowBase, cellX + pair * 2, colour, from, to);
+          this.plot(px, rowBase, cellX + pair * 2 + 1, colour, from, to);
         }
         continue;
       }
       const ink = PLUS4_PALETTE[attr];
       const paper = extended ? PLUS4_PALETTE[this.extendedBackground((raw >> 6) & 3)] : background;
       for (let bit = 0; bit < 8; bit++) {
-        const at = rowBase + cellX + bit;
-        if (at >= rowBase + this.width) break;
-        px[at] = (bits & (0x80 >> bit)) !== 0 ? ink : paper;
+        this.plot(px, rowBase, cellX + bit, (bits & (0x80 >> bit)) !== 0 ? ink : paper, from, to);
       }
     }
   }
 
-  /** Hires and multicolour bitmap modes. */
+  /** Hires and multicolour bitmap modes, from `from` to `to`. */
   private drawBitmap(
     px: Uint32Array, rowBase: number, x0: number, rowLine: number, multicolour: boolean,
+    from: number, to: number,
   ): void {
     const base = this.bitmapAddress;
     const { row } = this.rowOf(this.raster);
     const rowOffset = (row * 8 + rowLine) * PLUS4_COLUMNS;
     for (let col = 0; col < PLUS4_COLUMNS; col++) {
-      const bits = this.bus.read((base + rowOffset + col) & 0xFFFF) & 0xFF;
       const cellX = x0 + col * 8;
+      if (cellX + 8 <= from || cellX >= to) continue;
+      const bits = this.bus.read((base + rowOffset + col) & 0xFFFF) & 0xFF;
       if (multicolour) {
         const attr = this.cbuf[col];
         const colours = [
@@ -496,21 +536,16 @@ export class Ted {
           this.regs[0x16] & 0x7F,
         ];
         for (let pair = 0; pair < 4; pair++) {
-          const idx = colours[(bits >> (6 - pair * 2)) & 3] & 0x7F;
-          const at = rowBase + cellX + pair * 2;
-          if (at + 1 < rowBase + this.width) {
-            px[at] = PLUS4_PALETTE[idx];
-            px[at + 1] = PLUS4_PALETTE[idx];
-          }
+          const colour = PLUS4_PALETTE[colours[(bits >> (6 - pair * 2)) & 3] & 0x7F];
+          this.plot(px, rowBase, cellX + pair * 2, colour, from, to);
+          this.plot(px, rowBase, cellX + pair * 2 + 1, colour, from, to);
         }
         continue;
       }
       const ink = PLUS4_PALETTE[this.cbuf[col] & 0x7F];
       const paper = PLUS4_PALETTE[this.background];
       for (let bit = 0; bit < 8; bit++) {
-        const at = rowBase + cellX + bit;
-        if (at >= rowBase + this.width) break;
-        px[at] = (bits & (0x80 >> bit)) !== 0 ? ink : paper;
+        this.plot(px, rowBase, cellX + bit, (bits & (0x80 >> bit)) !== 0 ? ink : paper, from, to);
       }
     }
   }

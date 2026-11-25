@@ -196,6 +196,29 @@ describe('the TED', () => {
     expect(px[y * t.width + x + 6], 'paper').toBe(PLUS4_PALETTE[0]);
   });
 
+  it('paints a background change from the cycle it is written on', () => {
+    const t = new Ted({
+      read: () => 0,
+      keyboardColumns: () => 0xFF,
+      joystickBits: () => ({ joy1: 0, joy2: 0 }),
+    }, false);
+    t.write(0x06, 0x18, 0);               // display on, 25 rows
+    t.write(0x14, 0x00, 0);               // matrix at $0400, colour at $0000
+    t.write(0x13, 0xD0, 0);               // characters at $D000
+    t.write(0x07, 0x08, 0);               // 40 columns
+    t.write(0x15, 0x00, 0);               // background black
+    t.beginFrame(0);
+    // The display is on raster line 4; its window starts on cycle 15 and is
+    // four pixels a cycle. Cycle 30 is 60 pixels in.
+    const start = PLUS4_CYCLES_PER_LINE * 4;
+    t.drawTo(start + 30);
+    t.write(0x15, 0x10, start + 30);      // white from here on
+    t.drawTo(start + PLUS4_CYCLES_PER_LINE + 1);
+    const row = t.fieldY * t.width;
+    expect(t.pixels[row + t.fieldX + 20], 'the beam has passed here').toBe(PLUS4_PALETTE[0]);
+    expect(t.pixels[row + t.fieldX + 70], 'and reaches the new colour here').toBe(PLUS4_PALETTE[0x10]);
+  });
+
   it('takes the bus for 88 of 114 cycles on a bad line', () => {
     const t = bareTed();
     t.write(0x06, 0x18, 0);

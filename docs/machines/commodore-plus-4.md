@@ -16,7 +16,7 @@ the 1541/1571/1581 on the serial bus.
 | **CPU** | MOS 7501 at 1.773447 MHz (PAL) or 1.789772 MHz (NTSC) |
 | **zx84 kind** | `plus4` — [`src/machines/plus4/`](../../src/machines/plus4/) |
 | **Model ids** | `plus4`, `c16` — the MCP `model` target and `?model=` value. The TV standard is the locale: the model menu offers PAL and NTSC |
-| **Accuracy** | Instruction-level CPU; the TED draws a line at a time and holds the CPU off the bus for 88 cycles of a bad line. Register writes land on the cycle of the instruction they fall on. No user-selectable accuracy setting |
+| **Accuracy** | Instruction-level CPU; the TED draws a line a pixel span at a time as the beam passes, and holds the CPU off the bus for 88 cycles of a bad line. Register writes land on the cycle of the instruction they fall on, and a picture register written mid-line changes the display from that cycle. No user-selectable accuracy setting |
 | **Status** | Working — boots the real ROMs to BASIC 3.5, types and runs programs; the display, sound, tape, drives and cartridges are in |
 
 **Legend:** ✅ supported · ◐ partial (see notes) · ✗ not emulated · — not applicable to this model
@@ -56,7 +56,7 @@ banked map), so it is not a socket of its own.
 | Part | Models | Status | Notes |
 | --- | --- | --- | --- |
 | MOS 7501 CPU | all | ✅ | [`src/cores/m6502.ts`](../../src/cores/m6502.ts) plus the I/O port at `$00`/`$01` (the serial bus, the cassette) in [`memory.ts`](../../src/machines/plus4/memory.ts). A read-modify-write's dummy write reaches I/O |
-| 7360 TED | all | ◐ | [`ted.ts`](../../src/machines/plus4/ted.ts). All four display modes (standard text, multicolour text, hires bitmap, multicolour bitmap) plus extended-background text, the 24/25-row and 38/40-column modes, X/Y scroll, reverse video, the hardware cursor with its flash, the three timers, the raster compare interrupt and the light-pen register. The picture is drawn a line at a time, and a bad line (the line of a character row whose counter matches YSCROLL) holds the CPU off the bus for 88 of the 114 cycles. Register writes land on the cycle of the instruction, but a write *within* a line takes effect from the next line. The illegal modes paint the screen black |
+| 7360 TED | all | ◐ | [`ted.ts`](../../src/machines/plus4/ted.ts). All four display modes (standard text, multicolour text, hires bitmap, multicolour bitmap) plus extended-background text, the 24/25-row and 38/40-column modes, X/Y scroll, reverse video, the hardware cursor with its flash, the three timers, the raster compare interrupt and the light-pen register. The picture is drawn a line at a time, and a bad line (the line of a character row whose counter matches YSCROLL) holds the CPU off the bus for 88 of the 114 cycles. Register writes land on the cycle of the instruction, and the picture is painted as the beam passes, so a display register written part-way through a line changes the rest of that line. The illegal modes paint the screen black |
 | TED sound | all | ◐ | [`ted-sound.ts`](../../src/machines/plus4/ted-sound.ts). Two square voices each dividing the clock by 8 by `frequency + 1`, a 10-bit frequency, the noise shift register clocked by voice 2, the 4-bit volume (8-15 the same as 8) and the D/A mode the KERNAL's speech players use. Frequency `$3FE` and above is silence, as on the chip |
 | 6529B PIO × 2 | all | ✅ | [`src/cores/m6529b.ts`](../../src/cores/m6529b.ts). PIO 1 (`$FD10`) is the user port with the cassette's PLAY line on bit 2; PIO 2 (`$FD30`) drives the keyboard matrix lines. The board wires PIO 2's direction lines as outputs, so it is a plain latch |
 | 6551A ACIA | `plus4` | ◐ | [`src/cores/mc6551.ts`](../../src/cores/mc6551.ts). The four registers at `$FD00`-`$FD03`, mirrored through the page: data, status (with TDRE, RDRF, overrun, the DSR/DCD handshake bits and IRQ), command and control (including the baud divisor). The transmit and receive shifters are the minimum the KERNAL's RS-232 routines need: nothing is connected to the socket, so a byte the host sends appears at once |
@@ -133,7 +133,6 @@ there are several.
 
 | Issue | Affects | Severity | Notes |
 | --- | --- | --- | --- |
-| Mid-line register writes take effect on the next line | TED | low | The picture is drawn a whole line at a time, so a write to a TED register part-way through a line is not seen until the next one. Display splits *between* lines work; a program that changes a register mid-line (some demos, some sprite tricks) draws the old value to the end of the line |
 | No ACIA transmit or receive timing | RS-232 | low | Nothing is connected to the socket, so a byte the host sends appears at once, and the status register's framing and parity bits never set. The KERNAL's RS-232 routines poll the flags they need, so a serial printer would work and a modem's timing would not |
 | No real-time check of sound | TED sound | low | Verified headlessly and by unit tests; the two voices have not been listened to |
 | Idle drives cost emulation speed | 1541, 1571, 1581 | low | As on the C64: each drive runs its own 6502 and chips in lock-step |
@@ -160,7 +159,7 @@ there are several.
 
 | Reference | Result | Last checked |
 | --- | --- | --- |
-| [`tests/plus4/plus4-machine.test.ts`](../../tests/plus4/plus4-machine.test.ts) | The 64K map and the C16's mirroring, the ROM banks and the write-through, the TED's unused bits and its raster counter, the raster compare interrupt, the timers, the text window's colours, the bad line's bounds, the keyboard matrix through PIO 2, the joystick gates, the 6529B's direction register, the ACIA's registers, exact snapshot restore; with the real ROMs, booting to BASIC 3.5's READY and typing and running a program | 2026-11-22 |
+| [`tests/plus4/plus4-machine.test.ts`](../../tests/plus4/plus4-machine.test.ts) | The 64K map and the C16's mirroring, the ROM banks and the write-through, the TED's unused bits and its raster counter, the raster compare interrupt, the timers, the text window's colours, the bad line's bounds, the keyboard matrix through PIO 2, the joystick gates, the 6529B's direction register, the ACIA's registers, exact snapshot restore; with the real ROMs, booting to BASIC 3.5's READY and typing and running a program, and a picture register written mid-line repainting from its cycle | 2026-11-25 |
 | [`tests/plus4/plus4-basic.test.ts`](../../tests/plus4/plus4-basic.test.ts) | BASIC 3.5's keyword table against the ROM's own entries, including the tokens past V2's `$CB`, the quoted-string and REM payload rules, and the variable tables | 2026-11-25 |
 | [`tests/machine-capabilities.test.ts`](../../tests/machine-capabilities.test.ts) | Every registered model's declared capability held against the service that has to honour it, including both Plus/4 models | 2026-11-22 |
 
