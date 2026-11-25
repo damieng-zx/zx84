@@ -183,6 +183,67 @@ export class EinsteinKeyboard {
     else this.matrix[line] |= mask;
   }
 
+  /**
+   * The character each cap prints, as the MOS key-decode table in the ROM
+   * spells it: `[line, bit]` plus whether SHIFT is needed. Taken from the
+   * printed cap faces (`ui/keyboard/layout.ts`) rather than a PC layout — the
+   * Einstein's `;` cell prints `;` unshifted and `+` shifted, `:` is a cap of
+   * its own, and `-` is the shifted legend of the `=` cap.
+   *
+   * Only printable characters are here; the cursor keys, GRAPH block graphics
+   * and the MOS's arrow/£/fraction glyphs are not typeable text.
+   */
+  private static readonly CHAR_CELLS: Record<string, { cell: Cell; shift: boolean }> = (() => {
+    const plain = (cell: Cell) => ({ cell, shift: false });
+    const shifted = (cell: Cell) => ({ cell, shift: true });
+    return {
+      a: plain([6, 6]), b: plain([7, 2]), c: plain([7, 4]), d: plain([6, 4]),
+      e: plain([5, 4]), f: plain([6, 3]), g: plain([6, 2]), h: plain([6, 1]),
+      i: plain([1, 0]), j: plain([6, 0]), k: plain([2, 0]), l: plain([2, 1]),
+      m: plain([7, 0]), n: plain([7, 1]), o: plain([1, 1]), p: plain([1, 2]),
+      q: plain([5, 6]), r: plain([5, 3]), s: plain([6, 5]), t: plain([5, 2]),
+      u: plain([5, 0]), v: plain([7, 3]), w: plain([5, 5]), x: plain([7, 5]),
+      y: plain([5, 1]), z: plain([7, 6]),
+      A: shifted([6, 6]), B: shifted([7, 2]), C: shifted([7, 4]), D: shifted([6, 4]),
+      E: shifted([5, 4]), F: shifted([6, 3]), G: shifted([6, 2]), H: shifted([6, 1]),
+      I: shifted([1, 0]), J: shifted([6, 0]), K: shifted([2, 0]), L: shifted([2, 1]),
+      M: shifted([7, 0]), N: shifted([7, 1]), O: shifted([1, 1]), P: shifted([1, 2]),
+      Q: shifted([5, 6]), R: shifted([5, 3]), S: shifted([6, 5]), T: shifted([5, 2]),
+      U: shifted([5, 0]), V: shifted([7, 3]), W: shifted([5, 5]), X: shifted([7, 5]),
+      Y: shifted([5, 1]), Z: shifted([7, 6]),
+      '1': plain([4, 6]), '!': shifted([4, 6]),
+      '2': plain([4, 5]), '"': shifted([4, 5]),
+      '3': plain([4, 4]), '#': shifted([4, 4]),
+      '4': plain([4, 3]), '$': shifted([4, 3]),
+      '5': plain([4, 2]), '%': shifted([4, 2]),
+      '6': plain([4, 1]), '&': shifted([4, 1]),
+      '7': plain([4, 0]), "'": shifted([4, 0]),
+      '8': plain([3, 3]), '(': shifted([3, 3]),
+      '9': plain([2, 6]), ')': shifted([2, 6]),
+      '0': plain([1, 7]), '@': shifted([1, 7]),
+      '=': plain([3, 5]), '-': shifted([3, 5]),
+      ';': plain([2, 2]), '+': shifted([2, 2]),
+      ':': plain([2, 3]), '*': shifted([2, 3]),
+      ',': plain([3, 0]), '<': shifted([3, 0]),
+      '.': plain([3, 1]), '>': shifted([3, 1]),
+      '/': plain([3, 2]), '?': shifted([3, 2]),
+      _: plain([1, 4]),
+      ' ': plain([0, 6]),
+    };
+  })();
+
+  /** Press (or release) the cap that prints `char`, asserting SHIFT for the
+   *  caps whose legend sits above the line. Returns false for a character this
+   *  keyboard cannot produce. */
+  pressChar(char: string, pressed: boolean): boolean {
+    const entry = EinsteinKeyboard.CHAR_CELLS[char];
+    if (!entry) return false;
+    const [line, bit] = entry.cell;
+    this.setKey(line, bit, pressed);
+    if (entry.shift) this.setKey(STATUS_LINE, 7, pressed);
+    return true;
+  }
+
   /** Handle a host key event by physical code. Returns true if mapped. */
   handleKeyEvent(code: string, pressed: boolean): boolean {
     switch (code) {
