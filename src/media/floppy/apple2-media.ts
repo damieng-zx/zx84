@@ -125,7 +125,7 @@ export function nibblizeApple2Disk(
   }
   const disk = image as Apple2Disk;
   disk.apple2 = {
-    bits: { tmap, tracks, bitTiming: APPLE2_BIT_TIMING, writeProtected: false },
+    bits: { tmap, tracks, bitTiming: APPLE2_BIT_TIMING, writeProtected: false, roundHalfTracks: true },
     source: options.source ?? (sectorsPerTrack === 13 ? 'd13' : 'dsk'),
     sectorsPerTrack,
     order: options.order ?? 'dos',
@@ -194,7 +194,7 @@ function fromNib(nib: Uint8Array, perTrack: number, source: Apple2MediaFormat, l
   const numTracks = nib.length / perTrack;
   const tracks = [];
   for (let t = 0; t < numTracks; t++) tracks.push(nibToBitTrack(nib.subarray(t * perTrack, (t + 1) * perTrack)));
-  const bits: Apple2BitDisk = { tmap: standardTmap(numTracks), tracks, bitTiming: APPLE2_BIT_TIMING, writeProtected: false };
+  const bits: Apple2BitDisk = { tmap: standardTmap(numTracks), tracks, bitTiming: APPLE2_BIT_TIMING, writeProtected: false, roundHalfTracks: true };
   const sectorsPerTrack = sniffSectorsPerTrack(bits);
   const view = sectorView(bits, sectorsPerTrack, label) as Apple2Disk;
   view.apple2 = { bits, source, sectorsPerTrack, order: 'dos', volume: 254, twoImg: null, woz: null };

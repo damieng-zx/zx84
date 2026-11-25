@@ -47,8 +47,8 @@ export function dumpVic(v: VicII, bank: number): string {
     `CR2     D016 = ${hx(cr2)}  ${(cr2 & 8) ? 40 : 38} columns, XSCROLL ${cr2 & 7}`,
     `MEMPTR  D018 = ${hx(memptr)}  bank ${bank >> 14} ($${hx(bank, 4)}), screen $${hx(screen, 4)}, ` +
       `${bmm ? `bitmap $${hx(bitmap, 4)}` : `characters $${hx(chars, 4)}`}`,
-    `IRQ     D019 = ${hx(v.irqFlags | 0x70)}  flags: ${bits(v.irqFlags, ['raster', 'sprite-bg', 'sprite-sprite', 'lightpen'])}`,
-    `IRQEN   D01A = ${hx(v.irqMask)}  enabled: ${bits(v.irqMask, ['raster', 'sprite-bg', 'sprite-sprite', 'lightpen'])}   ${v.irq ? 'IRQ asserted' : ''}`.trimEnd(),
+    `IRQ     D019 = ${hx(v.irqFlags | 0x70)}  flags: ${bits(v.irqFlags, ['raster', 'sprite-background', 'sprite-sprite', 'lightpen'])}`,
+    `IRQEN   D01A = ${hx(v.irqMask)}  enabled: ${bits(v.irqMask, ['raster', 'sprite-background', 'sprite-sprite', 'lightpen'])}   ${v.irq ? 'IRQ asserted' : ''}`.trimEnd(),
     `Colours border ${r[0x20] & 15}  background ${r[0x21] & 15},${r[0x22] & 15},${r[0x23] & 15},${r[0x24] & 15}`,
     '',
     'Sprites (n  on  x    y    colour  flags):',

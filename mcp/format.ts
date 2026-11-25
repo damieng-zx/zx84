@@ -47,6 +47,10 @@ export const KEY_NAME_MAP: Record<string, string> = {
   '5': 'Digit5', '6': 'Digit6', '7': 'Digit7', '8': 'Digit8', '9': 'Digit9',
   'enter': 'Enter', 'space': 'Space', 'period': 'Period',
   'shift': 'ShiftLeft', 'sym': 'ControlLeft',
+  // Control and Alt are the same physical keys `sym`/`alt` name on a Spectrum.
+  // (Apple II: CTRL, and Open-Apple/Solid-Apple on the two Alts.)
+  'ctrl': 'ControlLeft', 'control': 'ControlLeft',
+  'alt': 'AltLeft', 'openapple': 'AltLeft', 'solidapple': 'AltRight',
   'backspace': 'Backspace', 'delete': 'Delete',
   'left': 'ArrowLeft', 'right': 'ArrowRight',
   'up': 'ArrowUp', 'down': 'ArrowDown',

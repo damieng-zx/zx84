@@ -521,6 +521,18 @@ export interface MachineUiCapabilities {
   readonly statusLeds: readonly StatusLedId[];
   /** Keyboard read path, for the KEY LED tip. */
   readonly keyboardBus: 'ula' | 'ppi' | 'matrix';
+  /**
+   * The keyboard maps a host keystroke by the character it produces
+   * (`HostKeyEvent.key`), not by the key's physical position: `"` is the key
+   * the machine's caps print it on, whatever a PC would put there.
+   *
+   * Hosts that type text (the MCP `type` tool, paste) then send a literal
+   * character — `{ code: '', key: ch }` — and let the machine press its own
+   * keys (with SHIFT, or CTRL for the Acorn cursor-key symbols). A machine
+   * that maps by position instead (`keyboardBus` alone says nothing about
+   * this) lists nothing here, and the host sends physical chords.
+   */
+  readonly typedCharacters?: boolean;
   /** Tape transport: 'deck' (pulse-level block list) or 'instant' (logical image).
    *  Omitted when the model has no cassette hardware (e.g. the GX4000 console). */
   readonly tape?: 'deck' | 'instant';
@@ -632,8 +644,11 @@ export interface AuxRomRequest {
   /** Wire the fetched bytes into the peripheral's chip. */
   apply(data: Uint8Array): void;
   /** Await the load before continuing (ROM must be present before reset), or
-   *  fire-and-forget (Multiface — paged only on the button press). */
+   *  fire-and-forget (Multiface - paged only on the button press). */
   readonly awaitLoad: boolean;
+  /** A failure is not fatal: the machine still builds without this ROM (an
+   *  optional firmware such as the 13-sector Disk ][ boot PROM). */
+  readonly optional?: boolean;
 }
 
 // ── Media / device services ─────────────────────────────────────────────────
@@ -1107,6 +1122,21 @@ export interface InputService {
   keyUp(e: HostKeyEvent): boolean;
   /** Release everything (window blur). */
   releaseAll(): void;
+  /**
+   * Press (or release) the key that produces `char` on this machine, mapped
+   * onto its own keyboard layout. This is the character-level path a typed
+   * listing needs: every machine's layout differs (the Atom's shifted symbols,
+   * the BBC's SHIFT cells, an Oric's symbol keys, the Spectrum's SYM+key
+   * chords), so a caller that knows only "type a double quote" cannot pick a
+   * host key code and expect the right character there.
+   *
+   * Returns true when the character is printable here (the caller then
+   * releases it with `charUp`). A machine whose keyboard takes host key codes
+   * rather than characters omits these, and callers resolve the character
+   * themselves.
+   */
+  charDown?(char: string): boolean;
+  charUp?(char: string): void;
   readonly mouse: MouseSink | null;
   /** Mode-aware two-mouse routing, or null when the machine has no mice. */
   readonly mice?: MouseInput | null;

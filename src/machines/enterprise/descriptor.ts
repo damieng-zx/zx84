@@ -38,6 +38,9 @@ const ENTERPRISE_UI: MachineUiCapabilities = {
   soundChip: 'DAVE',
   statusLeds: ['kbd', 'load', 'dsk', 'chip'],
   keyboardBus: 'matrix',
+  // The Enterprise's two layers carry two characters per cap, and a typed
+  // character picks the layer as well as the key: the character decides.
+  typedCharacters: true,
   tapeSound: false,
   tapeExtensions: [],
   saveMenu: ['snapshot-epstate', 'screenshot-png', 'ram-bin'],

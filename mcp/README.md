@@ -95,8 +95,8 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | --- | --- | --- |
 | `port_out` | `port`, `value` | Write an I/O port. |
 | `port_in` | `port` | Read an I/O port. |
-| `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. |
-| `type` | `text` | Type text; backtick-delimited control names are supported. Machines with character-intent keyboards (BBC, MTX, Enterprise, C64/128, VIC-20) type the literal character through their own layout, so shifted symbols such as the BBC's `*` and `"` land on the right key. |
+| `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. A joystick is pressed the same way: `joy-up`, `joy-down`, `joy-left`, `joy-right`, `joy-fire` (`joy-fire2` on a two-button stick), with `-p2` for player 2 — `joy-fire+joy-right`. Each player gets the interface at their position in the machine's list, as the Joystick pane gives it. |
+| `type` | `text` | Type text; backtick-delimited control names are supported. Printable symbols follow each machine's own legend (a machine that offers `InputService.charDown` maps the character itself, so the BBC's `*` and `"` land on the right key; the Spectrum resolves them through its symbol-shift chords). |
 
 Common key names include `a`-`z`, `0`-`9`, `enter`, `space`, `shift`,
 `backspace`, cursor keys, and `escape`. ZX80/ZX81 also accept `period`;
@@ -172,6 +172,12 @@ These use the active +3 or CPC uPD765A where fitted.
 | `mtx80column` | `action`: `on`, `off`, `status` | Control the FDX 6845-based 80-column display and select it as the active monitor. |
 | `mtx512kram` | `action`: `on`, `off`, `status` | Control the 512 KiB SDX/FDX RAM expansion (576 KiB total on an MTX512, 640 KiB on an RS128); the bundled CP/M disk exposes it as type-43 SiDisc drive F:. |
 | `mtxcpm` | `action`: `on`, `off`, `status` | Configure the MTX512 CP/M profile, fetch its public Type-07 system disk when needed, and reset. |
+
+### Acorn Electron Expansions
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `electronexp` | `plus1`, `plus3`, `dfs` (all optional) | Fit or remove the Plus 1 (cartridge slot, printer port, analogue joysticks) and Plus 3 (WD1770 disc interface with ADFS and two drives), and pick `dfs` to run the drives as the ACP 1770 DFS instead of ADFS. Each expansion loads a ROM at build time, so a change rebuilds the machine. Omit every parameter to report what is fitted. Fitting the Plus 3 is what makes `load` accept `.adf`/`.adl`/`.ssd`/`.dsd`/`.img`/`.hfe`/`.scp`; fitting the Plus 1 is what makes it accept `.rom` cartridges. |
 
 ## Address Values
 

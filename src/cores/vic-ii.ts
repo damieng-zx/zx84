@@ -64,7 +64,9 @@ export interface VicTiming {
 export const VIC_FIRST_X = -8;
 export const VIC_SCREEN_WIDTH = 384;
 
-/** Interrupt sources ($D019 bits). */
+/** Interrupt sources ($D019 bits): bit 1 the sprite-graphics collision (MBC),
+ *  bit 2 the sprite-sprite one (MMC) — the reverse order of the collision
+ *  registers themselves ($D01E is sprite-sprite, $D01F sprite-graphics). */
 export const VIC_IRQ_RASTER = 0x01;
 export const VIC_IRQ_SB = 0x02;
 export const VIC_IRQ_SS = 0x04;
@@ -608,7 +610,12 @@ export class VicII {
       }
 
       let out = gColor;
-      if (sprites !== 0) out = this.mixSprites(x, out, fg, sprites);
+      // The vertical border flip-flop turns the graphics sequencer's output
+      // off, so a sprite cannot collide with graphics while it is set: the
+      // whole upper/lower border, and with DEN=0 the whole frame (Bauer 3.8.2
+      // and 3.9: "This was probably done to prevent sprite-graphics
+      // collisions in the border area").
+      if (sprites !== 0) out = this.mixSprites(x, out, fg && !this.vBorder, sprites);
       if (row >= 0) px[row + p] = this.mainBorder ? border : this.palette[out];
     }
   }

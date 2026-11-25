@@ -66,7 +66,10 @@ export class Apple2MediaService implements MediaService {
       if (reattach) return { ok: true, target: id, message: `Drive ${id === 'a' ? 1 : 2} loaded: ${filename}` };
       if (id === 'a') {
         this.machine.bootDisc();
-        return { ok: true, target: id, message: `Drive 1 loaded: ${filename} (booting)` };
+        const thirteen = this.machine.disk2.getDiskImage(0)?.apple2.sectorsPerTrack === 13;
+        const note = thirteen && !this.machine.hasDisk2Rom13
+          ? ' — 13-sector image, but the 13-sector boot ROM is unavailable' : '';
+        return { ok: true, target: id, message: `Drive 1 loaded: ${filename} (booting)${note}` };
       }
       return { ok: true, target: id, message: `Drive 2 loaded: ${filename}` };
     }

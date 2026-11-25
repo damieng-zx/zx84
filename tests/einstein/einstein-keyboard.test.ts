@@ -93,6 +93,64 @@ describe('Einstein host key mapping', () => {
   });
 });
 
+describe('Einstein character typing (the MCP `type` path)', () => {
+  let kb: EinsteinKeyboard;
+  beforeEach(() => { kb = new EinsteinKeyboard(); });
+
+  /** The characters the Einstein's printed caps can produce. */
+  it('presses the cap each printable character is printed on', () => {
+    // Each cell is the printed legend, read off the deck (ui/keyboard/layout.ts)
+    // and cross-checked against what MOS 1.2 echoes at the BASIC prompt.
+    const cases: readonly [string, number, number, boolean][] = [
+      // char, line, bit, needs SHIFT
+      ['a', 6, 6, false], ['z', 7, 6, false],
+      ['A', 6, 6, true], ['Z', 7, 6, true],
+      ['1', 4, 6, false], ['!', 4, 6, true],
+      ['0', 1, 7, false], ['@', 1, 7, true],
+      ['"', 4, 5, true], ['(', 3, 3, true], [')', 2, 6, true],
+      [';', 2, 2, false], ['+', 2, 2, true],
+      [':', 2, 3, false], ['*', 2, 3, true],
+      ['=', 3, 5, false], ['-', 3, 5, true],
+      [',', 3, 0, false], ['<', 3, 0, true],
+      ['.', 3, 1, false], ['>', 3, 1, true],
+      ['/', 3, 2, false], ['?', 3, 2, true],
+      ['_', 1, 4, false], [' ', 0, 6, false],
+    ];
+    for (const [ch, line, bit, shift] of cases) {
+      const before = kb.statusByte();
+      expect(kb.pressChar(ch, true), ch).toBe(true);
+      expect(scan(kb, line), `${ch} should pull bit ${bit} of line ${line} low`).toBe(0xFF & ~(1 << bit));
+      // Only the shifted caps may move SHIFT.
+      expect((kb.statusByte() & 0x80) === 0, `${ch} SHIFT`).toBe(shift);
+      kb.pressChar(ch, false);
+      expect(scan(kb, line), `${ch} released`).toBe(0xFF);
+      expect(kb.statusByte(), `${ch} leaves no modifier stuck`).toBe(before);
+    }
+  });
+
+  it('reports false for characters no cap prints, leaving the keyboard alone', () => {
+    const before = kb.statusByte();
+    for (const ch of ['~', '[', ']', '{', '}', '\\', '|', '\n', '\t']) {
+      expect(kb.pressChar(ch, true), ch).toBe(false);
+    }
+    expect(kb.statusByte()).toBe(before);
+    for (let line = 0; line < 8; line++) expect(scan(kb, line)).toBe(0xFF);
+  });
+
+  it('does not put `"` behind an SYM chord — the Spectrum path that typed a control code', () => {
+    // The bug this pins: with no charDown, the MCP `type` tool resolved symbols
+    // through the Spectrum's CHAR_KEYS, where `"` is SYM+P and `:` is SYM+Z. On
+    // an Einstein those chords are the PSG's I/O ports, so a listing came out
+    // as control codes (`^P^P^Z`) instead of `"A":`.
+    expect(kb.pressChar('"', true)).toBe(true);
+    expect(scan(kb, 4)).toBe(0xFF & ~0x20);       // the `2` cap
+    expect(kb.statusByte() & 0x80).toBe(0);       // SHIFT held with it
+    kb.pressChar('"', false);
+    expect(scan(kb, 4)).toBe(0xFF);
+    expect(scan(kb, 7)).toBe(0xFF);               // no SYM cell was touched
+  });
+});
+
 describe('Einstein 256 host key mapping', () => {
   let kb: EinsteinKeyboard;
   beforeEach(() => { kb = new EinsteinKeyboard('einstein-256'); });

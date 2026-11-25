@@ -48,4 +48,13 @@ export class C128InputService implements InputService {
     this.m.keyboard.reset();
     this.m.releaseJoysticks();
   }
+
+  /** The Commodore character chords, keyed by the produced character. */
+  charDown(char: string): boolean {
+    return this.m.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, true);
+  }
+
+  charUp(char: string): void {
+    this.m.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, false);
+  }
 }
