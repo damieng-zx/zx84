@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { hex8 as h8, hex16 as h16 } from '../../src/utils/hex.ts';
 import { state } from '../state.ts';
 import { parseAddr, text, checkWatchHit, spectrumPagingLine, KEY_NAME_MAP, CHAR_KEYS } from '../format.ts';
-import type { HostKeyEvent } from '../../src/machines/machine.ts';
+import type { HostKeyEvent, MachineUiCapabilities } from '../../src/machines/machine.ts';
 
 /** Frames to idle after Enter so the machine ROM can tokenise the line and
  *  resume keyboard scanning before the next keystroke. */
@@ -46,6 +46,69 @@ function setKey(code: string, pressed: boolean): boolean {
   else if (code === 'ControlLeft' || code === 'ControlRight') held.ctrl = pressed;
   else if (code === 'AltLeft' || code === 'AltRight') held.alt = pressed;
   return consumed;
+}
+
+/** A joystick direction as the `key` tool names it: `joy-up`, `joy-down`,
+ *  `joy-left`, `joy-right` and `joy-fire` (`joy-fire2` on a stick with a
+ *  second button), with `-p2` for player 2 — `joy-fire-p2`. */
+const JOYSTICK_KEY = /^joy-(up|down|left|right|fire2?)(?:-p([12]))?$/;
+
+/** The interface a player's stick is plugged into. The machine's own list
+ *  gives each player the interface at their position (player 1 the first,
+ *  player 2 the second), as the Joystick pane does; a machine whose list is
+ *  not its own (or whose joystick is one fixed interface, which ignores the
+ *  mode) gets the Spectrum's Kempston, the selector's first choice. */
+export function joystickMode(caps: MachineUiCapabilities, player: number): string {
+  return (caps.joystickTypes?.[player] ?? caps.joystickTypes?.[0])?.id ?? 'kempston';
+}
+
+/** One part of a `key` name: a host key code, or a joystick direction. */
+type KeyPart = { code: string } | { joy: RegExpExecArray };
+
+/** The parts of a "+"-joined key name, or null with the offending part. */
+function parseKeyName(name: string): { parts: KeyPart[] } | { unknown: string } {
+  const parts: KeyPart[] = [];
+  for (const raw of name.toLowerCase().split('+')) {
+    const part = raw.trim();
+    const joy = JOYSTICK_KEY.exec(part);
+    if (joy) parts.push({ joy });
+    else if (KEY_NAME_MAP[part]) parts.push({ code: KEY_NAME_MAP[part] });
+    else return { unknown: part };
+  }
+  return { parts };
+}
+
+/** Press (or release) a joystick direction on the active machine. False when
+ *  it has no joystick to take it. */
+function setJoy(joy: RegExpExecArray, pressed: boolean): boolean {
+  const spec = state.spec;
+  const input = spec.services.input;
+  if (!spec.descriptor.ui.joystick || !input.joystick) return false;
+  const player = Number(joy[2] ?? 1) - 1;
+  input.joystick.press(joy[1], pressed, joystickMode(spec.descriptor.ui, player), player);
+  return true;
+}
+
+function press(part: KeyPart, down: boolean): boolean {
+  return 'code' in part ? setKey(part.code, down) : setJoy(part.joy, down);
+}
+
+/** Hold a key or joystick combination for `frames` frames: the `key` tool. */
+export function holdKey(name: string, frames: number): string {
+  const spec = state.spec;
+  const parsed = parseKeyName(name);
+  if ('unknown' in parsed) return `Unknown key: ${parsed.unknown}. Available: ${Object.keys(KEY_NAME_MAP).join(', ')}, joy-up/down/left/right/fire[-p2]`;
+  // Every part is validated before any is pressed, so a bad name leaves nothing held.
+  let consumed = false;
+  for (const part of parsed.parts) consumed = press(part, true) || consumed;
+  if (!consumed) {
+    for (const part of parsed.parts) press(part, false);
+    return `Key '${name}' is not present on ${state.model.toUpperCase()}`;
+  }
+  for (let i = 0; i < frames; i++) spec.tick();
+  for (const part of parsed.parts) press(part, false);
+  spec.tick();
+  return `Key '${name}' held for ${frames} frames`;
 }
 
 /** The active CPU's port space. Machines whose CPU memory-maps its hardware
@@ -91,28 +154,11 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'key',
-    { description: 'Press a key through the active machine input service for N frames (default 5). Common keys: a-z, 0-9, enter, space, shift, ctrl (also sym), alt, backspace, arrows, period, escape. A "+"-joined combo such as "shift+2" carries its modifiers in the key event, so keyboards that resolve SHIFT/CTRL per event (the Apple II, the CPC) see the chord.', inputSchema: {
-      name: z.string().describe('Key name, or "+"-joined combo (e.g. "enter", "a", "shift+sym")'),
+    { description: 'Press a key through the active machine input service for N frames (default 5). Common keys: a-z, 0-9, enter, space, shift, ctrl (also sym), alt, backspace, arrows, period, escape. A "+"-joined combo such as "shift+2" carries its modifiers in the key event, so keyboards that resolve SHIFT/CTRL per event (the Apple II, the CPC) see the chord. A joystick is pressed as joy-up, joy-down, joy-left, joy-right, joy-fire (joy-fire2 where the stick has a second button), with -p2 for player 2: "joy-fire+joy-right".', inputSchema: {
+      name: z.string().describe('Key name, or "+"-joined combo (e.g. "enter", "a", "shift+sym", "joy-fire", "joy-up-p2")'),
       frames: z.number().int().positive().default(5).describe('How many frames to hold the key'),
     } },
-    async ({ name, frames }) => {
-      const spec = state.spec;
-      // Support combos like "sym+p", "shift+2"
-      const parts = name.toLowerCase().split('+');
-      const codes: string[] = [];
-      for (const p of parts) {
-        const code = KEY_NAME_MAP[p.trim()];
-        if (!code) return text(`Unknown key: ${p.trim()}. Available: ${Object.keys(KEY_NAME_MAP).join(', ')}`);
-        codes.push(code);
-      }
-      let consumed = false;
-      for (const c of codes) consumed = setKey(c, true) || consumed;
-      if (!consumed) return text(`Key '${name}' is not present on ${state.model.toUpperCase()}`);
-      for (let i = 0; i < frames; i++) spec.tick();
-      for (const c of codes) setKey(c, false);
-      spec.tick();
-      return text(`Key '${name}' held for ${frames} frames`);
-    },
+    async ({ name, frames }) => text(holdKey(name, frames)),
   );
 
   server.registerTool(

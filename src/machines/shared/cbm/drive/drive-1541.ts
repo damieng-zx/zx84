@@ -246,11 +246,17 @@ export class Drive1541 implements CbmDriveUnit {
   /** The drive pulls CLK low. */
   get clkAsserted(): boolean { return (this.iecOut & 0x08) !== 0; }
 
-  /** The drive pulls DATA low: the DOS has set DATA OUT, or ATN and ATNA
-   *  disagree (the hardware acknowledges ATN by itself). */
+  /** The drive pulls DATA low: the DOS has set DATA OUT, or the hardware
+   *  acknowledges ATN by itself — an open-collector gate that pulls DATA while
+   *  ATN is held and ATNA (VIA 1 PB4) is low. The DOS drives ATNA low in its
+   *  idle loop and high when it is ready to talk, so the acknowledge lasts
+   *  until the firmware has seen ATN. When the DOS leaves PB4 an input (as a
+   *  loader that takes the drive over may, the Lucasfilm fast loader does),
+   *  the undriven pin floats high and the gate does not pull. */
   get dataAsserted(): boolean {
     const out = this.iecOut;
-    return (out & 0x02) !== 0 || this.atn !== ((out & 0x10) !== 0);
+    const atnaPin = (this.via1.ddrb & 0x10) !== 0 ? (out & 0x10) !== 0 : true;
+    return (out & 0x02) !== 0 || (this.atn && !atnaPin);
   }
 
   // ── Bus ─────────────────────────────────────────────────────────────────

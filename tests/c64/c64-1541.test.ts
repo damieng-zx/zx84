@@ -163,19 +163,24 @@ describe('1541 mechanics', () => {
 });
 
 describe('1541 serial bus', () => {
-  it('holds DATA low by itself while ATN is asserted, until the DOS acknowledges', () => {
+  it('acknowledges ATN with its own gate, while ATNA is low', () => {
     const d = bareDrive();
     const i = internals(d);
-    expect(d.dataAsserted).toBe(false);
+    // The acknowledge is an open-collector NOR of ATN and ATNA: it pulls DATA
+    // only while ATN is held and ATNA (VIA 1 PB4) is low. An ATNA pin the
+    // firmware leaves an input floats high, so no acknowledge comes from it.
+    d.setHostLines(false, false, false);                  // ATN released
+    expect(d.dataAsserted, 'ATN released: nothing to acknowledge').toBe(false);
     d.setHostLines(true, false, false);                   // the 64 asserts ATN
-    expect(d.dataAsserted, 'hardware acknowledge').toBe(true);
-    i.busWrite(0x1802, 0x1A);                            // DATA OUT, CLK OUT and ATNA are outputs
-    i.busWrite(0x1800, 0x10);                            // ATNA set: it agrees with ATN
-    expect(d.dataAsserted).toBe(false);
-    d.setHostLines(false, false, false);                  // ATN released, ATNA still set
-    expect(d.dataAsserted, 'the mismatch holds DATA until ATNA is cleared').toBe(true);
-    i.busWrite(0x1800, 0x00);
-    expect(d.dataAsserted).toBe(false);
+    expect(d.dataAsserted, 'ATNA is an input, floating high: no acknowledge').toBe(false);
+    i.busWrite(0x1802, 0x1A);                             // DATA OUT, CLK OUT and ATNA are outputs
+    i.busWrite(0x1800, 0x00);                             // ATNA low: the hardware acknowledges
+    expect(d.dataAsserted, 'ATN held, ATNA low: DATA pulled').toBe(true);
+    i.busWrite(0x1800, 0x10);                             // ATNA high
+    expect(d.dataAsserted, 'the DOS releases the bus by raising ATNA').toBe(false);
+    i.busWrite(0x1800, 0x00);                             // ATNA low again
+    d.setHostLines(false, false, false);                  // ATN released
+    expect(d.dataAsserted, 'ATN released: the gate lets go too').toBe(false);
   });
 
   it('pulls CLK and DATA low from the DOS output bits, and reads them inverted', () => {

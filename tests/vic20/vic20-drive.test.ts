@@ -8,8 +8,9 @@
  * low; the KERNAL's CLKHI clears the CA2 output bit); CLK in is VIA 1 PA0
  * and DATA in VIA 1 PA1, reading the lines as they are. From the 1541: its
  * VIA 1 port B reads ATN, CLK and DATA inverted (bits 7, 2, 0 set while the
- * line is low), drives CLK and DATA low from bits 3 and 1, and holds DATA
- * low in hardware while ATN is asserted and ATNA (bit 4) disagrees.
+ * line is low), drives CLK and DATA low from bits 3 and 1, and holds DATA low
+ * in hardware while ATN is asserted and ATNA (bit 4) is driven low; with ATNA
+ * left an input, the VIA's port pull-up holds it high and nothing is pulled.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -45,8 +46,16 @@ describe('VIC-20 serial bus', () => {
     expect(m.memory.readByte(0x911F) & 0x02, 'DATA in high').toBe(0x02);
     m.memory.writeByte(0x911F, 0x80);                 // ATN out
     expect(bus(d).busRead(0x1800) & 0x80, 'the drive sees ATN low').toBe(0x80);
+    // The acknowledge gate is driven by the DOS: ATNA is VIA 1 PB4, and while
+    // the firmware leaves it an input nothing pulls DATA.
+    expect(d.dataAsserted, 'ATNA an input: no acknowledge').toBe(false);
+    expect(m.memory.readByte(0x911F) & 0x02, 'DATA in still high').toBe(0x02);
+    bus(d).busWrite(0x1802, 0x1A);                    // DATA, CLK and ATNA outputs
+    bus(d).busWrite(0x1800, 0x00);                    // ATNA low: acknowledge ATN
     expect(d.dataAsserted, 'hardware acknowledge').toBe(true);
     expect(m.memory.readByte(0x911F) & 0x02, 'DATA in now low').toBe(0);
+    bus(d).busWrite(0x1800, 0x10);                    // ATNA high: the DOS releases it
+    expect(d.dataAsserted).toBe(false);
     m.destroy();
   });
 
