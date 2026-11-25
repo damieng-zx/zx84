@@ -1,8 +1,8 @@
-import type { MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
+import type { ArchiveFile, MediaService, MediaTypeDescriptor, MediaTargetId, MountResult } from '@/machines/machine.ts';
 import type { Zx8xMachine } from '../zx8x-machine.ts';
 import type { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import { ZX8X_MODEL_NAMES } from '../models.ts';
-import { isZx8xProgramFile, splitP81, zx8xTapeBlocks } from './tape.ts';
+import { isZx8xProgramFile, splitP81, zx8xArchiveTape, zx8xTapeBlocks } from './tape.ts';
 
 /**
  * ZX80/ZX81 media: program images and tape recordings go into the cassette
@@ -28,6 +28,36 @@ export class Zx8xMediaService implements MediaService {
       { ext: '.wav', target: 'tape' },
       { ext: '.zx8xstate', target: 'snapshot' },
     ];
+  }
+
+  /**
+   * A zip of several program images is one multi-file title (the loader
+   * LOADs its other parts by name): put them all on one tape, loader first,
+   * and start the loader. A zip with one program (or none) is left to the shell
+   * to unwrap.
+   */
+  async mountArchive(files: readonly ArchiveFile[], archiveName: string): Promise<MountResult | null> {
+    const m = this.machine;
+    const tape = zx8xArchiveTape(m.model, files, archiveName);
+    if (!tape) return null;
+    const address = m.model === 'zx80' ? 0x4000 : 0x4009;
+    if (tape.first.data.length > m.memory.ramSize - (address - 0x4000)) {
+      return { ok: false, message: `${archiveName} needs 16KB RAM` };
+    }
+    const awaiting = m.awaitingTapeLoad;
+    m.cassette.mount(tape.blocks, archiveName, 0, tape.programs);
+    const parts = `${tape.programs.length} programs`;
+    if (awaiting) {
+      if (m.tapeFastRom) m.cassette.cueFirst();
+      return { ok: true, target: 'tape', message: `Tape playing: ${archiveName} (${parts})` };
+    }
+    if (m.tapeFastRom) {
+      m.loadProgram(tape.first.data, address);
+      m.cassette.markPlayed(tape.first);
+      return { ok: true, target: 'tape', message: `Program loaded: ${archiveName} (${parts} on tape)` };
+    }
+    const load = m.model === 'zx80' ? 'LOAD' : 'LOAD ""';
+    return { ok: true, target: 'tape', message: `Tape inserted: ${archiveName} (${parts}) — type ${load} to load it` };
   }
 
   async mount(data: Uint8Array, filename: string, _target?: MediaTargetId): Promise<MountResult> {
