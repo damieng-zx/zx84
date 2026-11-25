@@ -4,7 +4,7 @@
  */
 
 import type { MachineInspection, MemoryMapSnapshot } from '@/machines/machine.ts';
-import { parseC64Basic, parseC64BasicVariables } from '@/basic/c64-basic-parser.ts';
+import { parsePlus4Basic, parsePlus4BasicVariables } from '@/basic/plus4-basic-parser.ts';
 import { hex16 } from '@/utils/hex.ts';
 import type { Plus4Machine } from '../plus4-machine.ts';
 
@@ -48,7 +48,7 @@ export class Plus4Inspection implements MachineInspection {
   memoryMap() { return plus4MemoryMap(this.m); }
 
   // BASIC 3.5 keeps its program and variable pointers where the 64's does.
-  basicListing() { return parseC64Basic(this.m.memory.ram); }
+  basicListing() { return parsePlus4Basic(this.m.memory.ram); }
 
-  basicVars() { return parseC64BasicVariables(this.m.memory.ram); }
+  basicVars() { return parsePlus4BasicVariables(this.m.memory.ram); }
 }
