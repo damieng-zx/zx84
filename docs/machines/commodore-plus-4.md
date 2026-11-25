@@ -122,7 +122,7 @@ there are several.
 | Debugger (breakpoints, stepping, disassembly) | ✅ | The 6502 family service, over the whole 64K the CPU sees |
 | Trace | ✅ | Full and port-I/O modes |
 | Beam debugging | ✅ | `beam_log`, `interrupt_log` and `run` with `until_line`: 312 lines × 114 cycles a frame (262 × 114 on NTSC) |
-| Screen OCR / TEXT overlay | ◐ | Character modes only: reads the video matrix and matches glyphs against the character set the TED is fetching through. Multicolour cells and both bitmap modes read as nothing |
+| Screen OCR / TEXT overlay | ◐ | Character modes, multicolour text and the hires bitmap: the character modes read the video matrix and match each code's glyph against the set the TED is fetching through; the hires bitmap matches each 8×8 tile against the same glyphs, in either video. The multicolour bitmap's cells are half-width, so they are not read yet |
 | BASIC Listing / Variables panes | ✅ | BASIC 3.5 keeps V2's zero-page pointers and line layout, so the variable reader is the C64's. The listing uses BASIC 3.5's own keyword table (`$80`-`$FD`, from the BASIC ROM at `$818E`): the V2 set plus RGR/RCLR/RLUM, the structured statements, the TED graphics and sound commands and the disk commands. There are no `$CE`/`$FE` escapes in 3.5 — those are BASIC 7.0 |
 | Machine-specific panes | ✅ | Memory map (the ROM banks, the RAM mode), Tape, Drives, Joystick, ROM / Carts, Keyboard, Hardware. Microdrive, system-variable and font panes are hidden |
 | MCP tools | ✅ | The generic tools (`registers`, `step`, `disassemble`, `memory`, `trace`, `beam_log`, `ocr`, `screenshot`, `type`, `key`, `load`, `eject`) plus `chip_state` (`ted`, `pio1`, `pio2`, `acia`, `drive`) |
@@ -162,6 +162,7 @@ there are several.
 | [`tests/plus4/plus4-machine.test.ts`](../../tests/plus4/plus4-machine.test.ts) | The 64K map and the C16's mirroring, the ROM banks and the write-through, the TED's unused bits and its raster counter, the raster compare interrupt, the timers, the text window's colours, the bad line's bounds, the keyboard matrix through PIO 2, the joystick gates, the 6529B's direction register, the ACIA's registers, exact snapshot restore; with the real ROMs, booting to BASIC 3.5's READY and typing and running a program, and a picture register written mid-line repainting from its cycle | 2026-11-25 |
 | [`tests/plus4/plus4-basic.test.ts`](../../tests/plus4/plus4-basic.test.ts) | BASIC 3.5's keyword table against the ROM's own entries, including the tokens past V2's `$CB`, the quoted-string and REM payload rules, and the variable tables | 2026-11-25 |
 | [`tests/plus4/mc6551.test.ts`](../../tests/plus4/mc6551.test.ts) | The ACIA's frame timing on transmit and receive, the stop and parity bits in the frame, the transmit interrupt, and overrun | 2026-11-25 |
+| [`tests/plus4/plus4-ocr.test.ts`](../../tests/plus4/plus4-ocr.test.ts) | The TEXT overlay's hires-bitmap matching (direct and inverse), non-glyph tiles, the multicolour bitmap being left alone, and multicolour text cells | 2026-11-25 |
 | [`tests/machine-capabilities.test.ts`](../../tests/machine-capabilities.test.ts) | Every registered model's declared capability held against the service that has to honour it, including both Plus/4 models | 2026-11-22 |
 
 Tests that need the Commodore ROMs read them from `mcp/.cache/plus4-dev` (the

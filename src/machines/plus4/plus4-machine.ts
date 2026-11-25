@@ -838,9 +838,11 @@ export class Plus4Machine extends BaseMachine implements Machine {
       charAddress: this.ted.charAddress,
       screenAddress: this.ted.screenAddress,
       colourAddress: this.ted.colourAddress,
+      bitmapAddress: this.ted.bitmapAddress,
       palette: PLUS4_PALETTE,
       mode: this.ted.videoMode,
       reverse: this.ted.reverseMode,
+      background: this.ted.background,
       read: a => mem.readByte(a & 0xFFFF),
     });
   }
