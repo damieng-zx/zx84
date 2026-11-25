@@ -18,6 +18,7 @@ import type { EinsteinMachine } from '../src/machines/einstein/einstein-machine.
 import type { MtxMachine } from '../src/machines/mtx/mtx-machine.ts';
 import type { C64Machine } from '../src/machines/c64/c64-machine.ts';
 import type { C128Machine } from '../src/machines/c128/c128-machine.ts';
+import type { ElectronMachine } from '../src/machines/electron/electron-machine.ts';
 import type { UPD765A } from '../src/cores/upd765a.ts';
 import type { Machine } from '../src/machines/machine.ts';
 import { isZx81Class, zx8xBuiltinRamKb } from '../src/machines/zx8x/models.ts';
@@ -104,6 +105,9 @@ let zx81Udg128 = false;
 let zx81Wrx = false;
 let zx81Memotech = false;
 let zx81QuickSilva = false;
+let electronPlus1 = false;
+let electronPlus3 = false;
+let electronDfs = false;
 
 /** Whether the active ZX80/ZX81 session has the 16KB RAM pack fitted. */
 export function zx8x16kRam(): boolean { return zx8x16k; }
@@ -123,6 +127,13 @@ export function zx81MemotechHrg(): boolean { return zx81Memotech; }
 /** Whether the active ZX81 session has a QuickSilva HRG board fitted. */
 export function zx81QuickSilvaHrg(): boolean { return zx81QuickSilva; }
 
+/** The active Acorn Electron, or null otherwise. Its expansions (Plus 1,
+ *  Plus 3, DFS) are fitted at build time, so the MCP tool drives them through
+ *  initMachine and reads their state from the machine. */
+export function activeElectron(): ElectronMachine | null {
+  return narrow<ElectronMachine>('electron');
+}
+
 /** Apply per-family headless knobs to a freshly created machine, before its
  *  ROM is installed and it is reset. Returns a short status fragment for
  *  initMachine's ready line. */
@@ -140,6 +151,11 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
   zx81Wrx = requested === 'wrx';
   zx81Memotech = requested === 'memotech';
   zx81QuickSilva = requested === 'quicksilva';
+  // The Electron's expansions are fitted at build time too (each loads a ROM),
+  // so they are session state that the `electronexp` tool sets and reports.
+  electronPlus1 = machine.kind === 'electron' ? (options.electronPlus1 ?? false) : false;
+  electronPlus3 = machine.kind === 'electron' ? (options.electronPlus3 ?? false) : false;
+  electronDfs = electronPlus3 && (options.electronDfs ?? false);
   // Every machine gets a SettingsView and its prepare() hook, not just the
   // zx8x: a machine that never sees one keeps whatever its constructor left.
   // The Jupiter Ace boots with no RAM pack that way, and since its FORTH ROM
@@ -154,6 +170,9 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
       if (key === 'zx81-wrx-hires') return zx81Wrx as T;
       if (key === 'zx81-memotech-hrg') return zx81Memotech as T;
       if (key === 'zx81-quicksilva-hrg') return zx81QuickSilva as T;
+      if (key === 'electron-plus1') return electronPlus1 as T;
+      if (key === 'electron-plus3') return electronPlus3 as T;
+      if (key === 'electron-dfs') return electronDfs as T;
       return fallback;
     },
   };
@@ -163,6 +182,7 @@ export async function applyHeadlessKnobs(machine: Machine, options: InitMachineO
     try {
       rom = await fetchRomSource(request.source);
     } catch (error) {
+      if (request.optional) continue;
       throw new Error(`${request.failMsg}: ${(error as Error).message}`);
     }
     request.apply(rom);

@@ -60,7 +60,7 @@ same CDN and cached; see Peripherals.
 | Keyboard | all | ✅ | 8×8 matrix scanned through AY port A (row select) and port B (columns). SHIFT, CONTROL and GRAPH are read from status port 0x20. A 50 Hz scan raises the keyboard interrupt (vector 0xF7), masked at reset |
 | WD1770 FDC | all | ✅ | Shared WD179x core in WD1770 mode. Ports 0x18–0x1B (mirrored at 0x1C–0x1F), polled (INTRQ and DRQ are not wired). Drive select latch 0x23: one-hot on bits 0–3, side on bit 4, no motor or density bit. Type I commands pulse BUSY because the MOS waits for it |
 | Z80 CTC | all | ✅ | [`src/cores/z80-ctc.ts`](../../src/cores/z80-ctc.ts). Timer prescaler on the 4 MHz CPU clock; channels 0–2 clocked by a 2 MHz pin; channel 2 zero-count chained to channel 3 trigger (the periodic interrupt source); heads the daisy chain and decodes RETI |
-| Board interrupts | all | ✅ | Below the CTC in priority order: keyboard (0xF7), ADC (0xFB), fire button (0xFD), each masked by a port 0x20, 0x21 or 0x25 write. Held off while a CTC channel is under service |
+| Board interrupts | all | ✅ | The board’s daisy chain is, in priority order, keyboard (0xF7), CTC, ADC (0xFB), (256: V9938 0xFE), fire (0xFD) — MAME’s `einstein_daisy_chain`. The **keyboard sits above the CTC**, so a key press is serviced even while a CTC channel is under service; the ADC, V9938 and fire button are below it and wait for its RETI. Each is masked by a port 0x20, 0x21 or 0x25 write |
 | ADC0844 | TC-01 | ✅ | Ports 0x38–0x3F. A write is the MUX address (b1–b0 the channel) and starts a conversion; after about 160 T-states the result is latched and the ADC interrupt raised; a read returns the result and clears the interrupt. Channels 1/2 are joystick 1 X/Y, 3/4 joystick 2. X reads 0 at full left and 0xFF at full right, Y 0xFF at full up and 0 at full down, centred 0x80 (MAME's wiring; no Tatung description to hand) |
 | Pseudo-ADC | 256 | ✅ | Port 0x38. A write latches the selection and raises the ADC interrupt; a read clears it and returns 0x00, 0x7F or 0xFF for the selected stick's X (selection & 5 = 4: right 0xFF) or Y (= 5: up 0xFF), b1 picking port A (joystick 2) or port B (joystick 1) |
 | Joystick ports | 256 | ✅ | 0x30 (port A, joystick 2) and 0x32 (port B, joystick 1): b0 up, b1 down, b2 left, b3 right, b4 fire, active low; b6–b5 printer status |
@@ -108,7 +108,8 @@ toggle, the whole VDP (TMS9929A VRAM and registers on the TC-01; the V9938's
 VRAM, palette, status and command engine on the 256), the AY-3-8910's
 registers and generators, the keyboard row-select and ALPHA LOCK latches, the
 CTC's four channels with their daisy-chain latches, the keyboard/ADC/fire
-interrupt requests and masks, the 256's VDP interrupt mask, the 2 MHz CTC
+interrupt requests and masks, the ADC0844's channel and latched result (the 256's
+pseudo-ADC selection), the 256's VDP interrupt mask, the 2 MHz CTC
 trigger phase, the beam's frame grid, and the WD1770 down to the byte a
 transfer has reached, with its drive-select, side and motor latches. A saved
 file also carries both drives' disks exactly as the controller sees them
@@ -137,7 +138,7 @@ full 64 KB of underlying RAM, ignoring the ROM overlay).
 | Feature | Status | Notes |
 | --- | --- | --- |
 | Timing | ✅ | 4 MHz Z80, 50 Hz PAL field (80,000 T-states, 313 lines); the CTC advances with the CPU, the VDP renders per scanline, the FDC is ticked once per frame; no contention |
-| Interrupts | ✅ | IM 2 with the CTC → keyboard → ADC → fire daisy chain, plus the V9938 on the 256 |
+| Interrupts | ✅ | IM 2 with the keyboard → CTC → ADC → (256: V9938) → fire daisy chain |
 | TMS9929A colour maps | ✅ | Display pane choice of MAME, Accurate (default) or Naive, TC-01 only; the 256's palette is set by V9938 registers |
 | Border size | ✅ | None / half / full, cropped from the output buffer |
 | 256 display adjust | ✅ | The V9938's R18 shift is applied to the picture and to the OCR and TEXT-overlay positions |
@@ -182,6 +183,7 @@ None known.
 
 ## Faithful quirks
 
+- **The reset strobe clears the WD1770 too.** Ports 0x00/0x01 are wired to both chips’ /RESET (MAME’s `reset_r`/`reset_w` call `m_psg->reset()` and `m_fdc->reset()`). A strobe abandons a command in flight and clears the controller’s registers; being a master reset, the drive heads stay where they physically are.
 - **Port 0x24 toggles on any access.** A read flips the ROM overlay as well as a write (documented in the I/O decode as following the MAME einstein driver).
 - **Writes under the ROM go to RAM.** Stores to 0x0000–0x7FFF always reach the underlying RAM while the MOS is mapped for reads.
 - **On-board ports are not aliased by A6 and A7.** Xtal DOS 1.31 writes to ports 0x48 and 0x49; they must not reach the VDP at 0x08 and 0x09.
@@ -195,11 +197,11 @@ None known.
 
 | Reference | Result | Last checked |
 | --- | --- | --- |
-| `tests/einstein/einstein-machine.test.ts` | ROM overlay and mirror, port 0x24 toggle, I/O mirrors, AY-scanned keyboard, CTC interrupt path and 2 MHz clocking, keyboard/ADC/fire interrupts and daisy-chain gating, boot-disk profile, Xtal BASIC listing, frame smoke | — |
+| `tests/einstein/einstein-machine.test.ts` | ROM overlay and mirror, port 0x24 toggle, the 0x00/0x01 strobe resetting PSG *and* WD1770, I/O mirrors, AY-scanned keyboard, CTC interrupt path and 2 MHz clocking, keyboard/ADC/fire interrupts, the daisy-chain order (keyboard above the CTC, ADC/fire below it gated by RETI), boot-disk profile, Xtal BASIC listing, frame smoke | - |
 | `tests/einstein/einstein-256.test.ts` | 16 KB linear ROM window, V9938 port decode, port 0x80 mask, system status 0x26, ALPHA LOCK, registry ROM-size detection, 512×212 descriptor and pixel aspect, boot smoke | — |
 | `tests/einstein/v9938.test.ts` | V9938 ports, VRAM and palette addressing, status registers and interrupts, mode decode, text, graphics and bitmap rendering, sprites, command processor | — |
 | `tests/einstein/einstein-joystick.test.ts` | TC-01 ADC0844 conversion and latch, channel and axis wiring, proportional input, fire bits and fire request; 256 joystick port bits and pseudo-ADC selections. Neither MOS has a joystick routine to run (MOS 2.1 uses 0x30/0x32 only for its printer) | — |
-| `tests/einstein/einstein-keyboard.test.ts` | Matrix scan, status line modifiers, host-key and per-model cursor chords | — |
+| `tests/einstein/einstein-keyboard.test.ts` | Matrix scan, status line modifiers, host-key and per-model cursor chords, character typing (`pressChar`: every printable cap, SHIFT on the shifted legends, no SYM chords) | - |
 | `tests/einstein/einstein-256-ocr.test.ts` | GRAPHIC 2 OCR, no text in other modes | — |
 | `tests/machines/einstein/media-routing.test.ts`, `tests/machines/disk-pause.test.ts`, `tests/machines/frame-probe.test.ts` | `.dsk`/`.hfe` mount to drive A:/B:, `accepts()` list, refusal of other files, mount preserves run state, drive-sound feed and format latch | — |
 | Genuine MOS 1.21 boot (headless) | Renders the MOS sign-on screen; typed keys echo and are processed | 2026-07-14 |

@@ -64,6 +64,9 @@ const C64_UI: MachineUiCapabilities = {
   psgControls: ['sid-model'],
   statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
+  // A Commodore's `"` is SHIFT+2 and its `+ - * /` are single caps of their
+  // own: the character decides the key, not the PC's physical position.
+  typedCharacters: true,
   tape: 'deck',
   tapeSound: false,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],

@@ -14,6 +14,13 @@ export class Apple2DiskService implements DiskService {
 
   private unit(id: string): number { return id === 'b' ? 1 : 0; }
 
+  /** Fit the boot PROM the drive-1 disk needs (13- or 16-sector). Boot always
+   *  comes from drive 1, so a disk in drive 2 does not change the card's PROM. */
+  private syncBootRom(): void {
+    const disk = this.machine.disk2.getDiskImage(0);
+    this.machine.selectDisk2BootRom(disk ? disk.apple2.sectorsPerTrack : null);
+  }
+
   /** The drives on the controller; none at all when the card is not fitted. */
   get drives(): readonly DriveDescriptor[] {
     const { disk2, drives } = this.machine.options;
@@ -27,11 +34,13 @@ export class Apple2DiskService implements DiskService {
   insert(id: string, media: DriveMedia, name: string): void {
     this.machine.disk2.insertDisk(media as DskImage, this.unit(id));
     this.names.set(id, name);
+    if (this.unit(id) === 0) this.syncBootRom();
   }
 
   eject(id: string): void {
     this.machine.disk2.ejectDisk(this.unit(id));
     this.names.delete(id);
+    if (this.unit(id) === 0) this.syncBootRom();
   }
 
   /** The disk in the format it was loaded as (.dsk/.po, .d13, .nib, .2mg or
@@ -123,5 +132,6 @@ export class Apple2DiskService implements DiskService {
       disk2.writeProtect[unit] = d.protect;
       this.names.set(id, d.name);
     });
+    this.syncBootRom();
   }
 }

@@ -31,3 +31,19 @@ export const APPLE2_PIXEL_ASPECT_X = (APPLE2_ACTIVE_HEIGHT * 4 / 3) / APPLE2_ACT
 
 /** Expansion slot the Disk II controller lives in. */
 export const DISK2_SLOT = 6;
+
+/** The Disk ][ controller's 16-sector boot PROM (Apple 341-0027/P5A), from the
+ *  project ROM host. */
+export const DISK2_ROM_SOURCE = 'apple2/disk2.rom';
+
+/**
+ * The Disk ][ controller's 13-sector boot PROM (Apple 341-0009/P5), for
+ * `.d13`, 13-sector nibble images and RDOS 2.1. It is not on the project ROM
+ * host, so it is fetched from the Apple II Documentation Project mirror and
+ * cached like any other ROM. 256 bytes; SHA-256
+ * 2d2599521fc5763d4e8c308c2ee7c5c4d5c93785b8fb9a4f7d0381dfd5eb60b6.
+ * (The card's sequencer is behavioural in zx84, so only the boot PROM is
+ * needed: it reads track 0 sector 0, which the 16-sector PROM cannot decode.)
+ */
+export const DISK2_ROM13_SOURCE =
+  'https://mirrors.apple2.org.za/Apple%20II%20Documentation%20Project/Interface%20Cards/Disk%20Drive%20Controllers/Apple%20Disk%20II%20Interface%20Card/ROM%20Images/Apple%20Disk%20II%2013%20Sector%20Interface%20Card%20ROM%20P5%20-%20341-0009.bin';

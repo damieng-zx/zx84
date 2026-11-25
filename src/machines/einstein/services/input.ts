@@ -22,6 +22,20 @@ export class EinsteinInputService implements InputService {
     this.e.sticks.reset();
   }
 
+  /**
+   * The character-level typing path (the MCP `type` tool): press the cap that
+   * prints `char`, on the machine's own legends. Without this the caller falls
+   * back to the Spectrum's SYM SHIFT chords, which put `"` on SYM+P and so type
+   * a control code on an Einstein.
+   */
+  charDown(char: string): boolean {
+    return this.e.keyboard.pressChar(char, true);
+  }
+
+  charUp(char: string): void {
+    this.e.keyboard.pressChar(char, false);
+  }
+
   /** The two joystick ports: the TC-01's ADC0844 channels (proportional) and
    *  the 256's digital ports, with fire on status bits 0/1 and the fire
    *  interrupt. The ports are fixed, so the interface `mode` is ignored. */

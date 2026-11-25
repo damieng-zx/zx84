@@ -9,22 +9,43 @@ import type { HostKeyEvent, MachineUiCapabilities } from '../../src/machines/mac
  *  resume keyboard scanning before the next keystroke. */
 const ENTER_SETTLE_FRAMES = 30;
 
+/** Modifier keys currently held down. Each key event carries the modifiers'
+ *  state as well as being the press/release of the modifier itself: the Apple
+ *  II keyboard encoder (and the CPC, the Acorns and others) resolves SHIFT and
+ *  CTRL from the event that carries the character, so pressing a separate
+ *  Shift key event first is not enough. */
+const held = { shift: false, ctrl: false, alt: false };
+
+function modifierFlags(code: string): { shift: boolean; ctrl: boolean; alt: boolean } {
+  return {
+    shift: held.shift || code === 'ShiftLeft' || code === 'ShiftRight',
+    ctrl: held.ctrl || code === 'ControlLeft' || code === 'ControlRight',
+    alt: held.alt || code === 'AltLeft' || code === 'AltRight',
+  };
+}
+
 function hostKeyEvent(code: string): HostKeyEvent {
   const key = code.startsWith('Key') ? code.slice(3).toLowerCase()
     : code.startsWith('Digit') ? code.slice(5)
-      : code === 'Space' ? ' ' : code;
+      : code === 'Space' ? ' '
+        : code === 'ShiftLeft' || code === 'ShiftRight' ? 'Shift'
+          : code === 'ControlLeft' || code === 'ControlRight' ? 'Control'
+            : code === 'AltLeft' || code === 'AltRight' ? 'Alt'
+              : code;
   return {
     code, key,
-    shift: code === 'ShiftLeft' || code === 'ShiftRight',
-    ctrl: code === 'ControlLeft' || code === 'ControlRight',
-    alt: code === 'AltLeft' || code === 'AltRight',
+    ...modifierFlags(code),
   };
 }
 
 function setKey(code: string, pressed: boolean): boolean {
   const input = state.spec.services.input;
   const event = hostKeyEvent(code);
-  return pressed ? input.keyDown(event) : input.keyUp(event);
+  const consumed = pressed ? input.keyDown(event) : input.keyUp(event);
+  if (code === 'ShiftLeft' || code === 'ShiftRight') held.shift = pressed;
+  else if (code === 'ControlLeft' || code === 'ControlRight') held.ctrl = pressed;
+  else if (code === 'AltLeft' || code === 'AltRight') held.alt = pressed;
+  return consumed;
 }
 
 /** A joystick direction as the `key` tool names it: `joy-up`, `joy-down`,
@@ -133,7 +154,7 @@ export function register(server: McpServer): void {
 
   server.registerTool(
     'key',
-    { description: 'Press a key through the active machine input service for N frames (default 5). Common keys: a-z, 0-9, enter, space, shift, backspace, arrows, period, escape. Spectrum also supports sym, capslock, and "+"-joined combos. A joystick is pressed as joy-up, joy-down, joy-left, joy-right, joy-fire (joy-fire2 where the stick has a second button), with -p2 for player 2: "joy-fire+joy-right".', inputSchema: {
+    { description: 'Press a key through the active machine input service for N frames (default 5). Common keys: a-z, 0-9, enter, space, shift, ctrl (also sym), alt, backspace, arrows, period, escape. A "+"-joined combo such as "shift+2" carries its modifiers in the key event, so keyboards that resolve SHIFT/CTRL per event (the Apple II, the CPC) see the chord. A joystick is pressed as joy-up, joy-down, joy-left, joy-right, joy-fire (joy-fire2 where the stick has a second button), with -p2 for player 2: "joy-fire+joy-right".', inputSchema: {
       name: z.string().describe('Key name, or "+"-joined combo (e.g. "enter", "a", "shift+sym", "joy-fire", "joy-up-p2")'),
       frames: z.number().int().positive().default(5).describe('How many frames to hold the key'),
     } },

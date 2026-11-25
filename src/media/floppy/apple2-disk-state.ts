@@ -81,7 +81,12 @@ export function readApple2Disk(r: StateSource): Apple2Disk {
   const woz = wozJson === '' ? null : JSON.parse(wozJson) as WozDetails;
   const disk = image as Apple2Disk;
   disk.apple2 = {
-    bits: { tmap, tracks, bitTiming, writeProtected },
+    bits: {
+      tmap, tracks, bitTiming, writeProtected,
+      // Derived on restore: only a WOZ keeps its own hard-track map; every
+      // synthesized/nibble image rounds a half track down (see Disk2).
+      roundHalfTracks: source !== 'woz',
+    },
     source, sectorsPerTrack: spt, order, volume, twoImg, woz,
   };
   return disk;
