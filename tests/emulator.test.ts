@@ -1390,6 +1390,49 @@ describe('saveRAM — filename and address selection', () => {
     expect(anchor.download).toBe('ram-64k.bin');
     expect(s.memory.readBlock).toHaveBeenCalledWith(0, 0x10000);
   });
+
+  it('stops the machine before reading the RAM, then starts it again', async () => {
+    // The driver runs the machine between frames, so a dump read from a live
+    // machine can catch it mid-instruction (banks or paging half-updated).
+    // Every other export stops first; this one used to read first.
+    const s = await setupSpectrum();
+    emulator.setEmulationPaused(false);
+    mockDOM();
+    const order: string[] = [];
+    const stop = vi.spyOn(s, 'stop').mockImplementation(() => { order.push('stop'); });
+    const start = vi.spyOn(s, 'start').mockImplementation(() => { order.push('start'); });
+    vi.spyOn(s.services.debug, 'ramExport').mockImplementation(() => {
+      order.push('ramExport');
+      return { data: new Uint8Array(4), filename: 'ram.bin' };
+    });
+
+    emulator.saveRAM();
+
+    expect(order, 'stop, export, start').toEqual(['stop', 'ramExport', 'start']);
+    stop.mockRestore();
+    start.mockRestore();
+  });
+
+  it('leaves an already-paused machine paused after the export', async () => {
+    // `emulationPaused()` is the shell's flag; the invariant is that a machine
+    // it reports as paused is not restarted by the export.
+    const s = await setupSpectrum();
+    emulator.setEmulationPaused(true);
+    s.start.mockClear();
+    mockDOM();
+    const start = vi.spyOn(s, 'start').mockImplementation(() => {});
+    const stop = vi.spyOn(s, 'stop').mockImplementation(() => {});
+    try {
+      emulator.saveRAM();
+      expect(start, 'no restart for a machine the shell reports paused').not.toHaveBeenCalled();
+      expect(stop, 'and no stop either').not.toHaveBeenCalled();
+      expect(emulator.emulationPaused(), 'the flag is untouched').toBe(true);
+    } finally {
+      start.mockRestore();
+      stop.mockRestore();
+      emulator.setEmulationPaused(false);
+    }
+  });
 });
 
 // ── Refresh state ─────────────────────────────────────────────────────────
