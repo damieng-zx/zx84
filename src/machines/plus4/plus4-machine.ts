@@ -282,8 +282,14 @@ export class Plus4Machine extends BaseMachine implements Machine {
 
   /** A button is down on the deck. A mounted tape has PLAY down until the user
    *  stops it; an empty deck stands for a blank cassette with RECORD and PLAY
-   *  down, so SAVE goes straight to the recorder. */
+   *  down, so SAVE goes straight to the recorder. This is PIO 1 bit 2 — not the
+   *  7501 port's read bit, which carries the tape signal itself. */
   get tapeSense(): boolean { return !this.tape.loaded || this.tape.playing; }
+
+  /** PIO 1's input pins, refreshed whenever the tape transport moves. */
+  private refreshTapePins(): void {
+    this.pio1.pins = this.tapeSense ? 0xFB : 0xFF;
+  }
 
   private wireIo(): void {
     const { memory, ted, pio1, pio2, keyboard } = this;
@@ -300,7 +306,14 @@ export class Plus4Machine extends BaseMachine implements Machine {
       let input = 0xDF;
       if (!this.iec.clkLow) input |= 0x40;
       if (!this.iec.dataLow) input |= 0x80;
-      if (this.tapeSense) input &= ~0x10;
+      // Bit 4 is the Datasette's read line — the tape's own signal, which the
+      // KERNAL's reader waits on for its edges. The PLAY sense is a *steady*
+      // deck-button level and lives on PIO 1 bit 2 (see updatePins): putting it
+      // here instead left the read line stuck, so every LD-BYTES wait spun.
+      // With the motor stopped (or no tape on the deck) there is no signal to
+      // read and the port reads it low, as the hardware does.
+      const signal = this.tape.playing && !this.tape.paused && this.tape.earBit;
+      input = signal ? (input | 0x10) : (input & ~0x10);
       // A port read is what the KERNAL's tape loop spins on: count it.
       this.senseReads++;
       return ((input & ~memory.portDir) | (memory.portData & memory.portDir)) & 0xDF;
@@ -398,7 +411,7 @@ export class Plus4Machine extends BaseMachine implements Machine {
   /** Set both PIOs' input pins to what the keyboard, joysticks and bus say. */
   private updatePins(_t: number): void {
     // PIO 1: inputs high except the cassette's PLAY line on bit 2.
-    this.pio1.pins = this.tapeSense ? 0xFB : 0xFF;
+    this.refreshTapePins();
     // PIO 2 drives the keyboard rows; its inputs float high.
     this.pio2.pins = 0xFF;
   }
@@ -433,6 +446,8 @@ export class Plus4Machine extends BaseMachine implements Machine {
     this.tapeLastT = this.cpu.tStates;
     this.prevEar = this.tape.earBit;
     if (this.tape.loaded && this.tape.playing) this.tape.paused = !this.motorWasOn;
+    // PIO 1's PLAY sense follows the deck's buttons.
+    this.refreshTapePins();
   }
 
   /** Mounting a tape leaves PLAY up; it goes down by itself the first time
