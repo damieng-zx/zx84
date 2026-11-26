@@ -1,7 +1,8 @@
 /**
  * Atari media routing.
  *
- * Cartridges: 4K (mirrored), 8K and 16K images.
+ * Cartridges: 4K (mirrored), 8K, 16K, OSS banked, XEGS 32/64/128K, Williams
+ * 64K and Bounty Bob 40K images.
  * Disks: ATR and raw XFD sector dumps, into D1:/D2:.
  * Cassettes: `.cas` (FUJI) images, into the program recorder.
  *
