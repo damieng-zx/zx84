@@ -35,6 +35,7 @@ import { vic20Entry } from '@/machines/vic20/descriptor.ts';
 import { c128Entry } from '@/machines/c128/descriptor.ts';
 import { oricEntry } from '@/machines/oric/descriptor.ts';
 import { atomEntry } from '@/machines/atom/descriptor.ts';
+import { plus4Entry } from '@/machines/plus4/descriptor.ts';
 
 export const registry: readonly MachineEntry[] = [
   spectrumEntry,
@@ -58,6 +59,7 @@ export const registry: readonly MachineEntry[] = [
   c128Entry,
   atomEntry,
   oricEntry,
+  plus4Entry,
 ];
 
 /** The registry entry owning `model`. Throws on an unknown model — every

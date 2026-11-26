@@ -38,6 +38,7 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 | [Commodore 64](docs/machines/commodore-64.md) | Commodore 64 (PAL and NTSC) | 6510 |
 | [Commodore 128](docs/machines/commodore-128.md) | Commodore 128 (PAL and NTSC) | 8502 / Z80 |
 | [Commodore VIC-20](docs/machines/commodore-vic-20.md) | VIC-20 (PAL and NTSC) | 6502 |
+| [Commodore Plus/4 and Commodore 16](docs/machines/commodore-plus-4.md) | Plus/4, C16 (PAL and NTSC) | 7501 |
 
 ## Features
 

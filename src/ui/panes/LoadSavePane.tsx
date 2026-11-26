@@ -31,6 +31,7 @@ const SAVE_ITEMS: Record<SaveMenuItem, { label: string; run: () => void }> = {
   'snapshot-c128state': { label: 'Snapshot (.c128state)', run: () => { void saveSnapshot('c128state'); } },
   'snapshot-atomstate': { label: 'Snapshot (.atmstate)', run: () => { void saveSnapshot('atmstate'); } },
   'snapshot-oricstate': { label: 'Snapshot (.oricstate)', run: () => { void saveSnapshot('oricstate'); } },
+  'snapshot-plus4state': { label: 'Snapshot (.plus4state)', run: () => { void saveSnapshot('plus4state'); } },
   'snapshot-a1state': { label: 'Snapshot (.a1state)', run: () => { void saveSnapshot('a1state'); } },
   'snapshot-a2state': { label: 'Snapshot (.a2state)', run: () => { void saveSnapshot('a2state'); } },
   'snapshot-sna-v2': { label: 'Snapshot v2 (.sna)', run: () => saveCpcSnapshot(2) },

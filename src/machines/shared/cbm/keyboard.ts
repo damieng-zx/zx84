@@ -69,12 +69,21 @@ export class CbmKeyboard {
   /** Matrix reads this frame (the KBD LED). */
   reads = 0;
 
-  /** `matrix[column][row]` names the key on each crossing. */
-  constructor(readonly matrix: readonly (readonly string[])[]) {
+  /** `matrix[column][row]` names the key on each crossing. `aliases` names
+   *  further keys that share an existing cell (a cap whose other half is a
+   *  shifted key prints two legends). */
+  constructor(
+    readonly matrix: readonly (readonly string[])[],
+    aliases: Readonly<Record<string, string>> = {},
+  ) {
     this.holds = new Uint8Array(matrix.length * 8);
     this.columns = new Uint8Array(matrix.length);
     this.rows = new Uint16Array(8);
     matrix.forEach((rows, col) => rows.forEach((name, row) => this.cellOf.set(name, col * 8 + row)));
+    for (const [alias, name] of Object.entries(aliases)) {
+      const cell = this.cellOf.get(name);
+      if (cell !== undefined) this.cellOf.set(alias, cell);
+    }
   }
 
   /** The cell index (column × 8 + row) of a named key. */

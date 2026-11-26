@@ -66,7 +66,7 @@ const C128_UI: MachineUiCapabilities = {
   // are their own keys): the character decides, not the PC's position.
   typedCharacters: true,
   tape: 'deck',
-  tapeSound: false,
+  tapeSound: true,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
   // 'tape-tap' downloads what the KERNAL has SAVEd to tape (as a C64 .tap).
   saveMenu: ['snapshot-c128state', 'tape-tap', 'screenshot-png', 'ram-bin'],

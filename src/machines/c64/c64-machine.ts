@@ -198,6 +198,15 @@ export class C64Machine extends BaseMachine implements Machine {
 
   get tapeTurboActive(): boolean { return this._tapeTurboActive; }
 
+  /** Whether the Datasette's EAR line is mixed into the audio (the tape-sound
+   *  setting), as the loading sound. */
+  tapeSoundEnabled = true;
+
+  /** The EAR line as loading sound, only while the tape is actually running. */
+  private tapeAudioLevel(): number {
+    return this.tapeSoundEnabled && this.tape.playing && !this.tape.paused ? this.tape.earBit : 0;
+  }
+
   /** The line cycles at which the frame loop hands over to the VIC-II, in order. */
   private readonly lineEvents: readonly number[];
 
@@ -213,7 +222,7 @@ export class C64Machine extends BaseMachine implements Machine {
     this.vic = new VicII(this.memory, this.timing, C64_PALETTE);
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
     this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
-    this.mixer.beeperGain = 0;
+    this.mixer.beeperGain = 1;
     this.mixer.psgGain = 1;
     this.deferAccessStamps = true;
 
@@ -385,6 +394,7 @@ export class C64Machine extends BaseMachine implements Machine {
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
     this.tapeTurbo = view.get('tape-turbo-load', true);
+    this.tapeSoundEnabled = view.get('tape-sound', true);
     this.sid.setModel(view.get<string>('c64-sid', '6581') === '8580' ? '8580' : '6581');
     this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
   }
@@ -736,7 +746,7 @@ export class C64Machine extends BaseMachine implements Machine {
     const elapsed = now - this.audioLastT;
     this.audioLastT = now;
     if (elapsed <= 0) return;
-    this.mixer.accumulate(0, elapsed);
+    this.mixer.accumulateLevel(this.tapeAudioLevel(), elapsed);
     this.mixer.generateSamples(this.audio, this.sid, true);
   }
 
