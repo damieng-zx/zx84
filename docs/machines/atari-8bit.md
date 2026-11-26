@@ -82,7 +82,7 @@ rather than being installed as firmware.
 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
-| Cartridge slot | ROM | all | ✅ | 4K (mirrored), 8K and 16K images |
+| Cartridge slot | ROM | all | ✅ | 4K (mirrored), 8K, 16K, OSS banked, XEGS 32/64/128K, Williams 64K and Bounty Bob 40K images |
 | 810, 1050, XF551, SIO2PC drives | disk | all | ✅ | D1:–D4:, each with its own model; SIO2PC (any image) is the default |
 | CX40 joysticks | input | all | ✅ | two ports, one fire button each; keys and gamepads drive the same lines |
 
@@ -101,7 +101,7 @@ and a mounted cartridge replaces it.
 | `.xfd` | disk | D1:–D4: | ✅ | ✅ | raw sector dump; written back as ATR |
 | `.cas` | tape | program recorder | ✅ | ✅ | FUJI blocks, including `fsk ` level blocks; what `CSAVE` writes since reset |
 | `.xex`, `.com` | executable | autostart | ✅ | — | armed and run at the OS's load point, then cleared by a real boot disk |
-| `.rom`, `.car`, `.bin` | cartridge | slot | ✅ | — | 4K/8K/16K images |
+| `.rom`, `.car`, `.bin` | cartridge | slot | ✅ | — | 4K/8K/16K, OSS, XEGS 32/64/128K, Williams 64K and Bounty Bob 40K images |
 | `.a8state` | snapshot | native state | ✅ | ✅ | zx84's own format; no other emulator's snapshots are read |
 | `.zip` | archive | per member | ✅ | — | entries matching the above are offered |
 
@@ -189,4 +189,5 @@ screenshot, RAM dump.
 | `tests/atari/atr.test.ts`, `xfd`, `disks.test.ts`, `sio.test.ts`, `sio-bus.test.ts`, `ocean-drive.test.ts` | ATR/XFD geometry, drive models and the SIO fast path | 2026-11-22 |
 | `tests/atari/cassette.test.ts`, `cassette-signal.test.ts` | record-level `CLOAD`, signal-level custom loaders, `CSAVE` | 2026-11-22 |
 | `tests/atari/xex.test.ts`, `autostart.test.ts`, `roms.test.ts` | `.xex` arming, cold-start autostart, ROM sockets and cartridge handling | 2026-11-22 |
+| `tests/atari/cartridge.test.ts` | XEGS 32/64/128K, Williams 64K and Bounty Bob 40K boards: image detection, bank windows and bus switching | 2026-11-26 |
 | `tests/atari/basic.test.ts`, `ocr.test.ts`, `snapshot.test.ts`, `memory.test.ts`, `xl.test.ts`, `peek.test.ts`, `machine.test.ts` | BASIC tables, OCR grid, `.a8state` round trip, XL banking, registration | 2026-11-22 |
