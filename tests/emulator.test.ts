@@ -361,6 +361,7 @@ vi.mock('@/store/settings.ts', () => ({
   msxColorMap:        vi.fn(() => 'pal'),
   einsteinColorMap:   vi.fn(() => 'accurate'),
   pcw60Hz:            vi.fn(() => false),
+  pcwPhosphor:        vi.fn(() => 'auto'),
 }));
 
 vi.mock('@/store/persistence.ts', () => ({

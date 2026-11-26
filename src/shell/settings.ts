@@ -88,6 +88,11 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'c128-vdc-ram': () => settings.c128VdcRam(),
   'c128-vdc-chip': () => settings.c128VdcChip(),
   'c128-display': () => settings.c128Display(),
+  'plus4-drive': () => settings.plus4Drive(),
+  'plus4-expansion': () => settings.plus4Expansion(),
+  'lynx-fdc': () => settings.lynxFdc(),
+  'mtx-floppy': () => settings.mtxFloppy(),
+  'pcw-phosphor': () => settings.pcwPhosphor(),
   'apple2-langcard': () => settings.apple2LangCard(),
   'apple2-joystick': () => settings.apple2Joystick(),
   'apple2-mockingboard': () => settings.apple2Mockingboard(),
@@ -116,6 +121,20 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'ace-ram-pack': () => settings.aceRamPack(),
 };
 
+/** Prefix families the view answers in addition to the literal getters: the
+ *  per-machine-kind saved drive setup. */
+const KEY_PREFIXES = ['drive-count:', 'drive-models:'] as const;
+
+/**
+ * Whether the view can answer `key` from the store. A key this rejects is
+ * served as its fallback, which is how a Hardware-pane option silently stops
+ * reaching its machine — see `tests/shell/settings-view.test.ts`.
+ */
+export function settingsViewKnows(key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(SETTING_GETTERS, key)
+    || KEY_PREFIXES.some(prefix => key.startsWith(prefix));
+}
+
 /** Whether a boolean setting is on, reactively (call inside a tracking scope).
  *  Gates a machine capability on a user-fitted peripheral — see
  *  `MachineUiCapabilities.requires`. A missing gate is open. */
@@ -137,8 +156,7 @@ export function buildSettingsView(): SettingsView {
       // machine kind (one per drive).
       if (key.startsWith('drive-models:')) {
         return (settings.savedDriveModels(key.slice('drive-models:'.length)) ?? fallback) as T;
-      }
-      const getter = SETTING_GETTERS[key];
+      }      const getter = SETTING_GETTERS[key];
       return getter ? (getter() as T) : fallback;
     },
   };

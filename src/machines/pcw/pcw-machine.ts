@@ -284,7 +284,9 @@ export class PcwMachine extends BaseMachine implements Machine {
   }
 
   applySettings(view: SettingsView): void {
-    const phosphor = PCW_PHOSPHORS[view.get('pcw-phosphor', this.config.phosphor)]
+    // 'auto' follows the monitor the model shipped with.
+    const wanted = view.get<string>('pcw-phosphor', 'auto');
+    const phosphor = PCW_PHOSPHORS[wanted === 'auto' ? this.config.phosphor : wanted]
       ?? PCW_PHOSPHORS[this.config.phosphor];
     this.asic.ink = phosphor.ink;
     this.asic.paper = phosphor.paper;

@@ -128,6 +128,9 @@ const DEFAULTS = {
   'electron-dfs':   'off',
   'lynx-fdc':       'on',
   'pcw-60hz':       'off',
+  // PCW monitor phosphor: 'auto' follows the model (the 9512 shipped white,
+  // every other PCW green); 'green'/'white' force one.
+  'pcw-phosphor':   'auto',
   'apple2-disk2':   'on',
   'c64-drive':      'on',
   'c64-sid':        '6581',
@@ -523,6 +526,9 @@ export const [electronDfs, setElectronDfs] = signal(savedFlag('electron-dfs'));
 export const [lynxFdc, setLynxFdc] = signal(savedFlag('lynx-fdc'));
 /** Amstrad PCW 50/60Hz link: on = a 60Hz machine (260-line frame, 200 lines shown). */
 export const [pcw60Hz, setPcw60Hz] = signal(savedFlag('pcw-60hz'));
+/** PCW monitor phosphor: 'auto' = whatever monitor the model shipped with. */
+export const [pcwPhosphor, setPcwPhosphor] =
+  signal(savedText('pcw-phosphor') as 'auto' | 'green' | 'white');
 
 /** Enterprise EXDOS disk card (WD1770 + EXDOS ROM) fitted. */
 export const [enterpriseExdos, setEnterpriseExdos] = signal(savedFlag('enterprise-exdos'));
@@ -684,6 +690,7 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'electron-dfs', set: setElectronDfs, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'pcw-60hz', set: setPcw60Hz, type: 'bool' },
+    { key: 'pcw-phosphor', set: setPcwPhosphor, type: 'string' },
     { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
     { key: 'c64-drive', set: setC64Drive, type: 'bool' },
     { key: 'vic20-ram', set: setVic20Ram, type: 'string' },
