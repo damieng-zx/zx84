@@ -6,7 +6,9 @@
  *   $0100-$7FFF  RAM
  *   $8000-$BFFF  ROM bank low (BASIC, the 3+1 ROM, a cartridge, or RAM)
  *   $C000-$FBFF  ROM bank high (KERNAL, the 3+1 ROM, a cartridge, or RAM)
- *   $FC00-$FCFF  the KERNAL, always (its bank-switching routines live there)
+ *   $FC00-$FCFF  the KERNAL while the ROMs are selected, and the RAM under it
+ *                once `$FF3F` banks them out (BASIC's temporary strings live
+ *                there and it reads them back through GetUnderROM)
  *   $FD00-$FD0F  the 6551A ACIA (Plus/4; the RAM under it on a C16)
  *   $FD10-$FD1F  6529B PIO 1, the user port
  *   $FD30-$FD3F  6529B PIO 2, the keyboard rows
@@ -282,8 +284,10 @@ export class Plus4Memory implements IMachineMemory {
       return this.ram[this.ramIndex(addr)];
     }
     if (addr >= 0xFC00) {
-      // The KERNAL's top page is always there for its bank-switching routines.
-      if (addr < 0xFD00) return this.kernal[addr & 0x3FFF];
+      // The KERNAL's top page is there while the ROMs are selected, and the RAM
+      // under it once `$FF3F` banks them out — which is how BASIC keeps its
+      // temporary strings there and reads them back through GetUnderROM.
+      if (addr < 0xFD00) return this.romVisible ? this.kernal[addr & 0x3FFF] : this.ram[this.ramIndex(addr)];
       return this.openBus();
     }
     if (expansion) {
@@ -355,7 +359,10 @@ export class Plus4Memory implements IMachineMemory {
       if (bank) return bank[addr & 0x3FFF];
       return this.ram[this.ramIndex(addr)];
     }
-    if (addr >= 0xFC00) return this.kernal[addr & 0x3FFF];
+    if (addr >= 0xFC00) {
+      if (addr < 0xFD00) return this.romVisible ? this.kernal[addr & 0x3FFF] : this.ram[this.ramIndex(addr)];
+      return this.openBus();
+    }
     if (expansion) {
       const exp = this.expansionByte(addr);
       if (exp !== null) return exp;

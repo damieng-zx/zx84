@@ -49,6 +49,21 @@ describe('Plus/4 memory map', () => {
     expect(mem.readByte(0xC123), 'the fourth').toBe(0xA5);
   });
 
+  it('keeps the RAM under the fixed KERNAL page for when the ROMs are out', () => {
+    const mem = new Plus4Memory('plus4');
+    mem.loadRoms(new Uint8Array(0x4000).fill(0x11), null);
+    // A write to the page reaches the RAM under the KERNAL, as everywhere else.
+    mem.writeByte(0xFCFA, 0x99);
+    expect(mem.readByte(0xFCFA), 'the KERNAL answers while selected').toBe(0x11);
+    expect(mem.peekByte(0xFCFA)).toBe(0x11);
+    // BASIC keeps its temporary strings here and reads them with GetUnderROM,
+    // which banks the ROMs out.
+    mem.setRomVisible(false);
+    expect(mem.readByte(0xFCFA), 'the RAM under it once banked out').toBe(0x99);
+    expect(mem.peekByte(0xFCFA)).toBe(0x99);
+    expect(mem.readByte(0xFCFB), 'and the rest of the page').toBe(0xFF);
+  });
+
   it('answers ROM reads from the selected bank, and a write bleeds through to the RAM', () => {
     const mem = new Plus4Memory('plus4');
     mem.loadRoms(new Uint8Array(0x4000).fill(0xCE), new Uint8Array(0x4000).fill(0xBA));
@@ -426,13 +441,27 @@ function boot(): Plus4Machine {
 }
 
 describe.skipIf(!kernal || !basic)('Plus/4 with the Commodore ROMs', () => {
-  it('boots to BASIC 3.5\'s READY prompt', () => {
+  it('boots to BASIC 3.5\'s READY prompt, with its memory size', () => {
     const m = boot();
     for (let f = 0; f < 400; f++) m.tick();
     const text = m.ocrScreenForMcp();
-    expect(text, 'the banner').toContain('COMMODORE BASIC');
-    expect(text, 'and the machine\'s name and memory size').toMatch(/3\.5|PLUS\/4|C16/i);
+    expect(text, 'the banner').toContain('COMMODORE BASIC V3.5');
+    // The free-memory figure is printed through BASIC's number-to-string
+    // routine into RAM under the fixed KERNAL page (GetUnderROM), so this is
+    // also the check that $FC00-$FCFF banks back to RAM when the ROMs are out.
+    expect(text, 'the memory size').toContain('60671 BYTES FREE');
     expect(text, 'READY.').toContain('READY.');
+  });
+
+  it('prints numbers and strings', () => {
+    const m = boot();
+    for (let f = 0; f < 400; f++) m.tick();
+    type(m, 'PRINT 12345\n');
+    for (let f = 0; f < 120; f++) m.tick();
+    expect(m.ocrScreenForMcp()).toContain('12345');
+    type(m, 'PRINT "AB"\n');
+    for (let f = 0; f < 120; f++) m.tick();
+    expect(m.ocrScreenForMcp()).toContain('AB');
   });
 
   it('types and runs a program', () => {
