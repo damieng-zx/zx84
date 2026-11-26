@@ -12,9 +12,10 @@
 
 import * as path from 'node:path';
 import type { Spectrum, SpectrumModel } from '../src/machines/spectrum/spectrum.ts';
+import { is128kClass, isPlus2AClass } from '../src/machines/spectrum/models.ts';
 import { loadSNA } from '../src/machines/spectrum/snapshots/sna.ts';
 import { loadZ80 } from '../src/machines/spectrum/snapshots/z80format.ts';
-import { loadSZX, applySZXPaging } from '../src/machines/spectrum/snapshots/szx.ts';
+import { loadSZX, applySZXPaging, machineIdOf } from '../src/machines/spectrum/snapshots/szx.ts';
 import { parseFloppyImage } from '../src/media/floppy/hfe.ts';
 import { parseMgt, mgtExtFromName } from '../src/media/floppy/mgt-image.ts';
 import { parseTrd } from '../src/media/floppy/trd-image.ts';
@@ -118,38 +119,38 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
   } else if (ext === '.sna') {
     spec.reset();
     const result = loadSNA(data, spec.cpu, spec.memory);
+    if (!result.is128K && is128kClass(spec.model)) spec.memory.selectSnapshot48KRom();
     spec.ula.borderColor = result.borderColor;
     return `SNA loaded: ${filename} (${result.is128K ? '128K' : '48K'}) PC=${h16(spec.cpu.pc)}`;
   } else if (ext === '.z80') {
     spec.reset();
     const result = loadZ80(data, spec.cpu, spec.memory);
+    if (!result.is128K && is128kClass(spec.model)) spec.memory.selectSnapshot48KRom();
     spec.ula.borderColor = result.borderColor;
     if (result.frameTStates !== undefined) spec.resumeAtFrameOffset(result.frameTStates);
     return `Z80 loaded: ${filename} (${result.is128K ? '128K' : '48K'}) PC=${h16(spec.cpu.pc)}`;
   } else if (ext === '.szx') {
-    // Auto-detect model from SZX header byte 6 (machine ID).
-    // Must switch before loading so memory.is128K is set correctly and ROM pages are right.
-    const SZX_ID_MODEL: Record<number, SpectrumModel> = {
-      0: 'zx16k', 1: 'zx48k', 2: 'zx128k', 3: 'zx128kplus2', 4: 'zx128kplus2a', 5: 'zx128kplus3', 6: 'zx128kplus3',
-      7: 'pentagon128', 10: 'scorpion256', 13: 'pentagon512', 14: 'pentagon1024',
-    };
-    const szxModel: SpectrumModel = (data.length >= 7 ? SZX_ID_MODEL[data[6]] : undefined) ?? 'zx48k';
+    // The model comes from the file's own header, using the snapshot module's
+    // table — a second copy here would drift from it, and did: the Timex ids
+    // were missing, so a Timex snapshot loaded as a 48K. A different machine
+    // (a Timex's SCLD, or a 128K-class one's RAM) is a rebuild, not a reset.
+    const szxModel: SpectrumModel = machineIdOf(data);
     if (szxModel !== state.model) {
       await initMachine(szxModel);
-      spec = activeSpectrum()!; // szxModel is always a Spectrum model
-    } else {
-      spec.reset();
+      spec = activeSpectrum()!; // machineIdOf only ever names a Spectrum model
     }
+    spec.reset();
     const result = await loadSZX(data, spec.cpu, spec.memory);
     if (result.is128K) {
       // The same paging restore the app uses (direct property assignment + applyBanking,
       // NOT bankSwitch(), whose slot-diffing won't re-populate fixed slots), which also
       // handles the Pentagon 1024's EFF7 and the Scorpion's 1FFD.
-      applySZXPaging(spec.memory, szxModel === 'zx128kplus2a' || szxModel === 'zx128kplus3', result);
+      applySZXPaging(spec.memory, isPlus2AClass(spec.model), result);
     }
+    if (!result.is128K && is128kClass(spec.model)) spec.memory.selectSnapshot48KRom();
     spec.ula.borderColor = result.borderColor;
     spec.resumeAtFrameOffset(spec.cpu.tStates); // dwCyclesStart
-    return `SZX loaded: ${filename} (${szxModel}) PC=${h16(spec.cpu.pc)}`;
+    return `SZX loaded: ${filename} (${spec.model}) PC=${h16(spec.cpu.pc)}`;
   }
   return `Unsupported file type: ${ext}`;
 }

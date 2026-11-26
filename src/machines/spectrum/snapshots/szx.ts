@@ -163,6 +163,28 @@ function machineIs128K(machineId: number): boolean {
   return true;
 }
 
+/** The reverse of `MODEL_TO_MACHINE_ID`, for readers deciding which machine a
+ *  file was saved on. A Timex in its PAL build is the TC2068 id (9), which has
+ *  no model of its own here — it is the same `ts2068` board. */
+const MACHINE_ID_TO_MODEL: Record<number, SpectrumModel> = (() => {
+  const out: Record<number, SpectrumModel> = {};
+  for (const [model, id] of Object.entries(MODEL_TO_MACHINE_ID)) out[id] = model as SpectrumModel;
+  out[9] = 'ts2068';
+  out[6] = 'zx128kplus3';   // +3e: the same board as a +3
+  out[15] = 'zx48k';        // the NTSC 48K
+  return out;
+})();
+
+/**
+ * The Spectrum model a .szx's header names (byte 6), falling back to the 48K
+ * for a file too short to have one or an id this build does not know. The one
+ * place that question is answered — a second table elsewhere drifts from this
+ * one, and did (a Timex snapshot loaded as a 48K).
+ */
+export function machineIdOf(data: Uint8Array): SpectrumModel {
+  return (data.length >= 7 ? MACHINE_ID_TO_MODEL[data[6]] : undefined) ?? 'zx48k';
+}
+
 // ── Main loader ─────────────────────────────────────────────────────────
 
 export async function loadSZX(
