@@ -75,7 +75,11 @@ import {
 /** The cartridge boards a snapshot may name. */
 const CART_TYPES: ReadonlySet<string> = new Set<AtariCartType>([
   'std8', 'std16', 'oss-m091', 'oss-034m', 'oss-043m', 'oss8',
-  'xegs32', 'xegs64', 'xegs128', 'will64', 'bb40',
+  'xegs32', 'xegs64', 'xegs128',
+  'will32', 'will64', 'express64', 'diamond64', 'sdx64', 'sdx128',
+  'atarimax128', 'db32',
+  'mega16', 'mega32', 'mega64', 'mega128', 'mega256', 'mega512', 'mega1024',
+  'bb40',
 ]);
 
 /** Cycle of the line at which ANTIC posts NMIST and raises a VBI/DLI NMI. */
