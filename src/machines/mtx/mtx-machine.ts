@@ -89,6 +89,9 @@ export class MtxMachine extends BaseMachine implements Machine {
   floppyEnabled = true;
   /** How many of the FDX's two drives are fitted (Drives pane choice). */
   driveCount = MTX_MAX_DRIVES;
+  /** Whether the 512 KiB expansion was fitted at the last call, so the status
+   *  line only speaks when the fit actually changes. */
+  private ram512kFitted = false;
 
   private readonly vdpPixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
   private readonly vdpPixels32 = new Uint32Array(this.vdpPixels.buffer);
@@ -231,8 +234,15 @@ export class MtxMachine extends BaseMachine implements Machine {
   }
 
   set512kRamEnabled(enabled: boolean): void {
+    // Called from both applySettings and prepare on every settings change, so
+    // it must be idempotent: re-fitting an already-fitted board is a no-op and
+    // says nothing. Announcing it each time made the status line flicker on
+    // every unrelated Hardware-pane edit.
+    const was = this.ram512kFitted;
+    this.ram512kFitted = enabled;
     this.memory.set512kRamExpansionEnabled(enabled);
     this.services.disks.configureCpmRamDiskStartup(enabled);
+    if (was === enabled) return;
     const ramKib = this.memory.ramSizeBytes / 1024;
     this.setStatus(`512 KiB RAM expansion ${enabled ? 'enabled' : 'disabled'} (${ramKib} KiB total)`);
   }

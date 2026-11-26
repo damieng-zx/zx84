@@ -196,7 +196,7 @@ export class AtariMachine extends BaseMachine implements Machine {
   private pokeyReadAddr = -1;
   private pokeyReadValue = 0;
   readonly mixer: AudioMixer;
-  readonly audio = new Audio();
+  readonly audio: Audio;
   display: IScreenRenderer | null;
 
   /** Per-frame activity counters read by the frame probe. */

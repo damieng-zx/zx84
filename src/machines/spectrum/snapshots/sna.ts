@@ -86,11 +86,12 @@ export function loadSNA(
       }
     }
 
-    // Set up paging
-    memory.port7FFD = port7FFD;
-    memory.currentBank = currentBank;
+    // Set up paging. `latch7FFD` is the one place that reads a snapshot's 7FFD
+    // value: it derives the $C000 page through `bankFor7FFD` and the lock
+    // through `locksPaging`, which is not "D5 set" on a Pentagon 1024 running
+    // in 1MB mode (there D5 is a page bit, so it cannot lock).
+    memory.latch7FFD(port7FFD);
     memory.currentROM = (port7FFD >> 4) & 1;
-    memory.pagingLocked = (port7FFD & 0x20) !== 0;
     memory.applyBanking();
     // .sna is a 128K/+2 format (no 1FFD): on a +2A/+3 map its ROM select.
     memory.selectSnapshot128KRom();
