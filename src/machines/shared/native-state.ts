@@ -19,8 +19,9 @@
  * shell persists and remounts the disks itself.
  *
  * Each machine's `saveState` brings the machine to the end of the frame in
- * progress first (a debugger stop can leave one open), so a state is always
- * taken between frames and a restore carries on from the next.
+ * progress first (a debugger stop can leave one open), with
+ * `BaseMachine.completeFrame()`, so a state is always taken between frames and
+ * a restore carries on from the next.
  */
 
 import type { MachineHost, SnapshotApplyResult, SnapshotService } from '@/machines/machine.ts';
@@ -255,44 +256,5 @@ export class NativeSnapshotService implements SnapshotService {
     }
     void m.start();
     return true;
-  }
-}
-
-/** The debugger's stop conditions, as far as a frame loop can see them. */
-interface Stoppable {
-  breakpoints: Set<number>;
-  onTrap: ((pc: number, resume?: boolean) => boolean) | null;
-  beamTarget: { frame: number; t: number } | null;
-  memWatchpoints: unknown[];
-  portWatchpoints: Set<number>;
-  memWatchHit: unknown;
-  portWatchHit: unknown;
-}
-
-/**
- * Run `fn` (the rest of a frame a stop left open) with every breakpoint, trap,
- * watchpoint and beam target out of the way, then put them back — so a
- * snapshot can bring the machine to the end of the frame without stopping
- * again part-way.
- */
-export function withStopsDisarmed(m: Stoppable, fn: () => void): void {
-  const { breakpoints, onTrap, beamTarget, memWatchpoints, portWatchpoints } = m;
-  m.breakpoints = new Set();
-  m.onTrap = null;
-  m.beamTarget = null;
-  m.memWatchpoints = [];
-  m.portWatchpoints = new Set();
-  m.memWatchHit = null;
-  m.portWatchHit = null;
-  try {
-    fn();
-  } finally {
-    m.breakpoints = breakpoints;
-    m.onTrap = onTrap;
-    m.beamTarget = beamTarget;
-    m.memWatchpoints = memWatchpoints;
-    m.portWatchpoints = portWatchpoints;
-    m.memWatchHit = null;
-    m.portWatchHit = null;
   }
 }

@@ -12,8 +12,8 @@ import { M6502 } from '@/cores/m6502.ts';
 import { M65C02 } from '@/cores/m65c02.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import type { M6502Isa } from '@/debug/m6502/disasm.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
@@ -49,7 +49,6 @@ import { apple2Descriptor } from './descriptor.ts';
 import { wireApple2Io } from './apple2-io.ts';
 import { wireApple2eIo } from './apple2e-io.ts';
 import { createApple2Services, type Apple2Services } from './services/index.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Frames between flash-phase flips (the text-mode "flashing" attribute). */
@@ -79,7 +78,7 @@ class Apple2Speaker {
   toggle(): void { this.level ^= 1; }
 }
 
-export class Apple2Machine extends BaseMachine implements Machine {
+export class Apple2Machine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'apple2';
   readonly model: Apple2Model;
   private readonly modelInfo: Apple2ModelInfo;
@@ -165,8 +164,6 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.cpu = this.modelInfo.cpuPart ? new M65C02(this.modelInfo.cpuPart) : new M6502();
     this.isa = this.modelInfo.cpuPart ?? false;
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
-    // The 6502 core makes its bus accesses before it counts the cycles.
-    this.deferAccessStamps = true;
     this.display = display ?? null;
     this.memory = this.modelInfo.iie ? new Apple2eMemory() : new Apple2Memory();
     this.keyboard = new Apple2Keyboard(this.modelInfo.iie);
@@ -537,18 +534,10 @@ export class Apple2Machine extends BaseMachine implements Machine {
       note: 'line 0 is the first text/graphics line and line 192 starts VBL. ' + VIDEO_NOTES[this.videoAccuracy],
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
   /** An opcode is never read from the soft switches, whose reads flip them. */
   protected override peekOpcode(addr: number): number {
     return (addr & 0xFF00) === 0xC000 ? -1 : this.memory.readByte(addr);
   }
-
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   // ── Video accuracy ─────────────────────────────────────────────────────
 
@@ -801,16 +790,6 @@ export class Apple2Machine extends BaseMachine implements Machine {
   private static cardsName(fitted: readonly boolean[]): string {
     const names = ['Disk II', 'language card', '80-column card', 'Mockingboard'].filter((_, i) => fitted[i]);
     return names.length === 0 ? 'no cards' : names.join(', ');
-  }
-
-  /** Run the rest of a frame a stop left part-way, with every stop set aside,
-   *  so the machine is between frames (a snapshot is taken there). */
-  private completeFrame(): void {
-    if (!this.midFrame) return;
-    withStopsDisarmed(this, () => {
-      this.resumeSkipPc = -1;
-      this.stepFrame();
-    });
   }
 
   /**

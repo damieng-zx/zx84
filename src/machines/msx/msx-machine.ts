@@ -26,7 +26,7 @@ import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { soundDeviceGains } from '@/machines/machine.ts';
@@ -46,9 +46,8 @@ import { MsxDiskInterface } from '@/machines/msx/peripherals/disk-interface.ts';
 import { msxDiskAuxRom, msxFirmwareAuxRom } from '@/machines/msx/aux-roms.ts';
 import { MsxPpi, installMsxMemoryHooks, wireMsxPortIO } from '@/machines/msx/msx-io.ts';
 import { createMsxConfig, type MsxConfig } from '@/machines/msx/config.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import {
   MSX_CPU_CLOCK, MSX_PSG_CLOCK, MSX_MAX_DRIVES,
@@ -62,7 +61,7 @@ const KEY_CLICK_GAIN = 0.5;
 /** Active display lines (0..191); the VDP raises its vblank at line 192. */
 const ACTIVE_LINES = 192;
 
-export class MsxMachine extends BaseMachine implements Machine {
+export class MsxMachine extends Z80MachineBase implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   protected override get frameHz(): number { return this.config.frameHz; }
   readonly kind: MachineKind = 'msx';
@@ -431,12 +430,6 @@ export class MsxMachine extends BaseMachine implements Machine {
       note: 'line 0 is the first active line of the VDP; each line is drawn whole when the CPU reaches its end, so a VDP write shows from the line it is made in',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
 
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1 || (this.tapeTurbo && this.tapeMoving);
@@ -544,12 +537,6 @@ export class MsxMachine extends BaseMachine implements Machine {
 
   /** The disk interface is in slot 3 (enabled and with its ROM). */
   private get diskFitted(): boolean { return this.memory.hasDiskInterface; }
-
-  /** Run the rest of a frame a stop left open, so the machine is between
-   *  frames (where a snapshot is taken). */
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
-  }
 
   /**
    * Write the machine's sections of a `.msxstate` (see snapshots/msx-state.ts):

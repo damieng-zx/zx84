@@ -15,8 +15,8 @@ import { M6502 } from '@/cores/m6502.ts';
 import { M6522 } from '@/cores/m6522.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -27,7 +27,6 @@ import { soundDeviceGains } from '@/machines/machine.ts';
 import type { OcrResult } from '@/ocr/ocr.ts';
 import { ocrOricText } from '@/ocr/oric.ts';
 import { applyAySettings } from '@/machines/shared/ay-settings.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 import {
   ORIC_ACTIVE_HEIGHT, ORIC_BORDER_LEFT, ORIC_BORDER_TOP, ORIC_CPU_CLOCK,
@@ -60,7 +59,7 @@ interface SampleRateAware {
   setSampleRate(rate: number): void;
 }
 
-export class OricMachine extends BaseMachine implements Machine {
+export class OricMachine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'oric';
   readonly model: OricModel;
   host: MachineHost | null = null;
@@ -108,7 +107,6 @@ export class OricMachine extends BaseMachine implements Machine {
     this.display = display ?? null;
 
     this.cpu.onInterrupt = () => this.noteInterrupt(this.cpu.pc, false);
-    this.deferAccessStamps = true;
 
     this.cpu.read = (addr) => {
       const value = this.memory.readByte(addr);
@@ -351,16 +349,6 @@ export class OricMachine extends BaseMachine implements Machine {
       note: 'The ULA shows 224 lines of 64 cycles; the 50 Hz frame is 312 lines, the 60 Hz one 260. One column of the display is one microsecond.',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number {
-    return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a));
-  }
-  protected override peekOpcode(addr: number): number { return this.memory.peekByte(addr); }
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   stepInstruction(): void {
     const before = this.cpu.tStates;
@@ -523,16 +511,6 @@ export class OricMachine extends BaseMachine implements Machine {
   // ── Snapshots (.oricstate; see shared/native-state.ts) ───────────────────
   stateRomCrcs(): number[] {
     return [crc32(this.memory.rom), crc32(this.memory.eprom)];
-  }
-
-  /** Run the rest of a frame a stop left part-way, with every stop set aside,
-   *  so the machine is between frames (a snapshot is taken there). */
-  private completeFrame(): void {
-    if (!this.midFrame) return;
-    withStopsDisarmed(this, () => {
-      this.resumeSkipPc = -1;
-      this.stepFrame();
-    });
   }
 
   saveState(w: StateWriter, _withMedia: boolean): void {

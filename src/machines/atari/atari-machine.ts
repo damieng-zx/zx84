@@ -627,8 +627,11 @@ export class AtariMachine extends BaseMachine implements Machine {
   }
 
   /** Run the rest of a frame that was stopped part-way, with every stop
-   *  ignored, so the machine is between frames (a snapshot needs that). */
-  private completeFrame(): void {
+   *  ignored, so the machine is between frames (a snapshot needs that). This
+   *  machine's own, not the driver's completeFrame(): the line loop keeps its
+   *  stop state in locals parked from line to line, which disarming the stop
+   *  fields does not reach. */
+  private completeOpenFrame(): void {
     if (!this.midFrame) return;
     this.ignoreStops = true;
     try {
@@ -835,7 +838,7 @@ export class AtariMachine extends BaseMachine implements Machine {
   saveState(w: StateWriter, withMedia: boolean): void {
     // A frame stopped part-way holds loop state this snapshot does not carry;
     // run the rest of it first, as step_frame would.
-    this.completeFrame();
+    this.completeOpenFrame();
     const cpu = this.cpu;
     const mem = this.memory;
     w.section('CPU ', () => {

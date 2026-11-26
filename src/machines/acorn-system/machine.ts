@@ -19,8 +19,8 @@ import { Crtc6845 } from '@/cores/crtc-6845.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -49,7 +49,7 @@ class NoSound {
 /** The 6845's R10 cursor register (bit 6 = no blink, bit 5 = 1/32 field). */
 const R_CURSOR_START = 10;
 
-export class AcornSystemMachine extends BaseMachine implements Machine {
+export class AcornSystemMachine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'acorn-system';
   readonly model: AcornSystemModel;
   readonly info: AcornSystemModelInfo;
@@ -332,16 +332,6 @@ export class AcornSystemMachine extends BaseMachine implements Machine {
       note: 'one buffer line per scanline of the 312-line field; the VDU card reads its own character RAM, so the picture is drawn whole at the end of the frame',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number {
-    return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a));
-  }
-  protected override peekOpcode(addr: number): number { return this.memory.peekByte(addr); }
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1;

@@ -26,10 +26,9 @@ import { Mos6526 } from '@/cores/mos6526.ts';
 import { Mos6581 } from '@/cores/mos6581.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { accessTime, isReadModifyWrite } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
@@ -100,7 +99,7 @@ const KEYBUF = 0x0277;
 const KEYBUF_COUNT = 0xC6;
 const BASIC_START = 0x0801;
 
-export class C64Machine extends BaseMachine implements Machine {
+export class C64Machine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'c64';
   readonly model: C64Model;
   host: MachineHost | null = null;
@@ -224,7 +223,6 @@ export class C64Machine extends BaseMachine implements Machine {
     this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
     this.mixer.beeperGain = 1;
     this.mixer.psgGain = 1;
-    this.deferAccessStamps = true;
 
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
     this.cpu.read = (addr) => {
@@ -677,7 +675,6 @@ export class C64Machine extends BaseMachine implements Machine {
   protected get audioChip(): Mos6581 { return this.sid; }
   protected framePixels(): Uint8Array { return this._pixels; }
   protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
@@ -846,12 +843,6 @@ export class C64Machine extends BaseMachine implements Machine {
       note: `line 0 is raster line 0 and cycle 0 of a line is the ${this.timing.ntsc ? '6567' : '6569'}'s cycle 1, where the raster counter moves on and the raster interrupt is raised; bad lines hold the CPU from cycle 11 to 54 and sprite DMA from cycle 54 on. The display window is lines 51-250. The picture is drawn as the beam goes, caught up before every VIC-II and CIA 2 write`,
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
   /** No opcode is fetched from I/O, where a read has side effects. */
   protected override peekOpcode(addr: number): number {
     return (addr >> 12) === 0xD && this.memory.ioIn ? -1 : this.memory.peekByte(addr);
@@ -937,10 +928,6 @@ export class C64Machine extends BaseMachine implements Machine {
   /** CRC-32s of BASIC, the KERNAL and the character ROM. */
   stateRomCrcs(): number[] {
     return [crc32(this.memory.basic), crc32(this.memory.kernal), crc32(this.memory.chargen)];
-  }
-
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
   }
 
   /** The machine's state between frames. The tape is not part of it. */

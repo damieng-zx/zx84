@@ -11,7 +11,7 @@
 
 import { Z80 } from '@/cores/z80.ts';
 import type { DisasmLine } from '@/debug/z80/disasm.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 import { ULA, PALETTES, type BorderMode } from '@/machines/spectrum/ula.ts';
@@ -31,7 +31,7 @@ import { installMemoryHooks, wirePortIO } from '@/machines/spectrum/io.ts';
 import { KempstonJoystick, TimexJoystick } from '@/machines/spectrum/peripherals/joysticks.ts';
 import { KempstonMouse } from '@/machines/shared/kempston-mouse.ts';
 import { AmxMouse } from '@/machines/spectrum/peripherals/amx-mouse.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { Multiface } from '@/machines/spectrum/peripherals/multiface.ts';
 import { VTX5000 } from '@/machines/spectrum/peripherals/vtx5000.ts';
@@ -156,7 +156,7 @@ function scorpionTrdosSequence(): BootKeyStep[] {
 /** The +3's built-in drives, and the +D / Beta Disk interfaces, each have two. */
 export const SPECTRUM_MAX_DRIVES = 2;
 
-export class Spectrum extends BaseMachine implements Machine {
+export class Spectrum extends Z80MachineBase implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'spectrum';
   /** Operator's panel (shell / MCP) — null when running headless. */
@@ -861,15 +861,6 @@ export class Spectrum extends BaseMachine implements Machine {
     this.midFrame = false;
   }
 
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  /** The Z80 pushes the return address low byte first: it is at SP, SP+1. */
-  protected override interruptedPc(): number {
-    return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a));
-  }
-
   /** The frame in progress and the T-states since the interrupt that started
    *  it. Between frames it is the next frame, mirroring the start `runFrame`
    *  will give it, so `t` is small and never a whole frame. */
@@ -904,7 +895,6 @@ export class Spectrum extends BaseMachine implements Machine {
   /** The INT retry window's state when the frame was stopped. */
   private intPendingF = false;
 
-  override supportsBeamStops(): boolean { return true; }
 
   protected runFrame(): void {
     // A frame a debugger stopped part-way is carried on, not started again:

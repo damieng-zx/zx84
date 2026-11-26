@@ -2,10 +2,9 @@ import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type {
   AuxRomRequest, BorderMode, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
@@ -110,7 +109,7 @@ const QUICKSILVA_RAM = 0xa000;
 const MEMOTECH_ROM_SOURCE = 'https://raw.githubusercontent.com/charlierobson/EightyOne/master/Source/ROMs/Graphics/memotechhrg.rom';
 const QUICKSILVA_ROM_SOURCE = 'https://raw.githubusercontent.com/charlierobson/EightyOne/master/Source/ROMs/Graphics/quicksilvahires.rom';
 
-export class Zx8xMachine extends BaseMachine implements Machine {
+export class Zx8xMachine extends Z80MachineBase implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'zx8x';
   readonly model: Zx8xModel;
@@ -636,12 +635,6 @@ export class Zx8xMachine extends BaseMachine implements Machine {
       note: `the CPU generates the picture, so a frame is a fixed slice of ${this.linesPerFrame} lines of 207T counted from reset, not the TV frame: on the ZX81 each line starts with an NMI while the NMI generator is on (OUT (0xFE)); vertical sync and the position of the picture are made by the ROM or program (IN from 0xFE starts VSYNC), so line 0 is not the top of the picture and displayStart is 0 only nominally; the ZX80 has no NMI generator and its lines are just 207T of CPU time. The display file is drawn once at the end of the frame (pseudo-hi-res rows as the CPU fetches them)`,
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   protected runFrame(): void {
     // A frame a stop left part-way carries on from the line it was in, whose
@@ -1167,12 +1160,6 @@ export class Zx8xMachine extends BaseMachine implements Machine {
   stateRomCrcs(): number[] {
     const hrg = this.memory.getHrgRom();
     return [crc32(this.memory.getRom()), hrg.length ? crc32(hrg) : 0];
-  }
-
-  /** Run the rest of a frame a stop left open, so the machine is between
-   *  frames (where a snapshot is taken). */
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
   }
 
   /**

@@ -20,8 +20,8 @@ import { M6502 } from '@/cores/m6502.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
@@ -39,7 +39,6 @@ import {
   ElectronUla, INT_DISPLAY_END, INT_RTC, MODE_DISPEND, MODE_MAX_RA,
 } from './electron-ula.ts';
 import { wireElectronIo } from './electron-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { ElectronPlus1, PLUS1_ROM_PAGE, CART_PAGES } from './peripherals/plus1.ts';
 import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { ADFS_SECTORS_PER_TRACK } from '@/media/floppy/adfs.ts';
@@ -80,7 +79,7 @@ const PIXELS_PER_CYCLE = 8;
 /** The Electron has no sound chip to feed: the ULA's beeper goes through the mixer. */
 const NO_CHIP = { setSampleRate(): void {} };
 
-export class ElectronMachine extends BaseMachine implements Machine {
+export class ElectronMachine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'electron';
   readonly model: ElectronModel;
   host: MachineHost | null = null;
@@ -148,8 +147,6 @@ export class ElectronMachine extends BaseMachine implements Machine {
     this.model = model;
     this.display = display ?? null;
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
-    // The 6502 core makes its bus accesses before it counts the cycles.
-    this.deferAccessStamps = true;
     this.cpu.read = (addr) => {
       this.contend(addr);
       const value = this.memory.readByte(addr);
@@ -417,12 +414,6 @@ export class ElectronMachine extends BaseMachine implements Machine {
         + VIDEO_NOTES[this.videoAccuracy],
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
   /** An opcode is never read from the hardware pages, where reads have side effects. */
   protected override peekOpcode(addr: number): number {
     return addr >= 0xFC00 && addr < 0xFF00 ? -1 : this.memory.peekByte(addr);
@@ -453,8 +444,6 @@ export class ElectronMachine extends BaseMachine implements Machine {
   }
 
   // ── Frame ────────────────────────────────────────────────────────────────
-
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1 || this.cassette.turboActive;
@@ -642,16 +631,6 @@ export class ElectronMachine extends BaseMachine implements Machine {
   /** The expansions fitted, as the Hardware pane names them. */
   private static expansionsName(plus1: boolean, plus3: boolean, dfs: boolean): string {
     return `${plus1 ? 'a Plus 1' : 'no Plus 1'} and ${plus3 ? `a Plus 3 (${dfs ? 'DFS' : 'ADFS'})` : 'no Plus 3'}`;
-  }
-
-  /** Run the rest of a frame a stop left part-way, with every stop set aside,
-   *  so the machine is between frames (a snapshot is taken there). */
-  private completeFrame(): void {
-    if (!this.midFrame) return;
-    withStopsDisarmed(this, () => {
-      this.resumeSkipPc = -1;
-      this.stepFrame();
-    });
   }
 
   /**

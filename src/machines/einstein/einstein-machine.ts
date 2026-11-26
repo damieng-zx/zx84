@@ -31,7 +31,7 @@ import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, SettingsView } from '@/machines/machine.ts';
@@ -48,9 +48,8 @@ import { EinsteinMemory } from '@/machines/einstein/einstein-memory.ts';
 import { EinsteinKeyboard } from '@/machines/einstein/einstein-keyboard.ts';
 import { installEinsteinMemoryHooks, wireEinsteinPortIO } from '@/machines/einstein/einstein-io.ts';
 import { createEinsteinConfig, type EinsteinConfig } from '@/machines/einstein/config.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import {
   EINSTEIN_AY_CLOCK, EINSTEIN_CPU_CLOCK, EINSTEIN_MAX_DRIVES, EINSTEIN_T_PER_FRAME,
@@ -66,7 +65,7 @@ import {
 /** PAL scanlines per field. */
 const LINES_PER_FRAME = 313;
 
-export class EinsteinMachine extends BaseMachine implements Machine {
+export class EinsteinMachine extends Z80MachineBase implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'einstein';
   readonly model: EinsteinModel;
@@ -317,12 +316,6 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       note: 'line 0 is the first active line of the VDP; the 4MHz PAL field is split evenly over 313 lines, so a line is a fractional ~255.6 cycles; each line is drawn whole when the CPU reaches its end, so a VDP write shows from the line it is made in; the frame flag rises at the end of the last active line (192, or 212 in the V9938\'s 212-line mode); the CTC interrupts run off the cycle count, not the raster',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   /**
    * Execute one PAL field. Runs the CPU scanline by scanline, advancing the CTC
@@ -547,12 +540,6 @@ export class EinsteinMachine extends BaseMachine implements Machine {
 
   /** CRC-32 of the MOS ROM, for the snapshot header. */
   stateRomCrcs(): number[] { return [crc32(this.memory.getRom())]; }
-
-  /** Run the rest of a frame a stop left open, so the machine is between
-   *  frames (where a snapshot is taken). */
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
-  }
 
   /**
    * Write the machine's sections of a `.einstate` (see

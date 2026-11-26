@@ -19,8 +19,8 @@ import { I8255 } from '@/cores/i8255.ts';
 import { Mc6847, mc6847Colour } from '@/cores/mc6847.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -43,7 +43,6 @@ import { ATOM_DEFAULT_OPTIONS, readAtomOptions, type AtomOptions } from './optio
 import { atomDescriptor } from './descriptor.ts';
 import { createAtomServices, type AtomServices } from './services/index.ts';
 import { atomChips } from './atom-chips.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** The Atom's colour-board palette, in the 6847 core's slot layout. Text has a
@@ -70,7 +69,7 @@ class NoSound {
   setSampleRate(_rate: number): void {}
 }
 
-export class AtomMachine extends BaseMachine implements Machine {
+export class AtomMachine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'atom';
   readonly model: AtomModel;
   host: MachineHost | null = null;
@@ -126,8 +125,6 @@ export class AtomMachine extends BaseMachine implements Machine {
     // Nothing on the board drives NMI; the VIA can drive IRQ. The hook exists
     // for the interrupt log all the same.
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
-    // The 6502 core makes its bus accesses before it counts the cycles.
-    this.deferAccessStamps = true;
     this.cpu.read = (addr) => {
       const value = this.memory.readByte(addr);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
@@ -327,14 +324,6 @@ export class AtomMachine extends BaseMachine implements Machine {
       note: 'The 6847 field is 262 lines of 228 dot clocks; the 6502 runs 64 cycles per line. Active video is the first 192 lines, vertical blanking the 32 lines from 192 to 223, which is the PPI\'s VSYNC input.',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
-  protected override peekOpcode(addr: number): number { return this.memory.peekByte(addr); }
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   stepInstruction(): void {
     const before = this.cpu.tStates;
@@ -461,16 +450,6 @@ export class AtomMachine extends BaseMachine implements Machine {
     return [
       crc32(this.memory.basicRom), crc32(this.memory.floatRom), crc32(this.memory.kernelRom),
     ];
-  }
-
-  /** Run the rest of a frame a stop left part-way, with every stop set aside,
-   *  so the machine is between frames (a snapshot is taken there). */
-  private completeFrame(): void {
-    if (!this.midFrame) return;
-    withStopsDisarmed(this, () => {
-      this.resumeSkipPc = -1;
-      this.stepFrame();
-    });
   }
 
   saveState(w: StateWriter, _withMedia: boolean): void {
