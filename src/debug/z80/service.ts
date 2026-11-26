@@ -300,7 +300,7 @@ export class Z80DebugService implements DebugService {
       const bytesStr = Array.from({ length: dl.length }, (_, j) => hex8(snap[(dl.addr + j) & 0xFFFF]))
         .join(' ')
         .padEnd(12, ' ');
-      const mnem = dl.text.padEnd(24, ' ');
+      const mnem = stripMarkers(dl.text).padEnd(24, ' ');
       lines.push(`${dl.addr === cpu.pc ? '>' : ' '} ${hex16(addr)}  ${bytesStr}  ${mnem}`);
       addr = (addr + dl.length) & 0xFFFF;
     }
