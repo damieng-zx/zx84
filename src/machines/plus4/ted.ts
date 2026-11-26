@@ -31,10 +31,12 @@
  * display splits between lines; it is coarser than the chip for mid-line
  * tricks, which is this model's one knowing approximation.
  *
- * A bad line — the line of a character row whose line counter matches YSCROLL —
- * is the line the chip fetches the whole 40-character row on, and it holds the
- * CPU off the bus (the machine charges 88 of the 114 cycles). That is what
- * makes the raster compare interrupt and the splits usable.
+ * A bad line — the line whose low three raster bits match YSCROLL + 1 — is the
+ * line the chip fetches the whole 40-character row on, and it holds the CPU off
+ * the bus (the machine charges 88 of the 114 cycles). That is what makes the
+ * raster compare interrupt and the splits usable. The KERNAL uses YSCROLL 3,
+ * which puts the fetch on the first line of every character row; the fetch
+ * never moves the picture, it only decides when the row's matrix arrives.
  *
  * The frame buffer is the 320x200 display window with 16 lines of the chip's
  * overscan border above and below it (and 32 pixels either side): the whole
@@ -325,8 +327,10 @@ export class Ted {
   /** The bitmap base (`$FF12` bits 3-5, 2K steps). */
   get bitmapAddress(): number { return (this.regs[0x12] & 0x38) << 10; }
 
-  /** The background colour (`$FF15`). */
+  /** The background colour (`$FF15`), used as the paper under the display. */
   get background(): number { return this.regs[0x15] & 0x7F; }
+  /** The border colour (`$FF19`). */
+  get border(): number { return this.regs[0x19] & 0x7F; }
   /** Extended background colour `i` (0-2) from `$FF16`-`$FF18`. */
   extendedBackground(i: number): number { return this.regs[0x16 + i] & 0x7F; }
 
@@ -340,13 +344,18 @@ export class Ted {
   isBadLine(line: number): boolean {
     if (!this.displayOn || this.illegalMode) return false;
     if (line < this.displayStart || line >= this.displayStop) return false;
-    return this.rowOf(line).sub === this.yscroll;
+    // The matrix fetch falls on the line whose low raster bits are YSCROLL + 1.
+    // With the KERNAL's YSCROLL 3 that is the first line of each character row.
+    return (line & 7) === ((this.yscroll + 1) & 7);
   }
 
-  /** The line within the character row `line` is on, after the scroll. */
+  /**
+   * The line within the character row the beam is on. This is the chip's free
+   * running line counter (`$FF1F`): YSCROLL only decides when the row is
+   * fetched, never which glyph line is drawn, so the picture never rotates.
+   */
   private subLine(): number {
-    const { sub } = this.rowOf(this.raster);
-    return (sub - this.yscroll) & 7;
+    return this.rowOf(this.raster).sub;
   }
 
   // ── Drawing ─────────────────────────────────────────────────────────────
@@ -394,10 +403,17 @@ export class Ted {
     const line = this.raster;
     this.lineStartT = this.drawn;
     this.linePaintT = this.drawn;
-    const { row } = this.rowOf(line);
+    const { row, sub } = this.rowOf(line);
     this.badLine = this.isBadLine(line);
-    if (this.badLine || this.rowFetched !== row) {
-      if (this.displayOn && !this.illegalMode && line >= this.displayStart && line < this.displayStop) {
+    if (this.displayOn && !this.illegalMode && line >= this.displayStart && line < this.displayStop) {
+      if (this.badLine) {
+        // The matrix fetched on a bad line is the row that starts at the next
+        // row boundary: the KERNAL's YSCROLL 3 puts that on the boundary
+        // itself, any other value fetches the next row part-way through this
+        // one (so the rest of the row repaints with it, as the chip does).
+        this.fetchRow(sub === 0 ? row : row + 1);
+      } else if (this.rowFetched !== row) {
+        // A row that starts without a fetch (the display was just turned on).
         this.fetchRow(row);
       }
     }
@@ -416,6 +432,10 @@ export class Ted {
       this.rowFetched = -1;
       this.cursorPhase = (this.cursorPhase + 1) & 0x1F;
       this.cursorVisible = (this.cursorPhase & 0x10) !== 0;
+      // The buffer starts `rasterOffset` lines into the frame, so its first
+      // rows are the previous frame's last (overscan) lines: all border.
+      const end = Math.min(this.timing.rasterOffset, this.height) * this.width;
+      this.pixels.fill(PLUS4_PALETTE[this.border], 0, end);
     }
   }
 
@@ -454,13 +474,19 @@ export class Ted {
     if (y < 0 || y >= this.height || to <= from) return;
     const rowBase = y * this.width;
     const px = this.pixels;
-    // The border and the paper behind the display are the background colour.
-    px.fill(PLUS4_PALETTE[this.background], rowBase + from, rowBase + to);
+    // The overscan is the border colour ($FF19); the paper behind the display
+    // window is the background ($FF15). They are separate registers.
+    px.fill(PLUS4_PALETTE[this.border], rowBase + from, rowBase + to);
     if (!this.displayOn || this.illegalMode) return;
     if (this.raster < this.displayStart || this.raster >= this.displayStop) return;
-    const { sub } = this.rowOf(this.raster);
-    const rowLine = (sub - this.yscroll) & 7;
+    const rowLine = this.subLine();
     const x0 = this.fieldX + (this.narrow ? 7 : 0) + this.xscroll;
+    // The 320-pixel display window sits on the background colour.
+    const paperFrom = Math.max(from, x0);
+    const paperTo = Math.min(to, x0 + PLUS4_COLUMNS * 8);
+    if (paperTo > paperFrom) {
+      px.fill(PLUS4_PALETTE[this.background], rowBase + paperFrom, rowBase + paperTo);
+    }
     switch (this.videoMode) {
       case 0: this.drawText(px, rowBase, x0, rowLine, false, false, from, to); break;
       case 1: this.drawText(px, rowBase, x0, rowLine, true, false, from, to); break;

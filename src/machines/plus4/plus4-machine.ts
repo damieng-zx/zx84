@@ -867,7 +867,7 @@ export class Plus4Machine extends BaseMachine implements Machine {
   get textField(): { x: number; y: number; width: number; height: number } {
     return {
       x: this.ted.fieldX + (this.ted.narrow ? 7 : 0) + this.ted.xscroll,
-      y: this.ted.fieldY + this.ted.yscroll,
+      y: this.ted.fieldY,
       width: 40 * 8,
       height: 25 * 8,
     };

@@ -236,14 +236,20 @@ describe('the TED', () => {
 
   it('takes the bus for 88 of 114 cycles on a bad line', () => {
     const t = bareTed();
+    // YSCROLL 0: the matrix fetch falls on the line whose low raster bits are 1,
+    // five lines before the next character row starts at line 4 of the window.
     t.write(0x06, 0x18, 0);
-    // A 25-row display's first line is raster line 4, and YSCROLL 0 makes the
-    // first line of every character row bad.
-    expect(t.isBadLine(4)).toBe(true);
-    expect(t.isBadLine(5)).toBe(false);
-    expect(t.isBadLine(12), 'the next row').toBe(true);
+    expect(t.isBadLine(9)).toBe(true);
+    expect(t.isBadLine(10)).toBe(false);
+    expect(t.isBadLine(17), 'the next row').toBe(true);
     expect(t.isBadLine(3), 'above the window').toBe(false);
     expect(t.isBadLine(PLUS4_PAL_LINES - 1), 'below it').toBe(false);
+
+    // The KERNAL's YSCROLL 3 puts the fetch on the first line of each row.
+    t.write(0x06, 0x1B, 0);
+    expect(t.isBadLine(4), 'the first row starts here').toBe(true);
+    expect(t.isBadLine(5)).toBe(false);
+    expect(t.isBadLine(12), 'and the next row').toBe(true);
   });
 });
 
@@ -451,6 +457,29 @@ describe.skipIf(!kernal || !basic)('Plus/4 with the Commodore ROMs', () => {
     // also the check that $FC00-$FCFF banks back to RAM when the ROMs are out.
     expect(text, 'the memory size').toContain('60671 BYTES FREE');
     expect(text, 'READY.').toContain('READY.');
+  });
+
+  it('draws whole characters, one glyph line per raster line', () => {
+    const m = boot();
+    for (let f = 0; f < 400; f++) m.tick();
+    const t = m.ted;
+    // The banner's first character is 'C' at screen row 1, column 1, and the
+    // 264 font's 'C' is these eight bytes (the standard Commodore charset).
+    expect(m.memory.readByte(t.screenAddress + 40 + 1) & 0x7F, 'the C').toBe(0x03);
+    const glyph = [0x3C, 0x66, 0x60, 0x60, 0x60, 0x66, 0x3C, 0x00];
+    for (let line = 0; line < 8; line++) {
+      const row = (t.fieldY + 8 + line) * t.width;
+      const paper = t.pixels[row + t.fieldX];
+      let bits = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        if (t.pixels[row + t.fieldX + 8 + bit] !== paper) bits |= 0x80 >> bit;
+      }
+      expect(bits, `glyph line ${line}`).toBe(glyph[line]);
+    }
+    // The overscan is $FF19 and the paper under the display is $FF15.
+    expect(t.pixels[0], 'the top border').toBe(PLUS4_PALETTE[t.regs[0x19] & 0x7F]);
+    expect(t.pixels[t.fieldY * t.width], 'the left border').toBe(PLUS4_PALETTE[t.regs[0x19] & 0x7F]);
+    expect(t.pixels[t.fieldY * t.width + t.fieldX], 'the paper').toBe(PLUS4_PALETTE[t.regs[0x15] & 0x7F]);
   });
 
   it('prints numbers and strings', () => {
