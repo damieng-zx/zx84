@@ -82,7 +82,7 @@ export class OricMachine extends BaseMachine implements Machine {
   display: IScreenRenderer | null;
 
   /** Per-frame activity for the frame probe. */
-  readonly activity = { keyboardReads: 0, psgWrites: 0 };
+  readonly activity = { keyboardReads: 0, psgWrites: 0, fdcAccesses: 0 };
 
   /** A listing being typed at the keyboard, one key at a time. */
   private paste: string[] = [];
@@ -142,6 +142,7 @@ export class OricMachine extends BaseMachine implements Machine {
       // The Microdisc decodes $0310-$031B *above* the VIA's mirror, so it must
       // be consulted first: an address the card owns never reaches the VIA.
       if (this.microdisc && OricMicrodisc.decodes(0x0300 | addr)) {
+        this.activity.fdcAccesses++;
         return this.microdisc.read(0x0300 | addr);
       }
       // Any other page-3 address selects the VIA; its 16 registers are
@@ -159,6 +160,7 @@ export class OricMachine extends BaseMachine implements Machine {
     memory.ioWrite = (addr, value) => {
       addr &= 0xFF;
       if (this.microdisc && OricMicrodisc.decodes(0x0300 | addr)) {
+        this.activity.fdcAccesses++;
         this.microdisc.write(0x0300 | addr, value & 0xFF);
         // The latch is what flips the memory map, so re-derive it immediately.
         this.syncMemoryMap();
@@ -319,6 +321,7 @@ export class OricMachine extends BaseMachine implements Machine {
     this.syncMemoryMap();
     this.activity.keyboardReads = 0;
     this.activity.psgWrites = 0;
+    this.activity.fdcAccesses = 0;
     this.mixer.reset();
     this.audio.reset();
     this.wireVia();
@@ -397,6 +400,7 @@ export class OricMachine extends BaseMachine implements Machine {
     if (!this.openFrame(cycles)) {
       this.activity.keyboardReads = 0;
       this.activity.psgWrites = 0;
+      this.activity.fdcAccesses = 0;
       this.feedPaste();
     }
     this.memWatchHit = null;
@@ -578,6 +582,7 @@ export class OricMachine extends BaseMachine implements Machine {
     this.cpu.setIRQ(false);
     this.activity.keyboardReads = 0;
     this.activity.psgWrites = 0;
+    this.activity.fdcAccesses = 0;
     this.mixer.reset();
     this.audio.reset();
     this.renderScreen();
