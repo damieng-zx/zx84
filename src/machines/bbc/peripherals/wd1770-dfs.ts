@@ -41,6 +41,7 @@ export class BbcDfs1770 implements BbcDiscController {
   reset(): void {
     this.control = 0;
     this.resetting = false;
+    // A board reset is a power cycle, so the mechanism is reset too.
     this.fdc.reset();
     this.fdc.setDensity(false);
   }
@@ -86,8 +87,11 @@ export class BbcDfs1770 implements BbcDiscController {
   private writeControl(val: number): void {
     this.control = val;
     // Reset is active low; only a fresh assertion (high->low) resets the chip.
+    // This drives the controller's /MR pin, which resets the chip alone: the
+    // drive heads stay where they are (the Acorn DFS relies on that, an
+    // assertion during a seek must not send the head home).
     const resetBit = (val & CTRL_RESET) !== 0;
-    if (!resetBit && !this.resetting) this.fdc.reset();
+    if (!resetBit && !this.resetting) this.fdc.masterReset();
     this.resetting = !resetBit;
     // Bit 1 selects drive 1, otherwise drive 0 (the Acorn board derives DS1 as
     // the inverse of DS0, so the two bits are not a binary drive number).
