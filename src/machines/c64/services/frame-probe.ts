@@ -5,31 +5,15 @@
  */
 
 import type {
-  FrameIndicators, FrameProbe, TranscribeDriver,
+  FrameIndicators, FrameProbe,
 } from '@/machines/machine.ts';
-import type { OcrGridName } from '@/ocr/ocr.ts';
 import type { C64Machine } from '../c64-machine.ts';
 import { sampleCbmDrives } from '@/machines/shared/cbm/drive-services.ts';
+import { CbmTranscribeDriver } from '@/machines/shared/cbm/frame-probe.ts';
 
 /** TEXT overlay: read the character screen, then blank what it read. */
-class C64TranscribeDriver implements TranscribeDriver {
-  private _active = false;
-  constructor(private readonly m: C64Machine) {}
-  get active(): boolean { return this._active; }
-  activate(): void { this._active = true; }
-  deactivate(): void { this._active = false; }
-  run(): {
-    text: string; html: string; grid: OcrGridName;
-    field: { x: number; y: number; width: number; height: number };
-  } {
-    const m = this.m;
-    const result = m.ocrScreenStyled();
-    if (result.mask.some(Boolean)) {
-      m.blankCells(result.mask, result.paper);
-      m.display?.updateTexture(m.pixels);
-    }
-    return { text: result.text, html: result.html, grid: result.grid, field: m.textField };
-  }
+class C64TranscribeDriver extends CbmTranscribeDriver {
+  constructor(m: C64Machine) { super(m); }
 }
 
 export class C64FrameProbe implements FrameProbe {

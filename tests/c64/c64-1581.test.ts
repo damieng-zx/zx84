@@ -303,7 +303,7 @@ describe('several drives', () => {
     m.installDriveRom('1541', rom('1541'));
     m.installDriveRom('1581', rom('1581'));
     const slots = m.services.roms.sidewaysSlots;
-    expect(slots.map(s => `${s.index}:${s.title}`)).toEqual(['0:1541 DOS', '1:1581 DOS']);
+    expect(slots!.map(s => `${s.index}:${s.title}`)).toEqual(['0:1541 DOS', '1:1581 DOS']);
     // A ROM dropped on the 1581 socket goes into both 1581s.
     const custom = new Uint8Array(0x8000).fill(0x77);
     m.services.roms.installSidewaysRom!(1, custom);

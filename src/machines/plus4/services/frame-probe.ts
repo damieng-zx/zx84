@@ -3,31 +3,15 @@
  */
 
 import type {
-  FrameIndicators, FrameProbe, TranscribeDriver,
+  FrameIndicators, FrameProbe,
 } from '@/machines/machine.ts';
-import type { OcrGridName } from '@/ocr/ocr.ts';
 import type { Plus4Machine } from '../plus4-machine.ts';
 import { sampleCbmDrives } from '@/machines/shared/cbm/drive-services.ts';
+import { CbmTranscribeDriver } from '@/machines/shared/cbm/frame-probe.ts';
 
 /** TEXT overlay: read the character screen, then blank what it read. */
-class Plus4TranscribeDriver implements TranscribeDriver {
-  private _active = false;
-  constructor(private readonly m: Plus4Machine) {}
-  get active(): boolean { return this._active; }
-  activate(): void { this._active = true; }
-  deactivate(): void { this._active = false; }
-  run(): {
-    text: string; html: string; grid: OcrGridName;
-    field: { x: number; y: number; width: number; height: number };
-  } {
-    const m = this.m;
-    const result = m.ocrScreenStyled();
-    if (result.mask.some(Boolean)) {
-      m.blankCells(result.mask, result.paper);
-      m.display?.updateTexture(m.pixels);
-    }
-    return { text: result.text, html: result.html, grid: result.grid, field: m.textField };
-  }
+class Plus4TranscribeDriver extends CbmTranscribeDriver {
+  constructor(m: Plus4Machine) { super(m); }
 }
 
 export class Plus4FrameProbe implements FrameProbe {

@@ -4,31 +4,15 @@
  */
 
 import type {
-  FrameIndicators, FrameProbe, TranscribeDriver,
+  FrameIndicators, FrameProbe,
 } from '@/machines/machine.ts';
-import type { OcrGridName } from '@/ocr/ocr.ts';
 import type { Vic20Machine } from '../vic20-machine.ts';
 import { sampleCbmDrives } from '@/machines/shared/cbm/drive-services.ts';
+import { CbmTranscribeDriver } from '@/machines/shared/cbm/frame-probe.ts';
 
 /** TEXT overlay: read the character screen, then blank what it read. */
-class Vic20TranscribeDriver implements TranscribeDriver {
-  private _active = false;
-  constructor(private readonly m: Vic20Machine) {}
-  get active(): boolean { return this._active; }
-  activate(): void { this._active = true; }
-  deactivate(): void { this._active = false; }
-  run(): {
-    text: string; html: string; grid: OcrGridName;
-    field: { x: number; y: number; width: number; height: number };
-  } {
-    const m = this.m;
-    const result = m.ocrScreenStyled();
-    if (result.mask.some(Boolean)) {
-      m.blankCells(result.mask, result.paper);
-      m.display?.updateTexture(m.pixels);
-    }
-    return { text: result.text, html: result.html, grid: result.grid, field: m.textField };
-  }
+class Vic20TranscribeDriver extends CbmTranscribeDriver {
+  constructor(m: Vic20Machine) { super(m); }
 }
 
 export class Vic20FrameProbe implements FrameProbe {
