@@ -82,7 +82,7 @@ export class PcwFrameProbe implements FrameProbe {
 
     const fdc = m.fdc;
     const fitted = m.driveCount;
-    const activeUnit = fdc.motorOn ? fdc.currentUnit & 1 : -1;
+    const activeUnit = fdc.motorOn ? fdc.currentDrive & 1 : -1;
     let soundSlot = -1;
     for (let u = 0; u < 4; u++) {
       if (u >= fitted) { out.driveLed[u] = -1; continue; }

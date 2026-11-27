@@ -15,8 +15,7 @@ import type {
 } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
-import type { WD179x } from '@/cores/wd179x.ts';
-import type { UPD765A } from '@/cores/upd765a.ts';
+import type { FloppyController } from '@/cores/floppy-controller.ts';
 import type { FontSource, OcrGridName } from '@/ocr/ocr.ts';
 import { DRIVE_PROFILE, byCapacity, fixedDrive } from '@/media/floppy/floppy-sound.ts';
 
@@ -28,7 +27,7 @@ const WD_DRIVE = fixedDrive('3.5inch');
 
 /** Compute a drive-panel slot's LED state: 0 off, 1 motor, 2 read, 3 write.
  *  Mirrors the old frame-bridge renderDriveStatus() decision tree. */
-function driveLed(fdc: UPD765A | WD179x, unit: number, activeUnit: number): number {
+function driveLed(fdc: FloppyController, unit: number, activeUnit: number): number {
   if (!fdc.motorOn || unit !== activeUnit) return 0;
   if (!fdc.isExecuting) return 1;
   return fdc.isWriting ? 3 : 2;
@@ -36,7 +35,7 @@ function driveLed(fdc: UPD765A | WD179x, unit: number, activeUnit: number): numb
 
 /** Fill one A..D panel slot from an FDC unit. Sector shows only while the
  *  active unit is executing (else -1 → '--'), as before. */
-function fillDriveSlot(out: FrameIndicators, slot: number, fdc: UPD765A | WD179x, unit: number, activeUnit: number): void {
+function fillDriveSlot(out: FrameIndicators, slot: number, fdc: FloppyController, unit: number, activeUnit: number): void {
   out.driveLed[slot] = driveLed(fdc, unit, activeUnit);
   out.driveTrack[slot] = fdc.getUnitTrack(unit);
   out.driveSector[slot] = fdc.isExecuting && unit === activeUnit ? fdc.currentSector : -1;
@@ -45,7 +44,7 @@ function fillDriveSlot(out: FrameIndicators, slot: number, fdc: UPD765A | WD179x
 
 /** The WD-family interface currently wired to panel slots C/D: the +D, else
  *  the Beta Disk (mutually exclusive), else null. */
-function activeWd(s: Spectrum): WD179x | null {
+function activeWd(s: Spectrum): FloppyController | null {
   return s.mgtPlusD.enabled ? s.mgtPlusD.fdc : s.betaDisk.enabled ? s.betaDisk.fdc : null;
 }
 
@@ -129,12 +128,12 @@ export class SpectrumFrameProbe implements FrameProbe {
     // ── Drive panel slots: A/B = uPD765A, C/D = +D or Beta Disk ──
     out.driveLed[0] = out.driveLed[1] = out.driveLed[2] = out.driveLed[3] = -1;
     if (v.hasFDC) {
-      const activeUnit = s.fdc.currentUnit;
+      const activeUnit = s.fdc.currentDrive;
       for (let u = 0; u < s.driveCount; u++) fillDriveSlot(out, u, s.fdc, u, activeUnit);
     }
     const wd = activeWd(s);
     if (wd) {
-      const wdActive = wd.currentUnit;
+      const wdActive = wd.currentDrive;
       for (let u = 0; u < s.driveCount; u++) fillDriveSlot(out, 2 + u, wd, u, wdActive);
     }
 
@@ -159,12 +158,12 @@ export class SpectrumFrameProbe implements FrameProbe {
     out.floppySlot = -1;
     out.floppyProfile = DRIVE_PROFILE.keep;
     if (v.hasFDC) {
-      out.floppySlot = s.fdc.currentUnit === 0 ? 0 : 1;
+      out.floppySlot = s.fdc.currentDrive === 0 ? 0 : 1;
       out.floppyMotor = s.fdc.motorOn;
       out.floppyTrack = s.fdc.currentTrack;
-      out.floppyProfile = FDC_DRIVE(s.fdc.getDiskImage(s.fdc.currentUnit));
+      out.floppyProfile = FDC_DRIVE(s.fdc.getDiskImage(s.fdc.currentDrive));
     } else if (wd) {
-      out.floppySlot = wd.currentUnit === 0 ? 2 : 3;
+      out.floppySlot = wd.currentDrive === 0 ? 2 : 3;
       out.floppyMotor = wd.motorOn;
       out.floppyTrack = wd.currentTrack;
       out.floppyProfile = WD_DRIVE();

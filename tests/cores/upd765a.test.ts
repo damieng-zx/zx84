@@ -1609,3 +1609,55 @@ describe('uPD765A — FORMAT_TRACK sizes data fields by the command N', () => {
     expect(tr.sectors[1].data.length).toBe(256);
   });
 });
+
+describe('uPD765A — command table parameter counts', () => {
+  // The datasheet's parameter byte counts, opcode by opcode. The controller
+  // sits in Command phase (RQM + CB) until the last parameter arrives, so how
+  // many bytes it swallows before acting is observable through the MSR alone.
+  const COUNTS: ReadonlyArray<[name: string, opcode: number, params: number]> = [
+    ['READ TRACK', 0x02, 8],
+    ['SPECIFY', 0x03, 2],
+    ['SENSE DRIVE STATUS', 0x04, 1],
+    ['WRITE DATA', 0x05, 8],
+    ['READ DATA', 0x06, 8],
+    ['RECALIBRATE', 0x07, 1],
+    ['SENSE INTERRUPT STATUS', 0x08, 0],
+    ['WRITE DELETED DATA', 0x09, 8],
+    ['READ ID', 0x0A, 1],
+    ['READ DELETED DATA', 0x0C, 8],
+    ['FORMAT TRACK', 0x0D, 5],
+    ['SEEK', 0x0F, 2],
+    ['VERSION', 0x10, 0],
+    ['SCAN EQUAL', 0x11, 8],
+    ['SCAN LOW OR EQUAL', 0x19, 8],
+    ['SCAN HIGH OR EQUAL', 0x1D, 8],
+  ];
+
+  for (const [name, opcode, params] of COUNTS) {
+    it(`${name} (0x${opcode.toString(16).padStart(2, '0')}) takes ${params} parameter byte(s)`, () => {
+      const fdc = new UPD765A();
+      fdc.writeData(opcode);
+      if (params === 0) {
+        // Ran at once: the result phase is up, not the command phase.
+        expect(fdc.readStatus() & (CB | EXM | DIO)).toBe(CB | DIO);
+        return;
+      }
+      // Every byte short of the last leaves it waiting in Command phase.
+      for (let i = 0; i < params; i++) {
+        expect(fdc.readStatus() & (CB | EXM | DIO | 0x80)).toBe(CB | 0x80);
+        fdc.writeData(0);
+      }
+      // The last one ran it, so it is no longer awaiting parameters. Commands
+      // with no result phase sit idle (RQM only); the rest are in result.
+      const msr = fdc.readStatus();
+      expect(msr & (EXM | 0x80)).toBe(0x80);
+      expect((msr & (CB | DIO)) === (CB | DIO) || msr === 0x80).toBe(true);
+    });
+  }
+
+  it('an unrecognised opcode is the invalid-command result', () => {
+    const d = new Driver();
+    // 0x1B is not a uPD765A command; it takes no parameters and answers ST0 IC=10.
+    expect(d.command(0x1B)).toEqual([ST0_INVALID]);
+  });
+});

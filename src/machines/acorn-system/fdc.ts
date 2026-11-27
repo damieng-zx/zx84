@@ -18,9 +18,10 @@
  */
 
 import { I8271 } from '@/cores/i8271.ts';
+import type { FloppyController } from '@/cores/floppy-controller.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 
-export class AcornSystemFdc {
+export class AcornSystemFdc implements FloppyController {
   private readonly fdc: I8271;
 
   constructor(onInterrupt: (asserted: boolean) => void) {
@@ -57,6 +58,7 @@ export class AcornSystemFdc {
 
   reset(): void { this.fdc.reset(); }
   tick(cycles: number): void { this.fdc.tick(cycles); }
+  tickFrame(): void { this.fdc.tickFrame(); }
 
   insertDisk(image: DskImage, unit: number): void { this.fdc.insertDisk(image, unit); }
   ejectDisk(unit: number): void { this.fdc.ejectDisk(unit); }
@@ -69,6 +71,10 @@ export class AcornSystemFdc {
   get isExecuting(): boolean { return this.fdc.isExecuting; }
   get isWriting(): boolean { return this.fdc.isWriting; }
   get currentDrive(): number { return this.fdc.currentDrive; }
+  get currentTrack(): number { return this.fdc.currentTrack; }
   get currentSector(): number { return this.fdc.currentSector; }
   getUnitTrack(unit: number): number { return this.fdc.getUnitTrack(unit); }
+  get connected(): boolean[] { return this.fdc.connected; }
+  get formattedUnit(): number { return this.fdc.formattedUnit; }
+  set formattedUnit(unit: number) { this.fdc.formattedUnit = unit; }
 }

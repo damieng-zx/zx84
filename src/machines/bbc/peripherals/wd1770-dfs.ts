@@ -54,6 +54,7 @@ export class BbcDfs1770 implements BbcDiscController {
   get isExecuting(): boolean { return this.fdc.isExecuting; }
   get isWriting(): boolean { return this.fdc.isWriting; }
   get currentDrive(): number { return this.fdc.currentDrive; }
+  get currentTrack(): number { return this.fdc.currentTrack; }
   get currentSector(): number { return this.fdc.currentSector; }
   getUnitTrack(unit: number): number { return this.fdc.getUnitTrack(unit); }
   get formattedUnit(): number { return this.fdc.formattedUnit; }
@@ -108,6 +109,7 @@ export class BbcDfs1770 implements BbcDiscController {
   isDirty(unit: number): boolean { return this.fdc.isDirty(unit); }
   clearDirty(unit: number): void { this.fdc.clearDirty(unit); }
   get writeProtect(): boolean[] { return this.fdc.writeProtect; }
+  get connected(): boolean[] { return this.fdc.connected; }
   setDriveCount(count: number): void {
     this.fdc.connected = this.fdc.connected.map((_, u) => u < count);
   }

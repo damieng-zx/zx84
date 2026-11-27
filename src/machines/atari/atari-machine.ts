@@ -19,7 +19,7 @@
  */
 
 import { M6502 } from '@/cores/m6502.ts';
-import { M6821 } from '@/cores/m6821.ts';
+import { M6820 } from '@/cores/m6820.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { BaseMachine } from '@/machines/base-machine.ts';
@@ -183,7 +183,7 @@ export class AtariMachine extends BaseMachine implements Machine {
   readonly antic = new Antic();
   readonly gtia = new Gtia();
   readonly pokey: Pokey;
-  readonly pia = new M6821();
+  readonly pia = new M6820();
   readonly video: AtariVideo;
   /** The picture-affecting register writes of the line being run, with the
    *  cycle each landed on, so the line can be drawn with them mid-line. */
@@ -303,9 +303,14 @@ export class AtariMachine extends BaseMachine implements Machine {
     this.cassette = new AtariCassette(this.timing.clockHz);
     this.sioBus = new SioBus(new SioDisks(this), this.timing.clockHz);
     // The bus's PROCEED and INTERRUPT lines are the PIA's CA1 and CB1; a device
-    // pulling one low is a high-to-low edge, the transition the OS selects.
-    this.sioBus.onProceed = asserted => this.pia.setC1(0, !asserted);
-    this.sioBus.onInterrupt = asserted => this.pia.setC1(1, !asserted);
+    // pulling one low is a high-to-low edge, the transition the OS selects. Both
+    // are pulled up on the board, so they idle high: prime the core's lines,
+    // which start low, so the first assertion is a genuine edge. This raises no
+    // flag — the control registers are still zero.
+    this.pia.setCA1(true);
+    this.pia.setCB1(true);
+    this.sioBus.onProceed = asserted => this.pia.setCA1(!asserted);
+    this.sioBus.onInterrupt = asserted => this.pia.setCB1(!asserted);
     // The SIO data-in line is a wired AND of whatever is driving it: the
     // recorder while its motor runs, and the disk drives answering a command
     // frame POKEY sent. Both idle at mark (1).
@@ -351,7 +356,7 @@ export class AtariMachine extends BaseMachine implements Machine {
     this.memory.ioRead = (addr) => this.readHardware(addr);
     this.memory.ioPeek = (addr) => this.peekHardware(addr);
     this.memory.ioWrite = (addr, val) => this.writeHardware(addr, val);
-    this.pia.inputB = 0xFF;
+    this.pia.portBInput = 0xFF;
 
     this.services = createAtariServices(this);
     this.sio = new AtariSio(this);
@@ -452,6 +457,10 @@ export class AtariMachine extends BaseMachine implements Machine {
     }
     this.pokey.reset();
     this.pia.reset();
+    // Reset clears the PIA's line levels, so prime the pulled-up handshake
+    // lines again (see the constructor).
+    this.pia.setCA1(true);
+    this.pia.setCB1(true);
     this.memory.reset();
     this.cassette.reset();
     this.joyDir.fill(0);
@@ -602,13 +611,12 @@ export class AtariMachine extends BaseMachine implements Machine {
   private dumpPia(): string {
     const p = this.pia;
     const h = (v: number) => v.toString(16).toUpperCase().padStart(2, '0');
-    const s = p.exportState();
     const rows: string[] = [];
     for (let i = 0; i < 2; i++) {
       const port = i === 0 ? 'PORTA' : 'PORTB';
       rows.push(
         `${port}  D30${i} = ${h(p.portValue(i))}  (pins, with the direction register applied)   DDR ${h(p.ddr[i])}  output latch ${h(p.out[i])}`,
-        `PACTL/PBCTL D30${i + 2} = ${h(p.cr[i])}  data register ${p.cr[i] & 4 ? 'selected' : 'DDR selected'}, C1 flag ${s[6 + i * 2] ? 'set' : 'clear'}, C2 flag ${s[7 + i * 2] ? 'set' : 'clear'}`,
+        `PACTL/PBCTL D30${i + 2} = ${h(p.cr[i])}  data register ${p.cr[i] & 4 ? 'selected' : 'DDR selected'}, C1 flag ${p.cr[i] & 0x80 ? 'set' : 'clear'}, C2 flag ${p.cr[i] & 0x40 ? 'set' : 'clear'}`,
       );
     }
     rows.push(`IRQ line: ${p.irq ? 'asserted' : 'clear'}`);
@@ -877,7 +885,7 @@ export class AtariMachine extends BaseMachine implements Machine {
     w.section('ANTC', () => this.antic.saveState(w));
     w.section('GTIA', () => this.gtia.saveState(w));
     w.section('POKY', () => this.pokey.saveState(w));
-    w.section('PIA ', () => w.raw(this.pia.exportState()));
+    w.section('PIA ', () => w.raw(this.pia.exportLegacyState()));
     w.section('SIO ', () => this.sioBus.saveState(w));
     w.section('XEX ', () => {
       const xex = this.xex;
@@ -951,7 +959,7 @@ export class AtariMachine extends BaseMachine implements Machine {
       const s = r.section('PIA ');
       const regs = new Uint8Array(14);
       s.rawInto(regs);
-      this.pia.importState(regs);
+      this.pia.importLegacyState(regs);
     }
     this.sioBus.loadState(r.section('SIO '));
     {
@@ -996,7 +1004,7 @@ export class AtariMachine extends BaseMachine implements Machine {
     this.activity.psgWrites = 0;
     this.activity.casReads = 0;
     this.activity.speakerToggles = 0;
-    this.pia.inputB = 0xFF;
+    this.pia.portBInput = 0xFF;
     if (mem.xl) this.pokey.setExternal(this.xlSpeakerLevel());
     this.lastAudioT = cpu.tStates;
     this.audio.reset();
@@ -1015,13 +1023,13 @@ export class AtariMachine extends BaseMachine implements Machine {
       return v;
     }
     if (addr < 0xD400) {
-      this.pia.inputA = this.joystickPortA();
-      this.pia.inputB = 0xFF;
+      this.pia.portAInput = this.joystickPortA();
+      this.pia.portBInput = 0xFF;
       switch (addr & 0x03) {
-        case 0: return this.pia.readData(0);
-        case 1: return this.pia.readData(1);
-        case 2: return this.pia.readControl(0);
-        default: return this.pia.readControl(1);
+        case 0: return this.pia.read(0);
+        case 1: return this.pia.read(2);
+        case 2: return this.pia.read(1);
+        default: return this.pia.read(3);
       }
     }
     if (addr < 0xD500) {
@@ -1050,11 +1058,11 @@ export class AtariMachine extends BaseMachine implements Machine {
       switch (addr & 0x03) {
         case 0: case 1: {
           if ((this.pia.cr[port] & 0x04) === 0) return this.pia.ddr[port];
-          this.pia.inputA = this.joystickPortA();
-          this.pia.inputB = 0xFF;
+          this.pia.portAInput = this.joystickPortA();
+          this.pia.portBInput = 0xFF;
           return this.pia.portValue(port);
         }
-        default: return this.pia.readControl(port);
+        default: return this.pia.read(port === 0 ? 1 : 3);
       }
     }
     if (addr < 0xD500) return this.antic.readReg(addr);
@@ -1087,10 +1095,10 @@ export class AtariMachine extends BaseMachine implements Machine {
     }
     if (addr < 0xD400) {
       switch (addr & 0x03) {
-        case 0: this.pia.writeData(0, value); break;
-        case 1: this.pia.writeData(1, value); break;
-        case 2: this.pia.writeControl(0, value); break;
-        default: this.pia.writeControl(1, value); break;
+        case 0: this.pia.write(0, value); break;
+        case 1: this.pia.write(2, value); break;
+        case 2: this.pia.write(1, value); break;
+        default: this.pia.write(3, value); break;
       }
       this.cassetteMotor = c2DrivenLow(this.pia.cr[0]);
       const command = c2DrivenLow(this.pia.cr[1]);
@@ -1462,7 +1470,7 @@ export class AtariMachine extends BaseMachine implements Machine {
           }
         }
       }
-      cpu.setIRQ(this.pokey.irq || this.pia.irq);
+      cpu.setIRQ(this.pokey.irq || this.pia.irqA || this.pia.irqB);
       // The first instruction after a breakpoint or trap stopped the run at
       // this pc must not stop there again, or a resume makes no progress.
       let skipBreakpoint = false;

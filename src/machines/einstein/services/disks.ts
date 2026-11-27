@@ -38,7 +38,7 @@ export class EinsteinDiskService implements DiskService {
   get drives(): readonly DriveDescriptor[] {
     const e = this.e;
     if (!e.config.hasFDC) return [];
-    const motorUnit = e.fdc.motorOn ? e.fdc.currentUnit & 1 : -1;
+    const motorUnit = e.fdc.motorOn ? e.fdc.currentDrive & 1 : -1;
     const out: DriveDescriptor[] = [];
     for (let u = 0; u < e.driveCount; u++) {
       const id = u === 0 ? 'a' : 'b';

@@ -34,7 +34,7 @@ type MockSpectrum = {
   memory: { snapshot: () => Uint8Array };
   cpu: { tStates: number; pc: number };
   variant: { hasBanking: boolean; hasFDC: boolean; hasAY: boolean };
-  fdc: { currentUnit: number };
+  fdc: { currentDrive: number };
   mgtPlusD: { enabled: boolean };
   betaDisk: { enabled: boolean };
   interface1: { enabled: boolean; anyMotorOn: boolean };
@@ -269,7 +269,7 @@ function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
     memory: { snapshot: () => snap },
     cpu: { tStates: 0, pc: 0 },
     variant: { hasBanking: false, hasFDC: false, hasAY: false },
-    fdc: { currentUnit: 0 },
+    fdc: { currentDrive: 0 },
     mgtPlusD: { enabled: false },
     betaDisk: { enabled: false },
     interface1: { enabled: false, anyMotorOn: false },
@@ -578,14 +578,14 @@ describe('onFrame — LED thresholds', () => {
 
 function makeFdcMock(opts: {
   motorOn?: boolean; isExecuting?: boolean; isWriting?: boolean;
-  currentUnit?: number; currentTrack?: number; currentSector?: number;
+  currentDrive?: number; currentTrack?: number; currentSector?: number;
   formattedUnit?: number; dirty?: boolean;
 } = {}) {
   const { motorOn = false, isExecuting = false, isWriting = false,
-    currentUnit = 0, currentTrack = 0, currentSector = 1, formattedUnit = -1,
+    currentDrive = 0, currentTrack = 0, currentSector = 1, formattedUnit = -1,
     dirty = false } = opts;
   return {
-    motorOn, isExecuting, isWriting, currentUnit, currentTrack, currentSector, formattedUnit,
+    motorOn, isExecuting, isWriting, currentDrive, currentTrack, currentSector, formattedUnit,
     tickFrame: vi.fn(),
     getUnitTrack: vi.fn((_u: number) => currentTrack),
     getDiskImage: vi.fn((_u: number) => null as any),
@@ -734,32 +734,32 @@ describe('memoryMap (via updateRegsOnce)', () => {
 
 describe('renderDriveStatus LED states (via onFrame)', () => {
   it('LED is "off" when motor is off', () => {
-    emu.spectrum = makeSpectrumWithFDC({ motorOn: false, currentUnit: 0 });
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: false, currentDrive: 0 });
     onFrame();
     expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'off' }));
   });
 
   it('inactive drive B is "off" even when motor is on and executing', () => {
-    // activeUnit = fdc.currentUnit = 0 (drive A active), so drive B is inactive
-    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, currentUnit: 0 });
+    // activeUnit = fdc.currentDrive = 0 (drive A active), so drive B is inactive
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, currentDrive: 0 });
     onFrame();
     expect(emu.setDriveBStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'off' }));
   });
 
   it('LED is "motor" when motor on but not executing on active drive', () => {
-    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: false, currentUnit: 0 });
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: false, currentDrive: 0 });
     onFrame();
     expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'motor' }));
   });
 
   it('LED is "read" when motor on and executing a read on active drive', () => {
-    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, isWriting: false, currentUnit: 0 });
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, isWriting: false, currentDrive: 0 });
     onFrame();
     expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'read' }));
   });
 
   it('LED is "write" when motor on and executing a write on active drive', () => {
-    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, isWriting: true, currentUnit: 0 });
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, isWriting: true, currentDrive: 0 });
     onFrame();
     expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ led: 'write' }));
   });
@@ -777,26 +777,26 @@ describe('renderDriveStatus LED states (via onFrame)', () => {
   });
 
   it('track is zero-padded to 2 digits', () => {
-    emu.spectrum = makeSpectrumWithFDC({ currentTrack: 5, currentUnit: 0 });
+    emu.spectrum = makeSpectrumWithFDC({ currentTrack: 5, currentDrive: 0 });
     onFrame();
     expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ track: '05' }));
   });
 
   it('sector shown as zero-padded 2 digits when executing on active drive', () => {
-    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, currentSector: 7, currentUnit: 0 });
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, currentSector: 7, currentDrive: 0 });
     onFrame();
     expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ sector: '07' }));
   });
 
   it('sector is "--" when not executing', () => {
-    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: false, currentUnit: 0 });
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: false, currentDrive: 0 });
     onFrame();
     expect(emu.setDriveAStatus).toHaveBeenCalledWith(expect.objectContaining({ sector: '--' }));
   });
 
   it('sector is "--" for inactive drive even when executing', () => {
     // Drive B (unit=1) is inactive; its sector should be '--'
-    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, currentSector: 9, currentUnit: 0 });
+    emu.spectrum = makeSpectrumWithFDC({ motorOn: true, isExecuting: true, currentSector: 9, currentDrive: 0 });
     onFrame();
     expect(emu.setDriveBStatus).toHaveBeenCalledWith(expect.objectContaining({ sector: '--' }));
   });
@@ -1278,7 +1278,7 @@ describe('onFrame — floppy sound reset', () => {
   });
 
   it('calls floppySound.reset() when drive sound is disabled for the active drive', () => {
-    const s = makeSpectrumWithFDC({ currentUnit: 0 }) as any;
+    const s = makeSpectrumWithFDC({ currentDrive: 0 }) as any;
     emu.spectrum = s;
     settingsMock.diskSoundA.mockReturnValue(false);
     const reset = vi.fn();
@@ -1298,7 +1298,7 @@ describe('onFrame — floppy sound reset', () => {
   });
 
   it('calls floppySound.update() when hasFDC is true and drive sound is enabled', () => {
-    const s = makeSpectrumWithFDC({ currentUnit: 0, motorOn: true, currentTrack: 5 }) as any;
+    const s = makeSpectrumWithFDC({ currentDrive: 0, motorOn: true, currentTrack: 5 }) as any;
     s.audio = { ctx: null };  // no audio context — attach() should not be called
     settingsMock.diskSoundA.mockReturnValue(true);
     emu.spectrum = s;
@@ -1309,7 +1309,7 @@ describe('onFrame — floppy sound reset', () => {
   });
 
   it('selects "3inch" driveType for disk capacity ≤ 500 KB', () => {
-    const s = makeSpectrumWithFDC({ currentUnit: 0, motorOn: false, currentTrack: 0 }) as any;
+    const s = makeSpectrumWithFDC({ currentDrive: 0, motorOn: false, currentTrack: 0 }) as any;
     s.audio = { ctx: null };
     settingsMock.diskSoundA.mockReturnValue(true);
     // 1 side × 40 tracks × 9 sectors × 512 bytes = 180 KB < 500 KB
@@ -1327,7 +1327,7 @@ describe('onFrame — floppy sound reset', () => {
   });
 
   it('selects "3.5inch" driveType for disk capacity > 500 KB', () => {
-    const s = makeSpectrumWithFDC({ currentUnit: 0, motorOn: false, currentTrack: 0 }) as any;
+    const s = makeSpectrumWithFDC({ currentDrive: 0, motorOn: false, currentTrack: 0 }) as any;
     s.audio = { ctx: null };
     settingsMock.diskSoundA.mockReturnValue(true);
     // 2 sides × 80 tracks × 9 sectors × 512 bytes = 720 KB > 500 KB

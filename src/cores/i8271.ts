@@ -32,6 +32,7 @@
  */
 
 import type { DskImage, DskSector } from '@/media/floppy/disk-image.ts';
+import type { FloppyController } from '@/cores/floppy-controller.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 export interface I8271Options {
@@ -144,7 +145,7 @@ interface Command {
   run(chip: I8271): void;
 }
 
-export class I8271 {
+export class I8271 implements FloppyController {
   private readonly onInterrupt: (asserted: boolean) => void;
 
   // Command / result handshake
@@ -185,6 +186,11 @@ export class I8271 {
   /** Set when a command starts and cleared when its result is read. */
   motorOn = false;
 
+  /** Unit a FORMAT completed on, or -1. The 8271 formats instantly and reports
+   *  no in-place FORMAT, so this stays -1; it exists to satisfy
+   *  {@link FloppyController}, which the frame probes read uniformly. */
+  formattedUnit = -1;
+
   constructor(options: I8271Options = {}) {
     this.onInterrupt = options.onInterrupt ?? (() => {});
     this.reset();
@@ -200,6 +206,8 @@ export class I8271 {
   get currentSector(): number { return this.stage === 'idle' ? 0 : this.cmd[2]; }
   /** Head position of a unit. */
   getUnitTrack(unit: number): number { return this.regs[HEAD_REG[unit & 1]]; }
+  /** Head position of the unit last addressed. */
+  get currentTrack(): number { return this.getUnitTrack(this.currentDrive); }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 

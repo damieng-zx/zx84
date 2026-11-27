@@ -11,6 +11,7 @@
 
 import type { DskImage, DskSector, DskTrack } from '@/media/floppy/disk-image.ts';
 import { locateTrack, trackAt } from '@/media/floppy/disk-state.ts';
+import type { FloppyController } from '@/cores/floppy-controller.ts';
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 
 // ── Command codes (lower 5 bits of command byte) ────────────────────────
@@ -78,29 +79,79 @@ function isScanCmd(cmd: number): boolean {
 
 const enum Phase { Idle, Command, Execution, Result }
 
+// ── Command table ───────────────────────────────────────────────────────
+
+/**
+ * One entry per opcode: its name for the log, how many parameter bytes follow
+ * it, and which method runs it. The table is keyed by the masked opcode — the
+ * upper three bits of a command byte are flags (MT, MF, SK), not opcode.
+ *
+ * Opcodes that share an implementation name it once: the four data commands all
+ * run `cmdReadWrite`, which reads `exCmd`/`exWriting` for the distinction, and
+ * the three SCAN flavours all run `cmdScan`, which reads `exCmd` likewise.
+ *
+ * An unrecognised opcode is absent, and the controller answers Invalid Command.
+ */
+interface CommandSpec {
+  readonly name: string;
+  readonly params: number;
+  readonly method: CommandMethod;
+}
+
+/** The command implementations an opcode can name. */
+type CommandMethod =
+  | 'cmdReadTrack' | 'cmdSpecify' | 'cmdSenseDrive' | 'cmdReadWrite'
+  | 'cmdRecalibrate' | 'cmdSenseInt' | 'cmdReadID' | 'cmdFormat'
+  | 'cmdSeek' | 'cmdVersion' | 'cmdScan';
+
+const COMMANDS: ReadonlyMap<number, CommandSpec> = new Map<number, CommandSpec>([
+  [CMD_READ_TRACK,    { name: 'READ_TRACK',    params: 8, method: 'cmdReadTrack' }],
+  [CMD_SPECIFY,       { name: 'SPECIFY',       params: 2, method: 'cmdSpecify' }],
+  [CMD_SENSE_DRIVE,   { name: 'SENSE_DRIVE',   params: 1, method: 'cmdSenseDrive' }],
+  [CMD_WRITE_DATA,    { name: 'WRITE_DATA',    params: 8, method: 'cmdReadWrite' }],
+  [CMD_READ_DATA,     { name: 'READ_DATA',     params: 8, method: 'cmdReadWrite' }],
+  [CMD_RECALIBRATE,   { name: 'RECALIBRATE',   params: 1, method: 'cmdRecalibrate' }],
+  [CMD_SENSE_INT,     { name: 'SENSE_INT',     params: 0, method: 'cmdSenseInt' }],
+  [CMD_WRITE_DELETED, { name: 'WRITE_DELETED', params: 8, method: 'cmdReadWrite' }],
+  [CMD_READ_ID,       { name: 'READ_ID',       params: 1, method: 'cmdReadID' }],
+  [CMD_READ_DELETED,  { name: 'READ_DELETED',  params: 8, method: 'cmdReadWrite' }],
+  [CMD_FORMAT_TRACK,  { name: 'FORMAT_TRACK',  params: 5, method: 'cmdFormat' }],
+  [CMD_SEEK,          { name: 'SEEK',          params: 2, method: 'cmdSeek' }],
+  [CMD_VERSION,       { name: 'VERSION',       params: 0, method: 'cmdVersion' }],
+  [CMD_SCAN_EQUAL,    { name: 'SCAN_EQUAL',    params: 8, method: 'cmdScan' }],
+  [CMD_SCAN_LOW_EQ,   { name: 'SCAN_LOW_EQ',   params: 8, method: 'cmdScan' }],
+  [CMD_SCAN_HIGH_EQ,  { name: 'SCAN_HIGH_EQ',  params: 8, method: 'cmdScan' }],
+]);
+
+/** The spec for a raw command byte (its upper three bits are flags, not opcode). */
+function commandSpec(cmdByte: number): CommandSpec | undefined {
+  return COMMANDS.get(cmdByte & 0x1F);
+}
+
 // ── Parameter counts per command (bytes after command byte) ─────────────
 
 function paramCount(cmdByte: number): number {
-  switch (cmdByte & 0x1F) {
-    case CMD_READ_TRACK:
-    case CMD_READ_DATA: case CMD_READ_DELETED:
-    case CMD_WRITE_DATA: case CMD_WRITE_DELETED:
-    case CMD_SCAN_EQUAL: case CMD_SCAN_LOW_EQ: case CMD_SCAN_HIGH_EQ:
-      return 8;
-    case CMD_FORMAT_TRACK:
-      return 5;
-    case CMD_READ_ID: case CMD_RECALIBRATE: case CMD_SENSE_DRIVE:
-      return 1;
-    case CMD_SPECIFY: case CMD_SEEK:
-      return 2;
-    case CMD_SENSE_INT: case CMD_VERSION:
-      return 0;
-    default:
-      return 0; // invalid — execute immediately
-  }
+  return commandSpec(cmdByte)?.params ?? 0;   // unrecognised — execute immediately
 }
 
-export class UPD765A {
+export class UPD765A implements FloppyController {
+  /** The command table's method names resolved to the methods themselves. Named
+   *  here, inside the class, because they are private: the table above is the
+   *  single list of opcodes, and this is the single list of what they run. */
+  private static readonly IMPL: Readonly<Record<CommandMethod, (chip: UPD765A) => void>> = {
+    cmdReadTrack: c => c.cmdReadTrack(),
+    cmdSpecify: c => c.cmdSpecify(),
+    cmdSenseDrive: c => c.cmdSenseDrive(),
+    cmdReadWrite: c => c.cmdReadWrite(),
+    cmdRecalibrate: c => c.cmdRecalibrate(),
+    cmdSenseInt: c => c.cmdSenseInt(),
+    cmdReadID: c => c.cmdReadID(),
+    cmdFormat: c => c.cmdFormat(),
+    cmdSeek: c => c.cmdSeek(),
+    cmdVersion: c => c.cmdVersion(),
+    cmdScan: c => c.cmdScan(),
+  };
+
   // ── Debug logging ───────────────────────────────────────────────────
 
   /** Inject a log sink. Defaults to null (silent); set a function (e.g. console.log) to enable. */
@@ -507,6 +558,10 @@ export class UPD765A {
   // ── State getters (for UI) ──────────────────────────────────────────
 
   get currentUnit(): number { return this.exUnit; }
+
+  /** The unit last addressed, under the name every host reads (see
+   *  {@link FloppyController.currentDrive}). */
+  get currentDrive(): number { return this.exUnit; }
 
   get currentTrack(): number { return this.pcn[this.physUnit(this.exUnit)]; }
 
@@ -976,54 +1031,15 @@ export class UPD765A {
 
   private exec(): void {
     const cmd = this.cmdBuf[0] & 0x1F;
-    const cmdName = this.getCommandName(cmd);
+    const spec = commandSpec(this.cmdBuf[0]);
     // The controller has only just been told what to do; nothing it raises can
     // be seen on INT until it has had time to do it (see intResponseTicks).
     this.intCountdown = this.intResponseTicks;
-    this.log(`CMD: ${cmdName} (0x${cmd.toString(16).padStart(2, '0').toUpperCase()})`,
+    this.log(`CMD: ${spec?.name ?? 'UNKNOWN'} (0x${cmd.toString(16).padStart(2, '0').toUpperCase()})`,
              `params=[${this.cmdBuf.slice(1).map(b => '0x' + b.toString(16).padStart(2, '0')).join(', ')}]`);
 
-    switch (cmd) {
-      case CMD_SPECIFY:       this.cmdSpecify(); break;
-      case CMD_SENSE_DRIVE:   this.cmdSenseDrive(); break;
-      case CMD_SENSE_INT:     this.cmdSenseInt(); break;
-      case CMD_RECALIBRATE:   this.cmdRecalibrate(); break;
-      case CMD_SEEK:          this.cmdSeek(); break;
-      case CMD_READ_TRACK:    this.cmdReadTrack(); break;
-      case CMD_READ_DATA:     // fall through
-      case CMD_READ_DELETED:  this.cmdReadWrite(); break;
-      case CMD_WRITE_DATA:    // fall through
-      case CMD_WRITE_DELETED: this.cmdReadWrite(); break;
-      case CMD_READ_ID:       this.cmdReadID(); break;
-      case CMD_FORMAT_TRACK:  this.cmdFormat(); break;
-      case CMD_SCAN_EQUAL:    // fall through
-      case CMD_SCAN_LOW_EQ:   // fall through
-      case CMD_SCAN_HIGH_EQ:  this.cmdScan(); break;
-      case CMD_VERSION:       this.cmdVersion(); break;
-      default:                this.cmdInvalid(); break;
-    }
-  }
-
-  private getCommandName(cmd: number): string {
-    switch (cmd) {
-      case CMD_READ_TRACK: return 'READ_TRACK';
-      case CMD_SPECIFY: return 'SPECIFY';
-      case CMD_SENSE_DRIVE: return 'SENSE_DRIVE';
-      case CMD_WRITE_DATA: return 'WRITE_DATA';
-      case CMD_READ_DATA: return 'READ_DATA';
-      case CMD_RECALIBRATE: return 'RECALIBRATE';
-      case CMD_SENSE_INT: return 'SENSE_INT';
-      case CMD_WRITE_DELETED: return 'WRITE_DELETED';
-      case CMD_READ_ID: return 'READ_ID';
-      case CMD_READ_DELETED: return 'READ_DELETED';
-      case CMD_FORMAT_TRACK: return 'FORMAT_TRACK';
-      case CMD_SEEK: return 'SEEK';
-      case CMD_VERSION: return 'VERSION';
-      case CMD_SCAN_EQUAL: return 'SCAN_EQUAL';
-      case CMD_SCAN_LOW_EQ: return 'SCAN_LOW_EQ';
-      case CMD_SCAN_HIGH_EQ: return 'SCAN_HIGH_EQ';
-      default: return 'UNKNOWN';
-    }
+    if (spec) UPD765A.IMPL[spec.method](this);
+    else this.cmdInvalid();
   }
 
   // ── Command implementations ────────────────────────────────────────

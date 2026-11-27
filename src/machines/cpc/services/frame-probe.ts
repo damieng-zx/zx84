@@ -83,7 +83,7 @@ export class CpcFrameProbe implements FrameProbe {
     }
 
     const fdc = c.fdc;
-    const active = fdc.currentUnit;
+    const active = fdc.currentDrive;
     for (let unit = 0; unit < 2; unit++) {
       if (unit >= c.driveCount) { out.driveLed[unit] = -1; continue; }   // no drive on this line
       if (!fdc.motorOn || unit !== active) out.driveLed[unit] = 0;

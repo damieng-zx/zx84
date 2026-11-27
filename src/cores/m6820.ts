@@ -36,16 +36,17 @@ import type { StateSink, StateSource } from '@/utils/state-stream.ts';
 export const PIA_CR_IRQ1 = 0x80;
 export const PIA_CR_IRQ2 = 0x40;
 
-/** One half of the chip. */
+/** One half of the chip. The three 8-bit registers live in the owning chip's
+ *  arrays by port index, so an indexable view (`cr[0]`) and the register
+ *  getters (`cra`) are the same bytes. */
 class PiaPort {
-  or = 0;
-  ddr = 0;
-  cr = 0;
   /** Levels the outside world drives on the data pins. */
   pins = 0xFF;
-  /** Control line 1 (input only). */
+  /** Control line 1 (input only). Starts low; a board whose line idles high —
+   *  the usual pull-up — primes it with `setCA1(true)` after reset, which
+   *  raises no flag while the control register is still all-zero. */
   c1 = false;
-  /** Control line 2 as an input. */
+  /** Control line 2 as an input. Starts low, likewise. */
   c2In = false;
   /** Control line 2 as an output. */
   c2Out = true;
@@ -53,6 +54,15 @@ class PiaPort {
   onWrite: (value: number, ddr: number) => void = () => {};
   /** The C2 output changed level. */
   onC2: (level: boolean) => void = () => {};
+
+  constructor(private readonly regs: PiaRegisters, private readonly port: number) {}
+
+  get or(): number { return this.regs.out[this.port]; }
+  set or(v: number) { this.regs.out[this.port] = v; }
+  get ddr(): number { return this.regs.ddr[this.port]; }
+  set ddr(v: number) { this.regs.ddr[this.port] = v; }
+  get cr(): number { return this.regs.cr[this.port]; }
+  set cr(v: number) { this.regs.cr[this.port] = v; }
 
   reset(): void {
     this.or = this.ddr = this.cr = 0;
@@ -146,9 +156,19 @@ class PiaPort {
   }
 }
 
+/** The three register files, by port index (0 = A, 1 = B). */
+interface PiaRegisters {
+  ddr: Uint8Array;
+  out: Uint8Array;
+  cr: Uint8Array;
+}
+
 export class M6820 {
-  private readonly a = new PiaPort();
-  private readonly b = new PiaPort();
+  private readonly regs: PiaRegisters = {
+    ddr: new Uint8Array(2), out: new Uint8Array(2), cr: new Uint8Array(2),
+  };
+  private readonly a = new PiaPort(this.regs, 0);
+  private readonly b = new PiaPort(this.regs, 1);
 
   constructor() {
     this.reset();
@@ -185,9 +205,32 @@ export class M6820 {
   get ca2(): boolean { return this.a.c2Out; }
   get cb2(): boolean { return this.b.c2Out; }
 
+  /** The data pins as a read of the port register sees them: the bits the DDR
+   *  makes outputs come from the latch, the rest from the outside world. */
+  portValue(port: number): number {
+    const p = port === 0 ? this.a : this.b;
+    return (p.or & p.ddr) | (p.pins & ~p.ddr & 0xFF);
+  }
+
+  /** Values the chip is actually driving (DDR = 1 bits). */
+  outputPins(port: number): number {
+    const p = port === 0 ? this.a : this.b;
+    return p.or & p.ddr;
+  }
+
   /** True while an enabled interrupt flag of the port is set. */
   get irqA(): boolean { return this.a.irq; }
   get irqB(): boolean { return this.b.irq; }
+  /** Either port's interrupt line — the chip's /IRQ output. */
+  get irq(): boolean { return this.irqA || this.irqB; }
+
+  /** Control registers by port index, as the [`cra`/`crb`] pair reads. The same
+   *  bytes as the register getters, so a board (or a test) that indexes its two
+   *  ports in a loop need not branch. */
+  get cr(): Uint8Array { return this.regs.cr; }
+  /** Direction and output registers by port index, likewise. */
+  get ddr(): Uint8Array { return this.regs.ddr; }
+  get out(): Uint8Array { return this.regs.out; }
 
   // ── Handshake inputs ────────────────────────────────────────────────────
   setCA1(level: boolean): void { this.a.setC1(level); }
@@ -243,6 +286,52 @@ export class M6820 {
     for (const p of [this.a, this.b]) {
       p.or = r.u8(); p.ddr = r.u8(); p.cr = r.u8(); p.pins = r.u8();
       p.c1 = r.bool(); p.c2In = r.bool(); p.c2Out = r.bool();
+    }
+  }
+
+  // ── Legacy 14-byte PIA state (the `.a8state` PIA section) ────────────────
+
+  /**
+   * The 14-byte layout the Atari's `.a8state` has always written for its PIA,
+   * from when that machine had its own core:
+   *
+   *   0-1 ddr   2-3 out   4-5 cr   6-9 flags   10-11 C1 levels   12-13 C2 levels
+   *
+   * It is narrower than {@link saveState} (no pin levels, no C2 direction) but
+   * existing save files carry it, so it stays readable. The control registers
+   * already hold the IRQ flags, so the flag bytes and the last C1/C2 levels are
+   * derived on export and dropped on import — a restored machine re-samples
+   * the lines it is wired to on its next frame, and the flags it must not lose
+   * are the ones in `cr`.
+   */
+  exportLegacyState(): Uint8Array {
+    const s = new Uint8Array(14);
+    for (let i = 0; i < 2; i++) {
+      const p = i === 0 ? this.a : this.b;
+      s[i] = p.ddr;
+      s[2 + i] = p.or;
+      s[4 + i] = p.cr;
+      s[6 + i * 2] = (p.cr & PIA_CR_IRQ1) !== 0 ? 1 : 0;
+      s[7 + i * 2] = (p.cr & PIA_CR_IRQ2) !== 0 ? 1 : 0;
+      s[10 + i] = p.c1 ? 1 : 0;
+      s[12 + i] = p.c2In ? 1 : 0;
+    }
+    return s;
+  }
+
+  importLegacyState(s: Uint8Array): void {
+    for (let i = 0; i < 2; i++) {
+      const p = i === 0 ? this.a : this.b;
+      p.ddr = s[i];
+      p.or = s[2 + i];
+      // The flag bits are read-only status; only the control bits are state.
+      p.cr = s[4 + i] & 0x3F;
+      // Keep the flags the file recorded, so a line that is already asserted
+      // does not have to wait for another edge to re-raise its interrupt.
+      if (s[6 + i * 2]) p.cr |= PIA_CR_IRQ1;
+      if (s[7 + i * 2]) p.cr |= PIA_CR_IRQ2;
+      p.c1 = s[10 + i] !== 0;
+      p.c2In = s[12 + i] !== 0;
     }
   }
 }
