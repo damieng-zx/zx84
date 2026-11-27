@@ -154,7 +154,7 @@ describe.each(['atari800', 'atari800xl'] as const)('BASIC panes on Altirra BASIC
       m.reset();
       m.setSpeedMultiplier(0);
       for (let f = 0; f < 150; f++) m.tick();
-      const panes = m.services.probe.panes;
+      const panes = m.services.inspect!;
 
       type(m, '10 DIM A$(12),B(5)\n20 A$="ATARI":B(1)=7\n30 X=355/113\nRUN\n');
       for (let f = 0; f < 60; f++) m.tick();

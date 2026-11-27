@@ -86,6 +86,10 @@ function defaultRomLabel(key: string): string {
   if (model === 'hb-55p') return 'Sony HB-55P (MSX BASIC 1.0)';
   if (model === 'zx80') return 'Sinclair ZX80 BASIC';
   if (model === 'zx81') return 'Sinclair ZX81 BASIC';
+  if (model === 'ts1000') return 'Timex Sinclair 1000 BASIC';
+  if (model === 'ts1500') return 'Timex Sinclair 1500 BASIC';
+  if (model === 'tc2048') return 'Timex Computer 2048 BASIC';
+  if (model === 'ts2068') return 'Timex 2068 BASIC';
   const [base, ...suffix] = key.split('-');
   const name = SPECTRUM_SHORT_NAMES[base.toLowerCase()] ?? base.toUpperCase();
   return `${[name, ...suffix.map(p => p.toUpperCase())].join('-')} (default)`;

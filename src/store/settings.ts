@@ -128,9 +128,21 @@ const DEFAULTS = {
   'electron-dfs':   'off',
   'lynx-fdc':       'on',
   'pcw-60hz':       'off',
+  // PCW monitor phosphor: 'auto' follows the model (the 9512 shipped white,
+  // every other PCW green); 'green'/'white' force one.
+  'pcw-phosphor':   'auto',
   'apple2-disk2':   'on',
   'c64-drive':      'on',
   'c64-sid':        '6581',
+  'vic20-ram':      'none',
+  'vic20-blk5':     'off',
+  'vic20-drive':    'on',
+  'c128-drive':     'on',
+  'c128-vdc-ram':   '16k',
+  'c128-vdc-chip':  'r8',
+  'c128-display':   'auto',
+  'plus4-drive':    'on',
+  'plus4-expansion': 'none',
   'drive-counts':   '{}',
   'drive-models':   '{}',
   'apple2-langcard': 'on',
@@ -141,6 +153,8 @@ const DEFAULTS = {
   'apple1-ram':     '8k',
   'apple1-basic-ram': 'on',
   'apple1-aci':     'off',
+  'atom-ram':       '12k',
+  'oric-microdisc': 'off',
   'enterprise-exdos': 'on',
   'zx8x-16k-ram':  'off',
   'zx81-udg-ram':  'off',
@@ -470,8 +484,29 @@ export const [apple2eEightyCol, setApple2eEightyCol] = signal(savedFlag('apple2e
 export const [apple1Ram, setApple1Ram] = signal(
   savedText('apple1-ram') as '4k' | '8k' | '16k' | '32k' | '48k');
 
+export const [vic20Ram, setVic20Ram] = signal(
+  savedText('vic20-ram') as 'none' | '3k' | '8k' | '16k' | '24k' | '27k');
+export const [vic20Blk5, setVic20Blk5] = signal(savedFlag('vic20-blk5'));
+export const [vic20Drive, setVic20Drive] = signal(savedFlag('vic20-drive'));
+
+export const [c128Drive, setC128Drive] = signal(savedFlag('c128-drive'));
+/** VDC RAM: '16k' (the 128) or '64k' (the 128D and later boards). */
+export const [c128VdcRam, setC128VdcRam] = signal(savedText('c128-vdc-ram') as '16k' | '64k');
+/** The VDC chip: 'r7a' (8563 R7A), 'r8' (8563 R8/R9, the flat 128 and the 128D) or '8568' (the 128DCR). */
+export const [c128VdcChip, setC128VdcChip] = signal(savedText('c128-vdc-chip') as 'r7a' | 'r8' | '8568');
+/** Which video chip the one canvas shows: 'auto' (the 40/80 key), '40' or '80'. */
+export const [c128Display, setC128Display] = signal(savedText('c128-display') as 'auto' | '40' | '80');
+export const [plus4Drive, setPlus4Drive] = signal(savedFlag('plus4-drive'));
+/** The 256K RAM board fitted: 'none', 'hannes' or 'csory'. */
+export const [plus4Expansion, setPlus4Expansion] =
+  signal(savedText('plus4-expansion') as 'none' | 'hannes' | 'csory');
 export const [apple1BasicRam, setApple1BasicRam] = signal(savedFlag('apple1-basic-ram'));
 export const [apple1Aci, setApple1Aci] = signal(savedFlag('apple1-aci'));
+
+/** Acorn Atom fitted RAM: 2 KB standard or 12 KB fully expanded. */
+export const [atomRam, setAtomRam] = signal(savedText('atom-ram') as '2k' | '12k');
+/** Oric Microdisc (WD1793 + boot EPROM) fitted. */
+export const [oricMicrodisc, setOricMicrodisc] = signal(savedFlag('oric-microdisc'));
 export const [mtx512kRam, setMtx512kRam] = signal(savedFlag('mtx-512k-ram'));
 export const [mtxFloppy, setMtxFloppy] = signal(savedFlag('mtx-floppy'));
 export const [msxFloppy, setMsxFloppy] = signal(savedFlag('msx-floppy'));
@@ -491,6 +526,9 @@ export const [electronDfs, setElectronDfs] = signal(savedFlag('electron-dfs'));
 export const [lynxFdc, setLynxFdc] = signal(savedFlag('lynx-fdc'));
 /** Amstrad PCW 50/60Hz link: on = a 60Hz machine (260-line frame, 200 lines shown). */
 export const [pcw60Hz, setPcw60Hz] = signal(savedFlag('pcw-60hz'));
+/** PCW monitor phosphor: 'auto' = whatever monitor the model shipped with. */
+export const [pcwPhosphor, setPcwPhosphor] =
+  signal(savedText('pcw-phosphor') as 'auto' | 'green' | 'white');
 
 /** Enterprise EXDOS disk card (WD1770 + EXDOS ROM) fitted. */
 export const [enterpriseExdos, setEnterpriseExdos] = signal(savedFlag('enterprise-exdos'));
@@ -652,14 +690,26 @@ const PANE_SETTINGS: Record<string, SettingDef[]> = {
     { key: 'electron-dfs', set: setElectronDfs, type: 'bool' },
     { key: 'lynx-fdc', set: setLynxFdc, type: 'bool' },
     { key: 'pcw-60hz', set: setPcw60Hz, type: 'bool' },
+    { key: 'pcw-phosphor', set: setPcwPhosphor, type: 'string' },
     { key: 'apple2-disk2', set: setApple2Disk2, type: 'bool' },
     { key: 'c64-drive', set: setC64Drive, type: 'bool' },
+    { key: 'vic20-ram', set: setVic20Ram, type: 'string' },
+    { key: 'vic20-blk5', set: setVic20Blk5, type: 'bool' },
+    { key: 'vic20-drive', set: setVic20Drive, type: 'bool' },
+    { key: 'c128-drive', set: setC128Drive, type: 'bool' },
+    { key: 'c128-vdc-ram', set: setC128VdcRam, type: 'string' },
+    { key: 'c128-vdc-chip', set: setC128VdcChip, type: 'string' },
+    { key: 'c128-display', set: setC128Display, type: 'string' },
+    { key: 'plus4-drive', set: setPlus4Drive, type: 'bool' },
+    { key: 'plus4-expansion', set: setPlus4Expansion, type: 'string' },
     { key: 'apple2-langcard', set: setApple2LangCard, type: 'bool' },
     { key: 'apple2-joystick', set: setApple2Joystick, type: 'bool' },
     { key: 'apple2-mockingboard', set: setApple2Mockingboard, type: 'bool' },
     { key: 'apple2-80col', set: setApple2EightyCol, type: 'bool' },
     { key: 'apple2e-80col', set: setApple2eEightyCol, type: 'bool' },
     { key: 'apple1-ram', set: setApple1Ram, type: 'string' },
+    { key: 'atom-ram', set: setAtomRam, type: 'string' },
+    { key: 'oric-microdisc', set: setOricMicrodisc, type: 'bool' },
     { key: 'apple1-basic-ram', set: setApple1BasicRam, type: 'bool' },
     { key: 'apple1-aci', set: setApple1Aci, type: 'bool' },
     { key: 'enterprise-exdos', set: setEnterpriseExdos, type: 'bool' },
@@ -691,6 +741,23 @@ export function setFlagSetting(key: string, on: boolean): boolean {
       if (d.key !== key || d.type !== 'bool') continue;
       d.set(on);
       persistSetting(key, on ? 'on' : 'off');
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Set and persist a string setting by its key, for a change that starts in a
+ * machine rather than a pane (a program that needs other expansion RAM).
+ * Returns false, changing nothing, for a key that is not a known string setting.
+ */
+export function setTextSetting(key: string, value: string): boolean {
+  for (const defs of Object.values(PANE_SETTINGS)) {
+    for (const d of defs) {
+      if (d.key !== key || d.type !== 'string') continue;
+      d.set(value);
+      persistSetting(key, value);
       return true;
     }
   }

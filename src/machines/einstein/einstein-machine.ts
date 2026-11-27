@@ -7,10 +7,15 @@
  * memory — and drives its own frame loop. Implements the shared `Machine`
  * interface so `emulator.ts`, the UI and the MCP server treat it like any machine.
  *
- * The 8KB MOS ROM is a boot monitor; the machine boots into it (BASIC/Xtal DOS
- * load from disk — a follow-up). Each frame the CPU runs a PAL field's worth of
- * T-states; at the end of the active display the TMS9929A raises its vblank,
- * which is wired to a CTC channel that pulls the Z80 /INT (serviced in IM 2).
+ * The 8KB MOS ROM is a boot monitor; the machine boots into it and loads Xtal
+ * DOS (or BASIC, or a program) from a disk in drive A:. Each frame the CPU runs
+ * a PAL field's worth of T-states; at the end of the active display the
+ * TMS9929A raises its vblank, which the MOS polls (the TC-01's VDP /INT is not
+ * wired to the CPU). The CPU's periodic interrupt comes from the Z80 CTC.
+ *
+ * Interrupt priority is the daisy chain MAME documents for this board —
+ * keyboard, CTC, ADC, PIO, fire — so the keyboard outranks the CTC while the
+ * ADC and fire button wait for the CTC to release the chain with RETI.
  *
  * Snapshots are zx84's own `.einstate` (`snapshots/einstein-state.ts`).
  */
@@ -26,7 +31,7 @@ import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, SettingsView } from '@/machines/machine.ts';
@@ -43,9 +48,8 @@ import { EinsteinMemory } from '@/machines/einstein/einstein-memory.ts';
 import { EinsteinKeyboard } from '@/machines/einstein/einstein-keyboard.ts';
 import { installEinsteinMemoryHooks, wireEinsteinPortIO } from '@/machines/einstein/einstein-io.ts';
 import { createEinsteinConfig, type EinsteinConfig } from '@/machines/einstein/config.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
 import {
   EINSTEIN_AY_CLOCK, EINSTEIN_CPU_CLOCK, EINSTEIN_MAX_DRIVES, EINSTEIN_T_PER_FRAME,
@@ -61,7 +65,7 @@ import {
 /** PAL scanlines per field. */
 const LINES_PER_FRAME = 313;
 
-export class EinsteinMachine extends BaseMachine implements Machine {
+export class EinsteinMachine extends Z80MachineBase implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'einstein';
   readonly model: EinsteinModel;
@@ -312,12 +316,6 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       note: 'line 0 is the first active line of the VDP; the 4MHz PAL field is split evenly over 313 lines, so a line is a fractional ~255.6 cycles; each line is drawn whole when the CPU reaches its end, so a VDP write shows from the line it is made in; the frame flag rises at the end of the last active line (192, or 212 in the V9938\'s 212-line mode); the CTC interrupts run off the cycle count, not the raster',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   /**
    * Execute one PAL field. Runs the CPU scanline by scanline, advancing the CTC
@@ -390,36 +388,45 @@ export class EinsteinMachine extends BaseMachine implements Machine {
           }
         }
 
+        // An ADC0844 conversion finishing latches its result and raises the ADC
+        // interrupt source (serviced below, under the CTC in the chain).
+        if (this.adcDoneAt >= 0 && this.cpu.tStates >= this.adcDoneAt) {
+          this.adcDoneAt = -1;
+          this.adcResult = this.adcInput(this.adcChannel);
+          this.boardIntPending |= EINSTEIN_INT_ADC;
+        }
+        // The daisy chain in priority order — MAME's einstein_daisy_chain is
+        // keyboard, CTC, ADC, (PIO), fire. The KEYBOARD sits ABOVE the CTC, so
+        // a key press is serviced even while a CTC channel is under service
+        // (its IEO low); only the ADC, the 256's V9938 and the fire button are
+        // below the CTC and wait for its RETI. Taking one interrupt clears
+        // IFF1, so the checks below it in this same pass find `iff1` false and
+        // nothing else is entered.
+        const board = this.boardIntPending & this.boardIntMask;
+        if ((board & EINSTEIN_INT_KEY) !== 0 && this.cpu.iff1 && !this.cpu.eiDelay) {
+          this.cpu.interruptWithVector(EINSTEIN_KEY_INT_VECTOR);
+        }
+
         // Service a pending IM 2 interrupt from the CTC.
         if (this.ctc.interruptPending && this.cpu.iff1 && !this.cpu.eiDelay) {
           const vec = this.ctc.pendingVector();
           if (vec >= 0 && this.cpu.interruptWithVector(vec) > 0) this.ctc.acknowledge();
         }
 
-        // Keyboard → ADC → fire, below the CTC (and the unmodelled PIO).
-        if (this.adcDoneAt >= 0 && this.cpu.tStates >= this.adcDoneAt) {
-          this.adcDoneAt = -1;
-          this.adcResult = this.adcInput(this.adcChannel);
-          this.boardIntPending |= EINSTEIN_INT_ADC;
-        }
-        // Inhibited while a CTC channel is under service (IEO low until RETI).
-        const board = this.boardIntPending & this.boardIntMask;
-        if (board !== 0 && this.cpu.iff1 && !this.cpu.eiDelay && this.ctc.ieo) {
-          const vec = (board & EINSTEIN_INT_KEY) ? EINSTEIN_KEY_INT_VECTOR
-            : (board & EINSTEIN_INT_ADC) ? EINSTEIN_ADC_INT_VECTOR
-            : EINSTEIN_FIRE_INT_VECTOR;
-          if (this.cpu.interruptWithVector(vec) > 0 && vec === EINSTEIN_FIRE_INT_VECTOR) {
+        // ADC → (256: V9938) → fire, all below the CTC: inhibited while a CTC
+        // channel is under service (its IEO low until RETI).
+        if ((board !== 0 || (is256 && this.vdpIntEnabled && vdp.interruptPending()))
+          && this.cpu.iff1 && !this.cpu.eiDelay && this.ctc.ieo) {
+          if ((board & EINSTEIN_INT_ADC) !== 0) {
+            this.cpu.interruptWithVector(EINSTEIN_ADC_INT_VECTOR);
+          } else if (is256 && this.vdpIntEnabled && vdp.interruptPending()) {
+            // Accepting the interrupt does not clear the V9938's F flag or INT
+            // output; hardware holds both until the handler reads S0.
+            this.cpu.interruptWithVector(EINSTEIN_256_VDP_INT_VECTOR);
+          } else if ((board & EINSTEIN_INT_FIRE) !== 0
+            && this.cpu.interruptWithVector(EINSTEIN_FIRE_INT_VECTOR) > 0) {
             this.boardIntPending &= ~EINSTEIN_INT_FIRE;
           }
-        }
-
-        // Einstein 256: the V9938's INT output sits on the daisy chain
-        // (vector 0xFE), maskable via port 0x80.
-        if (is256 && this.vdpIntEnabled && vdp.interruptPending() && this.cpu.iff1 && !this.cpu.eiDelay
-          && this.ctc.ieo) {
-          // Accepting the interrupt does not clear the V9938's F flag or INT
-          // output; hardware holds both until the handler reads S0.
-          this.cpu.interruptWithVector(EINSTEIN_256_VDP_INT_VECTOR);
         }
 
         if (!skipAudio) {
@@ -534,12 +541,6 @@ export class EinsteinMachine extends BaseMachine implements Machine {
   /** CRC-32 of the MOS ROM, for the snapshot header. */
   stateRomCrcs(): number[] { return [crc32(this.memory.getRom())]; }
 
-  /** Run the rest of a frame a stop left open, so the machine is between
-   *  frames (where a snapshot is taken). */
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
-  }
-
   /**
    * Write the machine's sections of a `.einstate` (see
    * snapshots/einstein-state.ts): the drive count first, so a restore can
@@ -557,6 +558,11 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       w.bool(this.vdpIntEnabled);
       w.u8(this.boardIntPending); w.u8(this.boardIntMask);
       w.f64(this.adcDoneAt);
+      // The TC-01's ADC0844: the channel a conversion is on, the result latched
+      // for the next port-0x38 read, and the 256's pseudo-ADC selection. Without
+      // these a restore reports a stale stick reading (and the wrong axis) until
+      // the guest starts its next conversion.
+      w.u8(this.adcChannel); w.u8(this.adcResult); w.u8(this.pseudoAdc);
     });
     w.section('MEM ', () => this.memory.saveState(w));
     w.section('VDP ', () => this.vdp.saveState(w));
@@ -595,6 +601,7 @@ export class EinsteinMachine extends BaseMachine implements Machine {
       this.vdpIntEnabled = s.bool();
       this.boardIntPending = s.u8(); this.boardIntMask = s.u8();
       this.adcDoneAt = s.f64();
+      this.adcChannel = s.u8() & 3; this.adcResult = s.u8(); this.pseudoAdc = s.u8();
     }
     this.memory.loadState(r.section('MEM '));
     this.vdp.loadState(r.section('VDP '));

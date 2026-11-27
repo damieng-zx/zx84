@@ -41,6 +41,9 @@ const SNAPSHOT_FORMAT: Partial<Record<SaveMenuItem, string>> = {
   'snapshot-a1state': '.a1state',
   'snapshot-a2state': '.a2state',
   'snapshot-c64state': '.c64state',
+  'snapshot-c128state': '.c128state',
+  'snapshot-atomstate': '.atmstate',
+  'snapshot-oricstate': '.oricstate',
 };
 
 /** Build a machine headlessly — no renderer, no ROM. */
@@ -176,6 +179,9 @@ describe('machine capabilities', () => {
             expect(fmt?.canSave, `${item} needs a saveable ${ext}`).toBe(true);
           } else if (item === 'screen-scr') {
             expect(machine.services.debug.screenExport(), 'screen-scr needs screenExport')
+              .not.toBeNull();
+          } else if (item === 'screen-mlt') {
+            expect(machine.services.debug.screenExport('mlt'), 'screen-mlt needs screenExport(\'mlt\')')
               .not.toBeNull();
           } else if (item === 'ram-bin') {
             expect(machine.services.debug.ramExport(), 'ram-bin needs ramExport')

@@ -13,14 +13,27 @@
  * size/row summary. `deploy:catalog` then publishes it to the host referenced by
  * DEFAULT_CATALOG_URL in src/library/catalog.ts.
  *
- * Scope: ZX-Spectrum, Pentagon 128 and Scorpion entries marked Available that
- * have a playable tape (.tzx/.tap), +3 disk (.dsk), MGT +D disk (.mgt/.img),
+ * Scope: ZX-Spectrum, Pentagon 128, Scorpion and Timex TC2048 entries marked
+ * Available that have a playable tape (.tzx/.tap), +3 disk (.dsk), MGT +D disk (.mgt/.img),
  * microdrive (.mdr/.mdv), snapshot, ROM cartridge (.rom, ZX Interface 2,
  * 16K/48K only) or Beta Disk (.trd/.scl) download, excluding x-rated entries
  * (entries.is_xrated). A .trd/.scl is kept only when the entry or the download
  * itself is tagged Pentagon or Scorpion: ZXDB files hundreds of unrelated
  * Russian disk dumps under plain 48K/128K, which are not the clones' titles.
  * Books/hardware/magazines fall out naturally — they have no such download.
+ * Screens: one native .scr (or a raster) per entry in `s`, and separately one
+ * multicolour .mlt in `sm` (a bitmap plus an attribute per 8x1 line, used by
+ * Timex hi-colour programs and by ordinary games with multicolour effects). They
+ * are kept apart so a client that predates .mlt keeps showing the `s` it knows.
+ * A tape or snapshot whose machine type (its own, else its entry's) is Timex
+ * TC2048 or TC2048/Tx2068 goes in a Timex slot (`tf` / `tn`) of its own, never
+ * the generic 48K ones, so a Timex file can neither replace the plain 48K file of
+ * the same title nor be mistaken for one: the client plays it on a TC2048 only.
+ * An entry of a Timex type is read for its TC2048 files only (its own type, else the
+ * file's tag, must be TC2048 or TC2048/Tx2068). ZXDB tags a TC2048 version on many
+ * Tx2068 (TS2068/TC2068) entries; a Tx2068-tagged file is the TS2068 version, so it
+ * never shows up as a plain 48K title. The rest of the Tx2068 library is left for a
+ * TS2068 model.
  * The compact schema matches
  * RawCatalog/RawGame in src/library/catalog.ts (short keys; genre & publisher
  * are indices into shared dictionaries).
@@ -48,6 +61,13 @@ const MACHINE_LIKE = arg('machine', 'ZX-Spectrum%');
 // ZXDB machinetype ids of the Russian clones, included alongside the family above.
 const MT_PENTAGON = 14;
 const MT_SCORPION = 15;
+// ZXDB machinetype ids that run on the Timex Computer 2048: its own, and the
+// TC2048/Tx2068 dual.
+const MT_TC2048 = 11;
+const MT_TC2048_TX2068 = 13;
+// Timex Tx2068-only entries: read for their TC2048-tagged files, nothing else.
+const MT_TX2068 = 12;
+const isTimexMt = (mt: number | null | undefined): boolean => mt === MT_TC2048 || mt === MT_TC2048_TX2068;
 // RawGame.c bits: which clone(s) the entry (or one of its files) is tagged for.
 const CLONE_PENTAGON = 1;
 const CLONE_SCORPION = 2;
@@ -64,6 +84,7 @@ interface RawGame {
   i: number;                  // ZXDB entry id
   t: string;
   y?: number; g?: number; p?: number; s?: string;
+  sm?: string;                // multicolour .mlt screen (a client that can read it prefers it to a raster `s`)
   a?: string;                 // 16K/16K-48K tape (.tzx preferred)
   f?: string;                 // 48K tape (.tzx preferred)
   k?: string;                 // 128K tape
@@ -73,6 +94,8 @@ interface RawGame {
   ds?: [string, string][];    // extra disk sides: [file_link, label]
   m?: string; mk?: string;    // MGT +D disk (48K / 128K class)
   u?: string; uk?: string;    // Interface 1 microdrive (48K / 128K class)
+  tf?: string;                // Timex TC2048 tape (.tzx preferred)
+  tn?: string;                // Timex TC2048 snapshot (.szx > .z80 > .sna)
   n16?: string;               // 16K/16K-48K snapshot (.szx > .z80 > .sna)
   n?: string;                 // 48K snapshot
   nk?: string;                // 128K snapshot
@@ -148,7 +171,7 @@ function main(): void {
 
   // Pre-flight: show the machine types we're matching so the operator can sanity
   // check the LIKE filter (ZXDB has many Spectrum variants plus ZX80/81/etc).
-  const machines = db.prepare('SELECT text FROM machinetypes WHERE text LIKE ? OR id IN (?, ?) ORDER BY id').all(MACHINE_LIKE, MT_PENTAGON, MT_SCORPION) as { text: string }[];
+  const machines = db.prepare('SELECT text FROM machinetypes WHERE text LIKE ? OR id IN (?, ?, ?, ?, ?) ORDER BY id').all(MACHINE_LIKE, MT_PENTAGON, MT_SCORPION, MT_TC2048, MT_TC2048_TX2068, MT_TX2068) as { text: string }[];
   console.log(`machinetypes matching "${MACHINE_LIKE}": ${machines.map(m => m.text).join(', ') || '(none!)'}`);
 
   // Entry metadata: original release (release_seq 0), first publisher, genre.
@@ -156,14 +179,14 @@ function main(): void {
     `SELECT e.id AS id, e.title AS title, r.release_year AS year,
             g.text AS genre, l.name AS publisher, e.machinetype_id AS mt
        FROM entries e
-       JOIN machinetypes m   ON m.id = e.machinetype_id AND (m.text LIKE ? OR m.id IN (?, ?))
+       JOIN machinetypes m   ON m.id = e.machinetype_id AND (m.text LIKE ? OR m.id IN (?, ?, ?, ?, ?))
   LEFT JOIN releases r        ON r.entry_id = e.id AND r.release_seq = 0
   LEFT JOIN publishers p      ON p.entry_id = e.id AND p.release_seq = 0 AND p.publisher_seq = 1
   LEFT JOIN labels l          ON l.id = p.label_id
   LEFT JOIN genretypes g      ON g.id = e.genretype_id
       WHERE e.availabletype_id = 'A'
         AND e.is_xrated = 0`,
-  ).all(MACHINE_LIKE, MT_PENTAGON, MT_SCORPION) as unknown as MetaRow[];
+  ).all(MACHINE_LIKE, MT_PENTAGON, MT_SCORPION, MT_TC2048, MT_TC2048_TX2068, MT_TX2068) as unknown as MetaRow[];
 
   // Candidate downloads: tape images (filetype 8: .tzx/.tap), +3 disk images
   // (filetype 11: .dsk), MGT +D images (.mgt/.img), Interface 1 microdrives
@@ -177,7 +200,7 @@ function main(): void {
     `SELECT d.entry_id AS id, d.file_link AS link, d.filetype_id AS ft, d.machinetype_id AS mt, e.machinetype_id AS emt, d.release_seq AS rel, d.language_id AS lang
        FROM downloads d
        JOIN entries e        ON e.id = d.entry_id
-       JOIN machinetypes m   ON m.id = e.machinetype_id AND (m.text LIKE ? OR m.id IN (?, ?))
+       JOIN machinetypes m   ON m.id = e.machinetype_id AND (m.text LIKE ? OR m.id IN (?, ?, ?, ?, ?))
       WHERE e.availabletype_id = 'A'
         AND ( (d.filetype_id = 8  AND (LOWER(d.file_link) LIKE '%.tzx.zip' OR LOWER(d.file_link) LIKE '%.tap.zip'))
             OR (d.filetype_id = 11 AND LOWER(d.file_link) LIKE '%.dsk.zip')
@@ -187,11 +210,12 @@ function main(): void {
            OR (d.filetype_id = 17 AND LOWER(d.file_link) LIKE '%.rom.zip')
            OR (d.filetype_id IN (1, 2) AND (LOWER(d.file_link) LIKE '%.scr'
                 OR LOWER(d.file_link) LIKE '%.gif' OR LOWER(d.file_link) LIKE '%.png'
-                OR LOWER(d.file_link) LIKE '%.jpg' OR LOWER(d.file_link) LIKE '%.jpeg'))
+                OR LOWER(d.file_link) LIKE '%.jpg' OR LOWER(d.file_link) LIKE '%.jpeg'
+                OR LOWER(d.file_link) LIKE '%.mlt'))
            OR LOWER(d.file_link) LIKE '%.szx' OR LOWER(d.file_link) LIKE '%.szx.zip'
            OR LOWER(d.file_link) LIKE '%.z80' OR LOWER(d.file_link) LIKE '%.z80.zip'
            OR LOWER(d.file_link) LIKE '%.sna' OR LOWER(d.file_link) LIKE '%.sna.zip' )`,
-  ).all(MACHINE_LIKE, MT_PENTAGON, MT_SCORPION) as unknown as DownRow[];
+  ).all(MACHINE_LIKE, MT_PENTAGON, MT_SCORPION, MT_TC2048, MT_TC2048_TX2068, MT_TX2068) as unknown as DownRow[];
 
   db.close();
 
@@ -210,8 +234,10 @@ function main(): void {
     disks: { link: string; rel: number; en: boolean }[];
     mgt48?: Pick; mgt128?: Pick; microdrive48?: Pick; microdrive128?: Pick;
     snap16?: Pick; snap48?: Pick; snap128?: Pick; rom?: Pick; beta?: Pick;
+    tapeTx?: Pick; snapTx?: Pick;      // Timex TC2048 tape / snapshot
     clones: number;
     screen?: string; screenScore?: number;
+    screenMlt?: string; screenMltScore?: number;
   }
   const better = (en: boolean, rel: number, rank: number, cur?: Pick) => {
     if (!cur) return true;
@@ -222,6 +248,10 @@ function main(): void {
 
   const files = new Map<number, Slot>();
   for (const d of downs) {
+    // An entry of a Timex type yields only files that run on a TC2048: its own type, else
+    // the file's tag, must be TC2048 or TC2048/Tx2068. A Tx2068-tagged file is the
+    // TS2068 version (never a plain 48K one), and a Tx2068-only entry has nothing else.
+    if ((d.emt === MT_TX2068 || isTimexMt(d.emt)) && !isTimexMt(d.mt ?? d.emt)) continue;
     let slot = files.get(d.id);
     if (!slot) { slot = { disks: [], clones: 0 }; files.set(d.id, slot); }
     const l = d.link.toLowerCase();
@@ -243,6 +273,18 @@ function main(): void {
     // A file tagged for a clone marks its entry even when the entry itself is plain 48K/128K.
     if (d.mt === MT_PENTAGON) slot.clones |= CLONE_PENTAGON;
     else if (d.mt === MT_SCORPION) slot.clones |= CLONE_SCORPION;
+    // A Timex TC2048 file (its own machine type, else its entry's): tape and snapshot
+    // only, in slots of their own. Disks, cartridges and microdrives are not offered
+    // for it; its screens (below) are like any other entry's.
+    if (isTimexMt(d.mt ?? d.emt) && d.ft !== 1 && d.ft !== 2) {
+      if (l.endsWith('.tzx.zip') || l.endsWith('.tap.zip')) {
+        const rank = l.endsWith('.tzx.zip') ? 1 : 0;
+        if (better(en, rel, rank, slot.tapeTx)) slot.tapeTx = { link: d.link, en, rel, rank };
+      } else if (snap > 0) {
+        if (better(en, rel, snap, slot.snapTx)) slot.snapTx = { link: d.link, en, rel, rank: snap };
+      }
+      continue;
+    }
     if (l.endsWith('.dsk.zip')) {
       slot.disks.push({ link: d.link, rel, en });
     } else if (l.endsWith('.tzx.zip') || l.endsWith('.tap.zip')) {
@@ -280,6 +322,10 @@ function main(): void {
         else if (b === '128') slot.snap128 = s;
         else slot.snap48 = s;
       }
+    } else if ((d.ft === 1 || d.ft === 2) && l.endsWith('.mlt')) {
+      // A multicolour screen: its own slot, a loading screen (ft 1) over an in-game one.
+      const score = d.ft === 1 ? 1 : 0;
+      if (score > (slot.screenMltScore ?? -1)) { slot.screenMlt = d.link; slot.screenMltScore = score; }
     } else if (d.ft === 1 || d.ft === 2) {
       // Prefer a native .scr (renders pixel-perfect) over a raster screenshot,
       // and a loading screen (ft 1) over an in-game one (ft 2) within each.
@@ -305,9 +351,9 @@ function main(): void {
     const f = files.get(row.id);
     if (!f) continue;
     const { d, ds } = resolveDisks(f.disks);
-    const hasMedia = !!(f.tape16 || f.tape48 || f.tape128 || d || f.beta || f.mgt48 || f.mgt128 || f.microdrive48 || f.microdrive128);
+    const hasMedia = !!(f.tape16 || f.tape48 || f.tape128 || f.tapeTx || d || f.beta || f.mgt48 || f.mgt128 || f.microdrive48 || f.microdrive128);
     const hasRom = !!f.rom;
-    const hasSnap = !!(f.snap16 || f.snap48 || f.snap128);
+    const hasSnap = !!(f.snap16 || f.snap48 || f.snap128 || f.snapTx);
     if (!hasMedia && !hasRom && !hasSnap) continue;      // no playable file → skip
     const g: RawGame = { i: row.id, t: row.title };
     if (row.year) g.y = row.year;
@@ -326,10 +372,13 @@ function main(): void {
     if (f.microdrive48) g.u = f.microdrive48.link;
     if (f.microdrive128) g.uk = f.microdrive128.link;
     if (f.rom) g.r = f.rom.link;
+    if (f.tapeTx) g.tf = f.tapeTx.link;
+    if (f.snapTx) g.tn = f.snapTx.link;
     if (f.snap16) g.n16 = f.snap16.link;
     if (f.snap48) g.n = f.snap48.link;
     if (f.snap128) g.nk = f.snap128.link;
     if (f.screen) g.s = f.screen;
+    if (f.screenMlt) g.sm = f.screenMlt;
     const clones = f.clones | (row.mt === MT_PENTAGON ? CLONE_PENTAGON : row.mt === MT_SCORPION ? CLONE_SCORPION : 0);
     if (clones) g.c = clones;
     games.push(g);
@@ -353,11 +402,12 @@ function main(): void {
 
   const mb = (n: number) => (n / 1024 / 1024).toFixed(2);
   console.log(`games:      ${games.length}`);
-  console.log(`with screen:${games.filter(g => g.s).length}`);
+  console.log(`with screen:${games.filter(g => g.s).length}   with multicolour .mlt screen: ${games.filter(g => g.sm).length}   .mlt only (no other screen): ${games.filter(g => g.sm && !g.s).length}`);
   console.log(`tapes 16/48/128: ${games.filter(g => g.a).length} / ${games.filter(g => g.f).length} / ${games.filter(g => g.k).length}`);
   console.log(`+3 disks: ${games.filter(g => g.d).length}   MGT 48/128: ${games.filter(g => g.m).length} / ${games.filter(g => g.mk).length}   microdrive 48/128: ${games.filter(g => g.u).length} / ${games.filter(g => g.uk).length}`);
   console.log(`snapshots 16/48/128: ${games.filter(g => g.n16).length} / ${games.filter(g => g.n).length} / ${games.filter(g => g.nk).length}   multi-side: ${games.filter(g => g.ds).length}`);
   console.log(`ROM cartridges: ${games.filter(g => g.r).length}`);
+  console.log(`Timex TC2048 tapes/snapshots: ${games.filter(g => g.tf).length} / ${games.filter(g => g.tn).length}   titles with either: ${games.filter(g => g.tf || g.tn).length}`);
   console.log(`Beta disks: ${games.filter(g => g.b).length}   Pentagon-tagged: ${games.filter(g => (g.c ?? 0) & CLONE_PENTAGON).length}   Scorpion-tagged: ${games.filter(g => (g.c ?? 0) & CLONE_SCORPION).length}`);
   console.log(`genres:     ${genres.length}   publishers: ${publishers.length}`);
   console.log(`raw JSON:   ${mb(json.length)} MB`);

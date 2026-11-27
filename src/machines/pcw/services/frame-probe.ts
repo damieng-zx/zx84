@@ -1,57 +1,18 @@
 /**
- * PCW FrameProbe — per-frame activity onto the generic indicator channels, plus
- * the memory-layout pane.
+ * PCW FrameProbe — per-frame activity onto the generic indicator channels.
  *
  * `sample()` is a tier-3 hot path: it overwrites the shared struct in place and
- * must not allocate. `panes.memoryMap()` is pull-on-demand and may allocate.
+ * must not allocate. The memory-layout pane lives in `inspect.ts`.
  */
 
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe, MemoryMapSlot, MemoryMapSnapshot,
-  TranscribeDriver,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { fixedDrive, type DriveSound } from '@/media/floppy/floppy-sound.ts';
-import { hex8 } from '@/utils/hex.ts';
 import type { PcwMachine } from '../pcw-machine.ts';
-import { PCW_KEYBOARD_BLOCK } from '../constants.ts';
 import { pcwDriveType } from '../models.ts';
-
-/** Build the PCW memory-layout snapshot. Reads and writes can address
- *  different physical blocks (ports &F0-&F3 bit 7 clear), so both are shown. */
-function pcwMemoryMap(m: PcwMachine): MemoryMapSnapshot {
-  const p = m.memory.pagingState();
-  const ranges = ['C000-FFFF', '8000-BFFF', '4000-7FFF', '0000-3FFF'];
-  const rollerBlock = m.asic.rollerAddress >>> 14;
-
-  const slots: MemoryMapSlot[] = ranges.map((range, row) => {
-    const index = 3 - row;
-    const src = p.blocks[index];
-    const read = `Block ${src.read}`;
-    const write = `Block ${src.write}`;
-    const flags: ('screen' | 'active')[] = [];
-    // The display fetch reads physical blocks directly and ignores CPU paging,
-    // so a block is flagged only when the roller RAM actually points into it.
-    if (src.read === rollerBlock) flags.push('screen');
-    if (src.read === PCW_KEYBOARD_BLOCK) flags.push('active');
-    return { range, read, write, flags: flags.length ? flags : undefined };
-  });
-
-  return {
-    columns: ['CPU read', 'CPU write'],
-    slots,
-    registers: [
-      { name: 'F0', value: hex8(p.banks[0]) },
-      { name: 'F1', value: hex8(p.banks[1]) },
-      { name: 'F2', value: hex8(p.banks[2]) },
-      { name: 'F3', value: hex8(p.banks[3]) },
-      { name: 'F4', value: hex8(p.memctl) },
-      { name: 'Roller', value: hex8(m.asic.rollerBase) },
-      { name: 'Booted', value: m.booted ? 'Y' : 'N' },
-    ],
-  };
-}
 
 /**
  * TEXT-overlay driver.
@@ -84,7 +45,6 @@ class PcwTranscribeDriver implements TranscribeDriver {
 }
 
 export class PcwFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: PcwTranscribeDriver;
   /** Fixed per model: the 8000s and the 9512 are 3" CF2, the 9256 is 3.5".
    *  Closed over once here so `sample()` still allocates nothing. */
@@ -92,7 +52,6 @@ export class PcwFrameProbe implements FrameProbe {
 
   constructor(private readonly m: PcwMachine) {
     this.transcribe = new PcwTranscribeDriver(m);
-    this.panes = { memoryMap: () => pcwMemoryMap(m) };
     this.drive = fixedDrive(pcwDriveType(m.model));
   }
 

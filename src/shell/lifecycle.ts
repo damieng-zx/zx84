@@ -97,6 +97,9 @@ function buildMachineHost(): MachineHost {
       // other reader of the key in step.
       if (settings.setFlagSetting(key, on)) applyDisplaySettings();
     },
+    setTextSetting(key, value) {
+      if (settings.setTextSetting(key, value)) applyDisplaySettings();
+    },
     roms: {
       persistFull: (data, label) => persistROM(effectiveROMKey(currentModel(), currentLocale()), data, label),
       clearFull: () => romManager.clearROM(effectiveROMKey(currentModel(), currentLocale())),

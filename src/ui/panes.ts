@@ -271,6 +271,16 @@ export function isCollapsed(id: string): boolean {
   return collapsedPanes().has(id);
 }
 
+/**
+ * Whether a pane is drawn folded up to its title bar. A floating pane never is:
+ * undocked it has no title bar to click, so one folded before it was torn out
+ * would be an invisible, unrecoverable box. Its collapsed state is kept for when
+ * it is docked again.
+ */
+export function isFolded(id: string): boolean {
+  return collapsedPanes().has(id) && paneFloat(id) === null;
+}
+
 /** Show/hide a single pane (toggled from the toolbar "Panes" menu). */
 export function togglePaneVisibility(id: string): void {
   const set = new Set(userHiddenPanes());

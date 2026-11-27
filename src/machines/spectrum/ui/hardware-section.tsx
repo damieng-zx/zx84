@@ -21,7 +21,7 @@ import {
 } from '@/machines/spectrum/ui/hardware-actions.ts';
 import {
   isPlusDCapable, isInterface1Capable, isUspeechCapable, isBetaDiskCapable, hasBuiltinBetaDisk, hasBoardIssueOption,
-  isScorpionClass,
+  isScorpionClass, isTimexClass,
   type SpectrumModel,
 } from '@/machines/spectrum/models.ts';
 import { variantForModel, variantLabel } from '@/machines/spectrum/peripherals/multiface.ts';
@@ -55,39 +55,42 @@ export function SpectrumHardwareSection() {
           </select>
         </div>
       </Show>
-      <div class="multiface-row">
-        <label
-          class={`mf-check${multifaceRomFailed() ? ' rom-failed' : ''}`}
-          title={multifaceRomFailed() || undefined}
-        >
-          <input
-            type="checkbox"
-            checked={settings.multifaceEnabled()}
-            disabled={!!multifaceRomFailed()}
-            onChange={(e) => {
-              const on = (e.target as HTMLInputElement).checked;
-              settings.setMultifaceEnabled(on);
-              settings.persistSetting('multiface', on ? 'on' : 'off');
-              const s = activeSpectrum();
-              if (s) {
-                s.multiface.enabled = on;
-                if (on && !s.multiface.romLoaded) {
-                  loadMultifaceROM(s);
+      {/* The Timex board decodes only its own ports: neither interface can be fitted. */}
+      <Show when={!isTimexClass(currentModel())}>
+        <div class="multiface-row">
+          <label
+            class={`mf-check${multifaceRomFailed() ? ' rom-failed' : ''}`}
+            title={multifaceRomFailed() || undefined}
+          >
+            <input
+              type="checkbox"
+              checked={settings.multifaceEnabled()}
+              disabled={!!multifaceRomFailed()}
+              onChange={(e) => {
+                const on = (e.target as HTMLInputElement).checked;
+                settings.setMultifaceEnabled(on);
+                settings.persistSetting('multiface', on ? 'on' : 'off');
+                const s = activeSpectrum();
+                if (s) {
+                  s.multiface.enabled = on;
+                  if (on && !s.multiface.romLoaded) {
+                    loadMultifaceROM(s);
+                  }
                 }
-              }
-            }}
-          />
-          {variantLabel(variantForModel(currentModel() as SpectrumModel))}
-        </label>
-        <Show when={settings.multifaceEnabled()}>
-          <button
-            class="mf-trigger"
-            title="Trigger NMI (Multiface button)"
-            aria-label="Trigger Multiface NMI"
-            onClick={triggerNMI}
-          />
-        </Show>
-      </div>
+              }}
+            />
+            {variantLabel(variantForModel(currentModel() as SpectrumModel))}
+          </label>
+          <Show when={settings.multifaceEnabled()}>
+            <button
+              class="mf-trigger"
+              title="Trigger NMI (Multiface button)"
+              aria-label="Trigger Multiface NMI"
+              onClick={triggerNMI}
+            />
+          </Show>
+        </div>
+      </Show>
       <Show when={isScorpionClass(currentModel())}>
         <div class="multiface-row">
           <span title="The Scorpion's Magic button: an NMI into the shadow service monitor">Magic button</span>
@@ -99,31 +102,33 @@ export function SpectrumHardwareSection() {
           />
         </div>
       </Show>
-      <div class="multiface-row">
-        <label
-          class={`mf-check${vtx5000RomFailed() ? ' rom-failed' : ''}`}
-          title={vtx5000RomFailed() || undefined}
-        >
-          <input
-            type="checkbox"
-            checked={settings.vtx5000Enabled()}
-            disabled={!!vtx5000RomFailed()}
-            onChange={(e) => {
-              const on = (e.target as HTMLInputElement).checked;
-              settings.setVtx5000Enabled(on);
-              settings.persistSetting('vtx5000', on ? 'on' : 'off');
-              const s = activeSpectrum();
-              if (s) {
-                s.vtx5000.enabled = on;
-                if (on && !s.vtx5000.romLoaded) {
-                  loadVTX5000ROM(s);
+      <Show when={!isTimexClass(currentModel())}>
+        <div class="multiface-row">
+          <label
+            class={`mf-check${vtx5000RomFailed() ? ' rom-failed' : ''}`}
+            title={vtx5000RomFailed() || undefined}
+          >
+            <input
+              type="checkbox"
+              checked={settings.vtx5000Enabled()}
+              disabled={!!vtx5000RomFailed()}
+              onChange={(e) => {
+                const on = (e.target as HTMLInputElement).checked;
+                settings.setVtx5000Enabled(on);
+                settings.persistSetting('vtx5000', on ? 'on' : 'off');
+                const s = activeSpectrum();
+                if (s) {
+                  s.vtx5000.enabled = on;
+                  if (on && !s.vtx5000.romLoaded) {
+                    loadVTX5000ROM(s);
+                  }
                 }
-              }
-            }}
-          />
-          VTX-5000
-        </label>
-      </div>
+              }}
+            />
+            VTX-5000
+          </label>
+        </div>
+      </Show>
       <div class="multiface-row">
         <label class="mf-check" title="Cheetah SpecDrum — 8-bit DAC on port 0xDF (own volume slider in the Sound pane)">
           <input

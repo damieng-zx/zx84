@@ -71,7 +71,7 @@ describe.skipIf(!haveRoms)('Acorn Electron with the real OS and BASIC', () => {
       type(line + '\n');
       run(m, 40);
     }
-    const panes = m.services.probe.panes!;
+    const panes = m.services.inspect!;
     // BASIC keeps the space typed after the line number.
     expect(panes.basicListing!()).toEqual([
       { lineNumber: 10, text: ' A%=7' },

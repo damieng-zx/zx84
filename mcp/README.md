@@ -30,17 +30,19 @@ listed under [Known models in the main README](../README.md#media). The default
 is `zx48k`. The Spectrum's earlier ids (`48k`, `128k`, `+2`, `+2A`, `+3`) are still
 accepted by `--model`; the `model` tool takes the current ids only.
 System ROM pages come from the machine registry, are fetched through the shared
-ROM source loader, and are cached under `mcp/.cache/`.
+ROM source loader, and are cached under `mcp/.cache/` — each at its source's own
+path below the ROM root (`mcp/.cache/electron/basic.rom`), so providers that
+reuse a filename (`basic.rom`, `os.rom`) keep their own copy.
 
 ## Model Support
 
 The generic tools (execution, registers, memory, disassembly, breakpoints and
-watchpoints, stepping, media loading, OCR, screenshots) work through the
-`Machine` interface on every model whose machine provides the service. A few
-tools are hardware-specific: tracing is Spectrum-only, and several machines
-add bench tools of their own (see the Tool Reference). Each
-[machine sheet](../docs/machines) lists the tools, media formats and limits for
-that machine.
+watchpoints, stepping, media loading, OCR, screenshots, BASIC listing and
+variables) work through the `Machine` interface on every model whose machine
+provides the service. A few tools are hardware-specific: tracing is
+Spectrum-only, and several machines add bench tools of their own (see the Tool
+Reference). Each [machine sheet](../docs/machines) lists the tools, media
+formats and limits for that machine.
 
 Use `model` to switch machines. Switching always creates a fresh machine.
 
@@ -68,6 +70,8 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | `disassemble` | `address` (default PC), `lines` (default `16`) | Z80 disassembly with byte display. |
 | `symbols_load` | `file` | Load a symbol file into the MCP symbol table. |
 | `symbols` | `query`, `limit` | Find/list loaded symbols. |
+| `basic_listing` | `line` (optional) | List the BASIC program in memory, detokenised in the active machine's dialect. `line` is a line number or a range such as `100-200`. |
+| `basic_vars` | `name` (optional) | List the machine BASIC's variables (simple, string, array, FOR loop); `name` filters case-insensitively. |
 
 ### Breakpoints, Watchpoints, And Traps
 
@@ -91,8 +95,8 @@ Use `model` to switch machines. Switching always creates a fresh machine.
 | --- | --- | --- |
 | `port_out` | `port`, `value` | Write an I/O port. |
 | `port_in` | `port` | Read an I/O port. |
-| `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. |
-| `type` | `text` | Type text; backtick-delimited control names are supported. |
+| `key` | `name`, `frames` (default `5`) | Hold a key or combination such as `shift+2` or `sym+p`. A joystick is pressed the same way: `joy-up`, `joy-down`, `joy-left`, `joy-right`, `joy-fire` (`joy-fire2` on a two-button stick), with `-p2` for player 2 — `joy-fire+joy-right`. Each player gets the interface at their position in the machine's list, as the Joystick pane gives it. |
+| `type` | `text` | Type text; backtick-delimited control names are supported. Printable symbols follow each machine's own legend (a machine that offers `InputService.charDown` maps the character itself, so the BBC's `*` and `"` land on the right key; the Spectrum resolves them through its symbol-shift chords). |
 
 Common key names include `a`-`z`, `0`-`9`, `enter`, `space`, `shift`,
 `backspace`, cursor keys, and `escape`. ZX80/ZX81 also accept `period`;
@@ -169,6 +173,12 @@ These use the active +3 or CPC uPD765A where fitted.
 | `mtx512kram` | `action`: `on`, `off`, `status` | Control the 512 KiB SDX/FDX RAM expansion (576 KiB total on an MTX512, 640 KiB on an RS128); the bundled CP/M disk exposes it as type-43 SiDisc drive F:. |
 | `mtxcpm` | `action`: `on`, `off`, `status` | Configure the MTX512 CP/M profile, fetch its public Type-07 system disk when needed, and reset. |
 
+### Acorn Electron Expansions
+
+| Tool | Parameters | Description |
+| --- | --- | --- |
+| `electronexp` | `plus1`, `plus3`, `dfs` (all optional) | Fit or remove the Plus 1 (cartridge slot, printer port, analogue joysticks) and Plus 3 (WD1770 disc interface with ADFS and two drives), and pick `dfs` to run the drives as the ACP 1770 DFS instead of ADFS. Each expansion loads a ROM at build time, so a change rebuilds the machine. Omit every parameter to report what is fitted. Fitting the Plus 3 is what makes `load` accept `.adf`/`.adl`/`.ssd`/`.dsd`/`.img`/`.hfe`/`.scp`; fitting the Plus 1 is what makes it accept `.rom` cartridges. |
+
 ## Address Values
 
 Address and register-value strings are parsed by the shared MCP parser:
@@ -190,8 +200,7 @@ mount is replayed onto the replacement machine). Generic tools consume
 (which also holds the per-family headless launch knobs).
 
 Tool registrations live under `mcp/tools/`. The root helpers cover formatting,
-ROM fetching, catalog access, PNG output, traps, FDC logging, and ZXTL storage;
-`mcp/loader.ts` is the generic MediaService + ZIP mount path, while
+ROM fetching, catalog access, PNG output, traps, FDC logging, and ZXTL storage;`mcp/loader.ts` is the generic MediaService + ZIP mount path, while
 `mcp/spectrum-loader.ts` is the Spectrum bench loader (peripheral-ROM arming,
 boot traps, load verdicts). Hex output uses the shared `src/utils/hex.ts`;
 there is no MCP-local hex formatter.

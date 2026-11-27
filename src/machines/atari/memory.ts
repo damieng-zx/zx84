@@ -184,18 +184,18 @@ export class AtariMemory implements IMachineMemory {
   onCartEnable: (() => void) | null = null;
 
   /** A read or write of the cartridge control area $D500-$D5FF. */
-  private cartControl(addr: number): void {
+  private cartControl(addr: number, write: boolean, value: number): void {
     const cart = this.cart;
     if (cart === null) return;
     const was = cart.enabled;
-    cart.control(addr);
+    cart.control(addr, write, value);
     if (cart.enabled !== was) this.onCartEnable?.();
   }
 
   readByte(addr: number): number {
     addr &= 0xFFFF;
     if (addr >= IO_BASE && addr < IO_END) {
-      if (addr >= CCTL_BASE && addr < CCTL_END) this.cartControl(addr);
+      if (addr >= CCTL_BASE && addr < CCTL_END) this.cartControl(addr, false, 0);
       const v = this.ioRead(addr);
       return v >= 0 ? v & 0xFF : 0xFF;
     }
@@ -213,14 +213,14 @@ export class AtariMemory implements IMachineMemory {
       const v = this.ioPeek(addr);
       return v >= 0 ? v & 0xFF : 0xFF;
     }
-    return this.peek(addr);
+    return this.peek(addr, this.cpuExt, false);
   }
 
   writeByte(addr: number, val: number): void {
     addr &= 0xFFFF;
     val &= 0xFF;
     if (addr >= IO_BASE && addr < IO_END) {
-      if (addr >= CCTL_BASE && addr < CCTL_END) this.cartControl(addr);
+      if (addr >= CCTL_BASE && addr < CCTL_END) this.cartControl(addr, true, val);
       this.ioWrite(addr, val);
       return;
     }
@@ -241,14 +241,15 @@ export class AtariMemory implements IMachineMemory {
   }
 
   /** Everything but the hardware window; `ext` says whether this reader sees
-   *  the selected extended bank in the $4000-$7FFF window. */
-  private peek(addr: number, ext = this.cpuExt): number {
+   *  the selected extended bank in the $4000-$7FFF window, and
+   *  `sideEffects` whether a cartridge access may switch its bank. */
+  private peek(addr: number, ext = this.cpuExt, sideEffects = true): number {
     if (addr >= 0xC000) {
       if (!this.xl) return addr >= IO_END ? this.osRom[addr - IO_END] : 0xFF;
       if (this.osEnabled) return this.osRom[addr - 0xC000];
     } else if (addr >= CART_16K_BASE) {
       if (this.cart !== null) {
-        const v = this.cart.read(addr);
+        const v = this.cart.read(addr, sideEffects);
         if (v >= 0) return v;
       }
       if (addr >= CART_8K_BASE && this.basicEnabled) return this.basicRom![addr - CART_8K_BASE];
@@ -292,10 +293,11 @@ export class AtariMemory implements IMachineMemory {
   }
 
   /**
-   * Insert a cartridge: a raw 4K/8K/16K dump or a `.car` image. 8K sits at
-   * $A000, 16K at $8000 unless it is a bank-switched OSS board (see
-   * cartridge.ts); 4K sits at $B000, the half below it reading $FF. False (with
-   * `cartError` saying why) for an image it cannot map.
+   * Insert a cartridge: a raw 4K/8K/16K/32K/40K/64K/128K dump or a `.car`
+   * image. 8K sits at $A000, 16K at $8000 unless it is a bank-switched board
+   * (see cartridge.ts), and the larger boards bank their 8K (XEGS) or 4K
+   * (Bounty Bob) windows in from $8000; 4K sits at $B000, the half below it
+   * reading $FF. False (with `cartError` saying why) for an image it cannot map.
    */
   insertCart(data: Uint8Array): boolean {
     const parsed = parseCartridge(data);

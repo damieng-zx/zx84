@@ -6,6 +6,11 @@ built around the Amstrad ASIC. zx84 emulates all five, with the discrete Gate
 Array and the Plus ASIC modelled separately, the uPD765A floppy controller
 shared with the Spectrum +3, and a small set of period add-ons.
 
+<p align="center">
+  <img src="../images/machines/amstrad-cpc.png" alt="The CPC 6128 at the Locomotive BASIC prompt"><br>
+  <img src="../images/machines/amstrad-cpc-keyboard.png" alt="The CPC 6128 keyboard, with its numeric keypad">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Amstrad |
@@ -75,7 +80,7 @@ reads 0xFF.
 | ASIC ghost writes | 6128 Plus, GX4000 | ✅ | An `IN` from the Gate Array or CRTC write ports writes the floating bus value (0xFF) to the register, as on the real ASIC |
 | Intel 8255 PPI | all | ✅ | Port A to the AY data bus; Port B returns VSYNC, the distributor code on LK1-LK3 (Amstrad by default; see the Hardware options), the LK4 refresh bit (50 Hz by default), expansion/printer lines pulled high, and the cassette read bit; Port C carries the keyboard line, AY BDIR/BC1, the cassette motor bit and the cassette write-data bit |
 | AY-3-8912 | all | ✅ | Shared core, 1 MHz clock, stereo placement ABC by default; stereo, ultrasonic filter and DC-block controls in the Sound pane. No beeper |
-| Keyboard matrix | all | ✅ | Ten lines read through the AY's I/O port A, active low. Host keys map by physical position (US layout); the UK ISO key left of Z gives `@`/`|`; the numeric keypad gives f0–f9 |
+| Keyboard matrix | all | ✅ | Ten lines read through the AY's I/O port A, active low. Typed characters press the key their CPC cap prints, not the PC position — `+` is Shift+`;`, `|` is Shift+`@` (the key left of Z), `:` its own unshifted key, and the `= +` key carries `↑`/`£`. A held SHIFT also appears on its own matrix bit. The numeric keypad gives f0–f9 |
 | Cassette interface | 464, 664, 6128, 6128 Plus | ✅ | Pulse-level playback, and recording of what the firmware (or any saver) writes to the cassette. Absent on the GX4000 |
 | uPD765A FDC + 3" drives | 664, 6128, 6128 Plus; 464 with a DDI-1 | ✅ | Shared core [`src/cores/upd765a.ts`](../../src/cores/upd765a.ts), drives A: and B: on ports &FA7E / &FB7E / &FB7F. Weak-sector copies, per-drive write-protect, drive B force-ready, flippy-disk side flip |
 | Memory banking | 6128, 6128 Plus, GX4000; 464/664 with a RAM expansion | ✅ | Eight standard RAM configurations; with an expansion the 64 KB block bits (bits 3-5 of the RAM command) pick one of four or eight 64 KB blocks; ROM overlays on RAM with writes always falling through to RAM; video fetch always reads the base 64 KB (banks 0–3) |
@@ -214,7 +219,8 @@ beneath the ROM overlays).
 | `tests/cpc/cpc-boot.test.ts` | Boots to the BASIC 1.1 banner on 19,968 µs frames, then SAVE and CAT on a formatted disk. Skipped when the firmware ROMs are not in `mcp/.cache` | — |
 | `tests/cpc/cpc-tape-instant-load.test.ts`, `cpc-tape-loader.test.ts`, `cpc-tape-io.test.ts` | CAS READ routine offsets found by scan on the 464, 664 and 6128 OS ROMs; CRC-gated block extraction; 1942 instant-loads on 464 and 6128 (skipped without ROMs and tape); PPI cassette bit and cadence gating | — |
 | Fast ROM loading, trap on vs trap off, real CDTs (1942, 180, 10th Frame, 1943, 2048, 3D Starstrike) | CAS READ results and bytes identical on 464, 664 and 6128 | 2026-09-25 |
-| `tests/cpc/cpc-multiface.test.ts`, `cpc-mouse.test.ts`, `cpc-keyboard.test.ts`, `joystick-fire.test.ts` | Multiface port decode, paging and NMI; Kempston and AMX behaviour; joystick matrix lines; fire-button mapping | — |
+| `tests/cpc/cpc-multiface.test.ts`, `cpc-mouse.test.ts`, `cpc-keyboard.test.ts`, `joystick-fire.test.ts` | Multiface port decode, paging and NMI; Kempston and AMX behaviour; joystick matrix lines; fire-button mapping; the measured UK matrix→character legend (cells derived from the caps, not from the map's own logic) | — |
+| `tests/cpc/cpc-keyboard-typing.test.ts` | Types through the production character-intent input path on the real 6128 firmware: the CPC legend characters the PC chord layout would get wrong (`+ * | @ : ; = < > , .`), a BASIC expression that only parses if those symbols landed on the right keys, and a quoted string containing `|` and `@`. Skipped without ROMs | 2026-11-24 |
 | `tests/cpc/plus-analogue.test.ts` | ASIC analogue channel map, direction and tied-off levels from CPCWiki's measurements of a real Plus, read through the unlocked register window; read-only writes; proportional input and the digital port; held stick across a reset | — |
 | `tests/cpc/crtc-types.test.ts` | Per-type CRTC behaviour against CPCWiki's CRTC page and the Plus hardware notes: register read maps, &BExx status on the UM6845R, HSYNC/VSYNC widths, R8 skew, VCC = R6 timing, R12/R13 re-read in row 0 | 2026-10-31 |
 | `tests/cpc/cpc-fit-options.test.ts`, `cpc-fit-boot.test.ts` | RAM expansion banking by the %11bbbccc command; PPI links; HSYNC-less lines and the Gate Array interrupt; DDI-1 port decode. With real firmware: the distributor name in the banner, a 262-line frame at 60 Hz, `POKE`/`PEEK` through block 2 of a 256 KB expansion from BASIC, and `SAVE` then `|DIR` on a 464 with a DDI-1 (skipped without ROMs) | 2026-10-31 |
@@ -223,3 +229,39 @@ beneath the ROM overlays).
 | `tests/cpc/cpc-tape-save.test.ts` | Recorded records against the firmware guide's cassette format and the TZX 0x11 layout; CAS WRITE then CAS READ of the recording on the real 464 and 6128 firmware, at pulse level and through the fast-load trap (skipped without ROMs) | — |
 | `tests/machines/cpc/media-routing.test.ts` | Extension routing to tape, snapshot (with model auto-switch), disk and cartridge; `.cpr` refused on non-Plus models | — |
 | `tests/cpc/cpc-screen-text.test.ts`, `tests/basic/cpc-basic-parser.test.ts` | OCR across screen modes; Locomotive BASIC detokenizer against byte sequences captured from the real 6128 firmware | — |
+
+### Compatibility sweeps
+
+Real software is the harshest test, so a sweep harness lives beside the MCP cache
+(`mcp/.cache/cpclab/`, git-ignored) and runs whole directories of disks through a
+6128 headlessly. It exists because a passing unit suite never exercises what a
+1980s loader actually does with the CRTC, the Gate Array and the FDC at once.
+
+- `reliability.ts <dir> [count] [budget] [start]` — the main sweep. Reads each
+  disk's AMSDOS directory **straight out of the image** (`amsdos.ts`; OCR of
+  `|DIR` mis-reads AMSDOS's padded 8.3 names), picks a launch command
+  (`RUN"DISC` for a boot record, `RUN"<name>` for a `.BAS` or a bare-name BASIC
+  program, `|CPM` for CP/M-era disks), runs it, and judges the result.
+- `demos.ts` — the same over unpacked demo archives. Demos are the better test:
+  they push raster splits, mode changes and border effects harder than games.
+- `live.ts`, `classify.ts`, `attrib.ts`, `deep.ts`, `where.ts`, `profile.ts` —
+  single-title forensics: what the disk holds, where the CPU actually is, which
+  ports it polls, and where it loops.
+
+**Judging is the hard part, and the first sweeps got it wrong.** A picture-change
+count calls a title screen waiting for FIRE a failure, and a menu waiting for a
+number key a hang; every one of the 40 disks in `disks/games` that an early
+classifier reported as BLANK or frozen turned out to be running (a loading screen,
+an adventure's "press any key", a level-select prompt). The verdict used now is
+*sustained change over a long window* (a scroller, logo anim or raster effect
+keeps the picture moving; a dead machine does not), with a separate `NO-LAUNCH`
+bucket for "never left BASIC" — that one is a launch-command problem, not an
+emulator bug.
+
+Before recording a sweep result as an emulator bug, confirm the launch command is
+the one the disk expects: a bare-name BASIC program does not answer `RUN"DISC`, a
+`.BIN` with a 128-byte AMSDOS header needs `LOAD"…,addr` + `CALL`, a "disk 2 of 2"
+often only makes sense from the game's own front end, and some loaders are
+copy-protected (720 Degrees prints an "ALKATRAZ protection system" message and its
+`RUN DISK` loader never gets further under emulation or on a machine whose drive
+timing it dislikes).

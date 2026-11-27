@@ -10,7 +10,7 @@
  */
 
 import { dbLoad, dbSave, getSaved, setSaved } from '@/store/persistence.ts';
-import { is128kClass, isPlus3, hasBuiltinBetaDisk, type SpectrumModel, type MachineModel } from '@/models.ts';
+import { is128kClass, isPlus3, isTimexClass, hasBuiltinBetaDisk, type SpectrumModel, type MachineModel } from '@/models.ts';
 
 /** One game in the compact on-wire schema. Short keys keep the JSON small. Each
  *  slot retains one preferred file for a format and its native machine class.
@@ -22,6 +22,7 @@ export interface RawGame {
   g?: number;   // genre — index into RawCatalog.genres
   p?: number;   // publisher — index into RawCatalog.publishers
   s?: string;   // screen image file_link (.scr, or raster .gif/.png/.jpg)
+  sm?: string;  // multicolour screen file_link (.mlt): preferred to a raster `s`
   a?: string;   // 16K/16K-48K tape file_link (.tzx preferred, else .tap)
   f?: string;   // 48K tape file_link
   k?: string;   // 128K tape file_link
@@ -33,6 +34,8 @@ export interface RawGame {
   mk?: string;  // MGT +D disk file_link for 128K-class machines
   u?: string;   // Interface 1 microdrive file_link for 48K-class machines (.mdr/.mdv)
   uk?: string;  // Interface 1 microdrive file_link for 128K-class machines
+  tf?: string;  // Timex TC2048 tape file_link (.tzx preferred, else .tap)
+  tn?: string;  // Timex TC2048 snapshot file_link
   n16?: string; // 16K/16K-48K snapshot file_link (.szx/.z80/.sna)
   n?: string;   // 48K snapshot file_link
   nk?: string;  // 128K snapshot file_link
@@ -79,6 +82,11 @@ export interface Game {
   microdrive48: string;
   /** ZXDB file_link for an Interface 1 cartridge on a 128K-class machine, '' when none. */
   microdrive128: string;
+  /** ZXDB file_link for a Timex Computer 2048 tape, '' when none. Plays on a
+   *  TC2048 only: it is never the plain 48K tape. */
+  tapeTimex: string;
+  /** ZXDB file_link for a Timex Computer 2048 snapshot, '' when none. */
+  snapTimex: string;
   /** ZXDB file_link for a 16K/16K-48K snapshot, '' when none. */
   snap16: string;
   /** ZXDB file_link for a 48K snapshot, '' when none. */
@@ -88,6 +96,8 @@ export interface Game {
   /** ZXDB file_link for a screen image — a native .scr dump or a raster
    *  .gif/.png/.jpg loading/in-game screen ('' when none). */
   screen: string;
+  /** ZXDB file_link for a multicolour .mlt screen, '' when none. */
+  screenMlt: string;
   /** ZXDB file_link for a ZX Interface 2 ROM cartridge, '' when none (16K/48K
    *  only). Takes priority over every other slot when present. */
   rom: string;
@@ -205,12 +215,24 @@ export function resolveGame(raw: RawGame, cat: RawCatalog): Game {
     mgt128: raw.mk ?? '',
     microdrive48: raw.u ?? '',
     microdrive128: raw.uk ?? '',
+    tapeTimex: raw.tf ?? '',
+    snapTimex: raw.tn ?? '',
     snap16: raw.n16 ?? '',
     snap48: raw.n ?? '',
     snap128: raw.nk ?? '',
     screen: raw.s ?? '',
+    screenMlt: raw.sm ?? '',
     rom: raw.r ?? '',
   };
+}
+
+/** The picture to show for a game and how to read it: a native `.scr` first (it
+ *  draws pixel-perfect, hi-res and hi-colour included), then a multicolour `.mlt`,
+ *  then a raster grab. Null when it has no screen. */
+export function pickScreen(game: Game): { link: string; kind: 'scr' | 'mlt' | 'image' } | null {
+  if (/\.scr$/i.test(game.screen)) return { link: game.screen, kind: 'scr' };
+  if (game.screenMlt) return { link: game.screenMlt, kind: 'mlt' };
+  return game.screen ? { link: game.screen, kind: 'image' } : null;
 }
 
 /** What to do when the user plays `game` from the current machine: which model
@@ -243,7 +265,7 @@ function betaPlan(game: Game, current: MachineModel): LoadPlan | null {
 /** Select a specific requested media format while preserving the current model
  * where it can run that format. Used when the library Format filter is active. */
 function planFormat(game: Game, current: MachineModel, format: LibraryFormat): LoadPlan | null {
-  const { tape16, tape48, tape128, plus3Disk, mgt48, mgt128, microdrive48, microdrive128, snap16, snap48, snap128, rom } = game;
+  const { tape16, tape48, tape128, plus3Disk, mgt48, mgt128, microdrive48, microdrive128, snap16, snap48, snap128, rom, tapeTimex, snapTimex } = game;
   const peripheral = (kind: 'mgt-disk' | 'microdrive', link48: string, link128: string): LoadPlan | null => {
     const peripheralName = kind === 'mgt-disk' ? 'plusd' : 'interface1';
     if (is128kClass(current) && !isPlus3(current)) {
@@ -257,6 +279,10 @@ function planFormat(game: Game, current: MachineModel, format: LibraryFormat): L
 
   switch (format) {
     case 'tape':
+      // A Timex stays a Timex: its own tape first, then any 48K one.
+      if (isTimexClass(current) && (tapeTimex || tape48 || tape16)) {
+        return { target: 'tc2048', link: tapeTimex || tape48 || tape16, kind: 'tape', boot: 'rom48k' };
+      }
       if (isPlus3(current)) {
         if (tape128 || tape48 || tape16) return { target: 'zx128kplus3', link: tape128 || tape48 || tape16, kind: 'tape', boot: 'menu' };
       } else if (is128kClass(current)) {
@@ -266,15 +292,20 @@ function planFormat(game: Game, current: MachineModel, format: LibraryFormat): L
       }
       if (tape48 || tape16) return { target: 'zx48k', link: tape48 || tape16, kind: 'tape', boot: 'rom48k' };
       if (tape128) return { target: 'zx128k', link: tape128, kind: 'tape', boot: 'menu' };
+      if (tapeTimex) return { target: 'tc2048', link: tapeTimex, kind: 'tape', boot: 'rom48k' };
       return null;
     case 'plus3-disk':
       return plus3Disk ? { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' } : null;
     case 'mgt-disk': return peripheral('mgt-disk', mgt48, mgt128);
     case 'beta-disk': return betaPlan(game, current);
     case 'snapshot':
+      if (isTimexClass(current) && (snapTimex || snap48 || snap16)) {
+        return { target: 'tc2048', link: snapTimex || snap48 || snap16, kind: 'snapshot', boot: 'snapshot' };
+      }
       if (snap128) return { target: 'zx128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
       if (snap48) return { target: 'zx48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
-      return snap16 ? { target: 'zx16k', link: snap16, kind: 'snapshot', boot: 'snapshot' } : null;
+      if (snap16) return { target: 'zx16k', link: snap16, kind: 'snapshot', boot: 'snapshot' };
+      return snapTimex ? { target: 'tc2048', link: snapTimex, kind: 'snapshot', boot: 'snapshot' } : null;
     case 'rom': return rom ? { target: current === 'zx16k' ? 'zx16k' : 'zx48k', link: rom, kind: 'rom', boot: 'rom' } : null;
     case 'microdrive': return peripheral('microdrive', microdrive48, microdrive128);
   }
@@ -299,7 +330,15 @@ export function planLoad(game: Game, current: MachineModel, preferredFormats: It
     const preferred = planFormat(game, current, format);
     if (preferred) return preferred;
   }
-  const { tape16, tape48, tape128, plus3Disk, mgt48, mgt128, microdrive48, microdrive128, snap16, snap48, snap128, rom } = game;
+  const { tape16, tape48, tape128, plus3Disk, mgt48, mgt128, microdrive48, microdrive128, snap16, snap48, snap128, rom, tapeTimex, snapTimex } = game;
+  // The TC2048 has no Interface 2 slot and takes none of the Spectrum peripherals:
+  // on one, play its own tape (else a plain 48K tape), then a snapshot, and stay on it.
+  if (isTimexClass(current)) {
+    const tape = tapeTimex || tape48 || tape16;
+    if (tape) return { target: 'tc2048', link: tape, kind: 'tape', boot: 'rom48k' };
+    const snap = snapTimex || snap48 || snap16;
+    if (snap) return { target: 'tc2048', link: snap, kind: 'snapshot', boot: 'snapshot' };
+  }
   if (rom) return { target: current === 'zx16k' ? 'zx16k' : 'zx48k', link: rom, kind: 'rom', boot: 'rom' };
   const anyTape = tape128 || tape48 || tape16;
 
@@ -334,22 +373,25 @@ export function planLoad(game: Game, current: MachineModel, preferredFormats: It
   if (snap128) return { target: 'zx128k', link: snap128, kind: 'snapshot', boot: 'snapshot' };
   if (snap48) return { target: 'zx48k', link: snap48, kind: 'snapshot', boot: 'snapshot' };
   if (snap16) return { target: 'zx16k', link: snap16, kind: 'snapshot', boot: 'snapshot' };
+  // Only a Timex file is left: it needs a TC2048.
+  if (tapeTimex) return { target: 'tc2048', link: tapeTimex, kind: 'tape', boot: 'rom48k' };
+  if (snapTimex) return { target: 'tc2048', link: snapTimex, kind: 'snapshot', boot: 'snapshot' };
   return null;
 }
 
 export type LibraryFormat = 'tape' | 'plus3-disk' | 'mgt-disk' | 'beta-disk' | 'snapshot' | 'rom' | 'microdrive';
-/** Machine filter values. 'pentagon' and 'scorpion' are only offered while that
- *  clone is the current model (see LibraryBrowser). */
-export type LibraryMachine = '16' | '48' | '128' | '+3' | 'pentagon' | 'scorpion';
+/** Machine filter values. 'pentagon', 'scorpion' and 'tc2048' are only offered while
+ *  that machine is the current model (see LibraryBrowser). */
+export type LibraryMachine = '16' | '48' | '128' | '+3' | 'pentagon' | 'scorpion' | 'tc2048';
 
 /** Whether a title has a retained image of the requested media format. */
 export function hasFormat(game: Game, format: LibraryFormat): boolean {
   switch (format) {
-    case 'tape': return !!(game.tape16 || game.tape48 || game.tape128);
+    case 'tape': return !!(game.tape16 || game.tape48 || game.tape128 || game.tapeTimex);
     case 'plus3-disk': return !!game.plus3Disk;
     case 'mgt-disk': return !!(game.mgt48 || game.mgt128);
     case 'beta-disk': return !!game.betaDisk;
-    case 'snapshot': return !!(game.snap16 || game.snap48 || game.snap128);
+    case 'snapshot': return !!(game.snap16 || game.snap48 || game.snap128 || game.snapTimex);
     case 'rom': return !!game.rom;
     case 'microdrive': return !!(game.microdrive48 || game.microdrive128);
   }
@@ -370,6 +412,9 @@ export function supportsMachine(game: Game, machine: LibraryMachine): boolean {
     case '+3': return !!(game.tape16 || game.tape48 || game.tape128 || game.snap16 || game.snap48 || game.snap128 || game.plus3Disk);
     // The clones' own software: anything ZXDB tags for them, and every TR-DOS
     // image (which both run, the Scorpion being TR-DOS native too).
+    // A TC2048 runs its own tapes and snapshots and any plain 48K tape or snapshot
+    // (not the Interface 2 cartridges or the Spectrum's disk peripherals).
+    case 'tc2048': return !!(game.tapeTimex || game.snapTimex || game.tape16 || game.tape48 || game.snap16 || game.snap48);
     case 'pentagon': return !!(game.clones & CLONE_PENTAGON || game.betaDisk);
     case 'scorpion': return !!(game.clones & CLONE_SCORPION || game.betaDisk);
   }

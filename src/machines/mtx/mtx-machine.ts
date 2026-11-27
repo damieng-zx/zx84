@@ -17,11 +17,10 @@ import { Z80Ctc } from '@/cores/z80-ctc.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { readDskImage, writeDskImage } from '@/media/floppy/disk-state.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { Tms9918ScreenText, tms9918TextGrid } from '@/ocr/tms9918.ts';
@@ -51,7 +50,7 @@ import {
   MTX_TSTATES_PER_FRAME,
 } from './constants.ts';
 
-export class MtxMachine extends BaseMachine implements Machine {
+export class MtxMachine extends Z80MachineBase implements Machine {
   readonly kind: MachineKind = 'mtx';
   readonly model: MtxModel;
   host: MachineHost | null = null;
@@ -89,6 +88,9 @@ export class MtxMachine extends BaseMachine implements Machine {
   floppyEnabled = true;
   /** How many of the FDX's two drives are fitted (Drives pane choice). */
   driveCount = MTX_MAX_DRIVES;
+  /** Whether the 512 KiB expansion was fitted at the last call, so the status
+   *  line only speaks when the fit actually changes. */
+  private ram512kFitted = false;
 
   private readonly vdpPixels = new Uint8Array(MTX_SCREEN_WIDTH * MTX_SCREEN_HEIGHT * 4);
   private readonly vdpPixels32 = new Uint32Array(this.vdpPixels.buffer);
@@ -231,8 +233,15 @@ export class MtxMachine extends BaseMachine implements Machine {
   }
 
   set512kRamEnabled(enabled: boolean): void {
+    // Called from both applySettings and prepare on every settings change, so
+    // it must be idempotent: re-fitting an already-fitted board is a no-op and
+    // says nothing. Announcing it each time made the status line flicker on
+    // every unrelated Hardware-pane edit.
+    const was = this.ram512kFitted;
+    this.ram512kFitted = enabled;
     this.memory.set512kRamExpansionEnabled(enabled);
     this.services.disks.configureCpmRamDiskStartup(enabled);
+    if (was === enabled) return;
     const ramKib = this.memory.ramSizeBytes / 1024;
     this.setStatus(`512 KiB RAM expansion ${enabled ? 'enabled' : 'disabled'} (${ramKib} KiB total)`);
   }
@@ -379,12 +388,6 @@ export class MtxMachine extends BaseMachine implements Machine {
       note: 'line 0 is the first active line of the VDP; the 4MHz PAL field is split evenly over 313 lines, so a line is a fractional ~255.6 cycles; each line is drawn whole when the CPU reaches its end, so a VDP write shows from the line it is made in; the frame flag rises at the end of line 192 and reaches /INT through CTC channel 0; the 80-column card\'s picture is drawn once at the end of the frame',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1;
@@ -477,12 +480,6 @@ export class MtxMachine extends BaseMachine implements Machine {
   stateRomCrcs(): number[] {
     const mem = this.memory;
     return [mem.osRom, mem.romPages[0], mem.romPages[1], mem.romPages[4], mem.romPages[5]].map(crc32);
-  }
-
-  /** Run the rest of a frame a stop left open, so the machine is between
-   *  frames (where a snapshot is taken). */
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
   }
 
   /** The fitted hardware a state depends on, in CONF order. */

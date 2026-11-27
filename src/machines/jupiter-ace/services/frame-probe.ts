@@ -5,27 +5,11 @@
  */
 
 import type {
-  FrameIndicators, FramePaneProvider, FrameProbe,
-  MemoryMapSnapshot, MemoryMapSlot, TranscribeDriver,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import type { OcrGridName } from '@/ocr/ocr.ts';
 import { DRIVE_PROFILE } from '@/media/floppy/floppy-sound.ts';
 import type { JupiterAceMachine } from '../ace-machine.ts';
-
-/** The Ace's memory map; the RAM-pack row follows the fitted pack. */
-function aceMemoryMap(m: JupiterAceMachine): MemoryMapSnapshot | null {
-  const pack = m.memory.ramPackKB;
-  const slots: MemoryMapSlot[] = [
-    { range: '0000-1FFF', read: 'FORTH ROM' },
-    { range: '2000-27FF', read: 'Video RAM', flags: ['screen'] },
-    { range: '2800-2FFF', read: 'Char RAM' },
-    { range: '3000-3FFF', read: 'Main RAM' },
-  ];
-  if (pack === 16) slots.push({ range: '4000-7FFF', read: 'RAM pack (16K)' });
-  else if (pack === 48) slots.push({ range: '4000-FFFF', read: 'RAM pack (48K)' });
-  else slots.push({ range: '4000-FFFF', read: '(expansion)' });
-  return { slots, registers: [] };
-}
 
 /**
  * TEXT-overlay driver.
@@ -52,13 +36,9 @@ class AceTranscribeDriver implements TranscribeDriver {
 }
 
 export class AceFrameProbe implements FrameProbe {
-  readonly panes: FramePaneProvider;
   readonly transcribe: AceTranscribeDriver;
 
   constructor(private readonly m: JupiterAceMachine) {
-    this.panes = {
-      memoryMap: () => aceMemoryMap(m),
-    };
     this.transcribe = new AceTranscribeDriver(m);
   }
 

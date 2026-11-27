@@ -95,6 +95,7 @@ const { emu, settingsMock, panesMock } = vi.hoisted(() => ({
     setLedEar: vi.fn(),
     setLedLoad: vi.fn(),
     setLedText: vi.fn(),
+    setDisplayColumns: vi.fn(),
     setLedBeep: vi.fn(),
     setLedAy: vi.fn(),
     setLedDsk: vi.fn(),
@@ -183,6 +184,8 @@ import {
 } from '@/frame-bridge.ts';
 import type { FontEntry } from '@/frame-bridge.ts';
 import { SpectrumFrameProbe } from '@/machines/spectrum/services/frame-probe.ts';
+import { SpectrumInspection } from '@/machines/spectrum/services/inspect.ts';
+import type { FrameProbe } from '@/machines/machine.ts';
 import { Z80DebugService } from '@/debug/z80/service.ts';
 
 // ── fontDataHash ─────────────────────────────────────────────────────────
@@ -288,10 +291,14 @@ function makeSpectrumWithSnap(snap: Uint8Array): MockSpectrum {
     get cpuClockHz() { return this.tape.cpuClock; },
   };
   // The bridge is generic now: machine-specific frame logic lives in the
-  // machine's probe and its CPU-family debug provider. Attach REAL instances
-  // over the stub so these tests exercise the actual probe/provider + generic
-  // bridge together.
-  s.services = { probe: new SpectrumFrameProbe(s), debug: new Z80DebugService(s) };
+  // machine's probe, its pull-on-demand inspection, and its CPU-family debug
+  // provider. Attach REAL instances over the stub so these tests exercise the
+  // actual probe/provider + generic bridge together.
+  s.services = {
+    probe: new SpectrumFrameProbe(s),
+    inspect: new SpectrumInspection(s),
+    debug: new Z80DebugService(s),
+  };
   return s;
 }
 
@@ -515,6 +522,19 @@ describe('onFrame — LED thresholds', () => {
     emu.spectrum = specWithActivity({ attrWrites: 769 });
     onFrame();
     expect(emu.setLedRainbow).toHaveBeenCalledWith(true);
+  });
+
+  it('passes the display-columns readout through, and 0 for a machine that reports none', () => {
+    const s = specWithActivity({});
+    emu.spectrum = s;
+    onFrame();
+    expect(emu.setDisplayColumns).toHaveBeenLastCalledWith(0);
+    // A machine with two display widths (the C128) reports the one on screen.
+    const probe = (s as unknown as { services: { probe: FrameProbe } }).services.probe;
+    const sample = probe.sample.bind(probe);
+    probe.sample = (out) => { sample(out); out.columns = 80; };
+    onFrame();
+    expect(emu.setDisplayColumns).toHaveBeenLastCalledWith(80);
   });
 
   it('SMELL: setLedText is OR\'d with earReads — transcribe LED lights on tape EAR activity', () => {

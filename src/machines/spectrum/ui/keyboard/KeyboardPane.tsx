@@ -3,20 +3,23 @@
  *
  * Picks the keyboard that matches the current machine: the rubber 48K membrane
  * for 16K/48K, and the hard-key Spectrum + / 128K layout for the 128K-class
- * models (128K, +2, +2A, +3). Both drive the live machine and highlight from
- * the real keyboard matrix — see keyboard-common.
+ * models (128K, +2, +2A, +3), and the Timex Computer 2048's own hard keys. All
+ * drive the live machine and highlight from the real keyboard matrix — see
+ * keyboard-common.
  *
- * This file owns the rubber 48K keyboard; the + lives in KeyboardPlus.
+ * This file owns the rubber 48K keyboard; the + lives in KeyboardPlus and the
+ * TC2048 in KeyboardTc2048.
  */
 
-import { For, Show } from 'solid-js';
+import { For, Match, Show, Switch } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { KeyboardScene, SceneElement, SceneKey } from '@/ui/components/KeyboardScene.tsx';
 import { currentModel } from '@/state/machine-state.ts';
 import { machineDescriptor } from '@/state/machine-caps.ts';
-import { is128kClass } from '@/machines/spectrum/models.ts';
+import { is128kClass, isTimex2068Class } from '@/machines/spectrum/models.ts';
 import { Block, useKeyboard, type KeyboardController, type LatchMode } from './keyboard-common.tsx';
 import { KeyboardPlus } from './KeyboardPlus.tsx';
+import { KeyboardTc2048, KeyboardTs2068 } from './KeyboardTc2048.tsx';
 import { sparseKeyboardFace } from './plus2-legends.ts';
 import { lettersFor, numbersFor } from './legends.ts';
 import {
@@ -203,9 +206,19 @@ function KeyboardHard() {
   return <KeyboardPlus sparse={face() !== null} amstrad={face() === 'amstrad'} />;
 }
 
+/** The 16K/48K rubber keyboard, or the TC2048's own hard keys. */
+function KeyboardSmall() {
+  return (
+    <Switch fallback={<KeyboardRubber />}>
+      <Match when={currentModel() === 'tc2048'}><KeyboardTc2048 /></Match>
+      <Match when={isTimex2068Class(currentModel())}><KeyboardTs2068 /></Match>
+    </Switch>
+  );
+}
+
 export function KeyboardPane() {
   return (
-    <Show when={is128kClass(currentModel())} fallback={<KeyboardRubber />}>
+    <Show when={is128kClass(currentModel())} fallback={<KeyboardSmall />}>
       <KeyboardHard />
     </Show>
   );

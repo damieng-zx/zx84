@@ -23,7 +23,15 @@ export const OCR_GRIDS: Record<SpectrumOcrGrid, OcrConfig> = {
   '32x24': { cellWidth: 8, cellHeight: 8, cols: 32, rows: 24 },
   '51x24': { cellWidth: 5, cellHeight: 8, cols: 51, rows: 24 },
   '64x24': { cellWidth: 4, cellHeight: 8, cols: 64, rows: 24 },
+  // Timex hi-res (512 pixels across): the same text at twice the pixel count.
+  '64x24h': { cellWidth: 8, cellHeight: 8, cols: 64, rows: 24, linear: true },
+  '85x24h': { cellWidth: 6, cellHeight: 8, cols: 85, rows: 24, linear: true },
+  '128x24h': { cellWidth: 4, cellHeight: 8, cols: 128, rows: 24, linear: true },
 };
+
+/** The grids the detector chooses among for a standard 256-pixel screen, and for hi-res. */
+const STANDARD_GRID_KEYS: readonly SpectrumOcrGrid[] = ['32x24', '51x24', '64x24'];
+export const HIRES_GRID_KEYS: readonly SpectrumOcrGrid[] = ['64x24h', '85x24h', '128x24h'];
 
 /** Map character code (33-127) to display character. */
 function charForCode(c: number): string {
@@ -53,7 +61,6 @@ function bitMaskFor(cellWidth: number): number {
 }
 
 /** Cached `Object.keys(OCR_GRIDS)` — used in tight per-frame loops. */
-const OCR_GRID_KEYS: readonly SpectrumOcrGrid[] = Object.keys(OCR_GRIDS) as SpectrumOcrGrid[];
 
 /** Shared scratch buffer for a single 8-byte glyph. Reused across all OCR
  *  helpers — calls aren't concurrent (single-threaded JS, synchronous calls). */
@@ -104,14 +111,17 @@ export function extractCellGlyph(
   const bitOff = startPx & 7;
   const bitsFromLo = 8 - bitOff;
   const mask = bitMaskFor(cellW);
+  // A hi-res bitmap is 64 bytes a row in line order; the Spectrum's is 32, interleaved.
+  const linear = config.linear === true;
+  const lastByteCol = linear ? 63 : 31;
 
   for (let p = 0; p < cellH; p++) {
     const y = startY + p;
-    if (y < 0 || y >= 192 || byteCol > 31) { out[p] = 0; continue; }
-    const off = screenByteOffset(y, byteCol);
+    if (y < 0 || y >= 192 || byteCol > lastByteCol) { out[p] = 0; continue; }
+    const off = linear ? y * 64 + byteCol : screenByteOffset(y, byteCol);
     let bits = (screenBank[off] << bitOff) & 0xFF;
-    if (cellW > bitsFromLo && byteCol < 31) {
-      const next = screenBank[screenByteOffset(y, byteCol + 1)];
+    if (cellW > bitsFromLo && byteCol < lastByteCol) {
+      const next = screenBank[linear ? off + 1 : screenByteOffset(y, byteCol + 1)];
       bits |= (next >>> bitsFromLo) & 0xFF;
     }
     out[p] = bits & mask;
@@ -207,15 +217,18 @@ function log(...args: any[]): void { ocrLogFn?.('[OCR]', ...args); }
  * alignment is more informative. Returns '32x24' if all grids have <4
  * non-blank cells (effectively blank screen).
  */
-export function detectGrid(screenBank: Uint8Array, bankLabel = ''): SpectrumOcrGrid {
+export function detectGrid(
+  screenBank: Uint8Array, bankLabel = '', keys: readonly SpectrumOcrGrid[] = STANDARD_GRID_KEYS,
+): SpectrumOcrGrid {
   const tag = bankLabel ? ` [${bankLabel}]` : '';
+  const fallback = keys[0];
 
-  const uniques: number[] = new Array(OCR_GRID_KEYS.length);
-  const nonBlanks: number[] = new Array(OCR_GRID_KEYS.length);
+  const uniques: number[] = new Array(keys.length);
+  const nonBlanks: number[] = new Array(keys.length);
   let maxNonBlank = 0;
 
-  for (let gi = 0; gi < OCR_GRID_KEYS.length; gi++) {
-    const config = OCR_GRIDS[OCR_GRID_KEYS[gi]];
+  for (let gi = 0; gi < keys.length; gi++) {
+    const config = OCR_GRIDS[keys[gi]];
     const cellH = config.cellHeight;
     const seen = new Set<number>();
     let nonBlank = 0;
@@ -234,32 +247,32 @@ export function detectGrid(screenBank: Uint8Array, bankLabel = ''): SpectrumOcrG
 
   if (maxNonBlank < 4) {
     if (forceGridLog) {
-      log(`detect grid${tag} → 32x24 (screen blank — ${maxNonBlank} non-blank cells)`);
+      log(`detect grid${tag} → ${fallback} (screen blank — ${maxNonBlank} non-blank cells)`);
       forceGridLog = false;
-      lastGridLogKey = '32x24:sparse';
+      lastGridLogKey = `${fallback}:sparse`;
     }
-    return '32x24';
+    return fallback;
   }
 
   let bestIdx = 0;
   let bestUnique = Infinity;
-  for (let gi = 0; gi < OCR_GRID_KEYS.length; gi++) {
+  for (let gi = 0; gi < keys.length; gi++) {
     if (nonBlanks[gi] < 4) continue;
     const u = uniques[gi];
-    const wider = OCR_GRIDS[OCR_GRID_KEYS[gi]].cellWidth
-                > OCR_GRIDS[OCR_GRID_KEYS[bestIdx]].cellWidth;
+    const wider = OCR_GRIDS[keys[gi]].cellWidth
+                > OCR_GRIDS[keys[bestIdx]].cellWidth;
     if (u < bestUnique - 1 || (Math.abs(u - bestUnique) <= 1 && wider)) {
       bestUnique = u;
       bestIdx = gi;
     }
   }
-  const best = OCR_GRID_KEYS[bestIdx];
+  const best = keys[bestIdx];
 
   const logKey = `${best}:${bestUnique}`;
   if (forceGridLog || logKey !== lastGridLogKey) {
     forceGridLog = false;
     lastGridLogKey = logKey;
-    const breakdown = OCR_GRID_KEYS.map((g, gi) =>
+    const breakdown = keys.map((g, gi) =>
       `${g}: ${uniques[gi]} unique / ${nonBlanks[gi]} nonblank`,
     ).join('  ·  ');
     log(`detect grid${tag} → ${best} (fewest unique tiles wins) — ${breakdown}`);
@@ -509,8 +522,10 @@ export class ScreenText {
    * cell extracts) to run per call; we cache the choice mainly so we know
    * when the grid changes and can drop the per-grid font cache.
    */
-  detectAndCacheGrid(screenBank: Uint8Array, bankLabel = ''): SpectrumOcrGrid {
-    const grid = detectGrid(screenBank, bankLabel);
+  detectAndCacheGrid(
+    screenBank: Uint8Array, bankLabel = '', keys: readonly SpectrumOcrGrid[] = STANDARD_GRID_KEYS,
+  ): SpectrumOcrGrid {
+    const grid = detectGrid(screenBank, bankLabel, keys);
     if (grid !== this.cachedGrid) {
       this.cachedRamFont.clear();
       this.cachedGrid = grid;
@@ -673,6 +688,8 @@ export class ScreenText {
     flash: boolean,
     grid: SpectrumOcrGrid = '32x24',
     extraFonts?: FontSource[],
+    /** Palette index every cell is drawn in, for a screen with no attribute file (hi-res). */
+    fixedInk?: number,
   ): OcrResult {
     const config = OCR_GRIDS[grid];
     const cellW = config.cellWidth;
@@ -715,12 +732,16 @@ export class ScreenText {
           if (spanOpen) { html += '</span>'; spanOpen = false; curInk = -1; }
           html += ' ';
         } else {
-          const attrByteCol = Math.min(31, (col * cellW + xOffset) >> 3);
-          const attr = screenBank[attrBase + attrByteCol];
-          const bright = (attr & 0x40) ? 8 : 0;
-          let ink = (attr & 0x07) + bright;
-          let paper = ((attr >> 3) & 0x07) + bright;
-          if ((attr & 0x80) && flash) { const t = ink; ink = paper; paper = t; }
+          let ink: number;
+          if (fixedInk !== undefined) {
+            ink = fixedInk;
+          } else {
+            const attrByteCol = Math.min(31, (col * cellW + xOffset) >> 3);
+            const attr = screenBank[attrBase + attrByteCol];
+            const bright = (attr & 0x40) ? 8 : 0;
+            ink = (attr & 0x07) + bright;
+            if ((attr & 0x80) && flash) ink = ((attr >> 3) & 0x07) + bright;   // FLASH swaps ink and paper
+          }
 
           if (ink !== curInk) {
             if (spanOpen) html += '</span>';

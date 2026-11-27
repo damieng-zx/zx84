@@ -118,11 +118,11 @@ export function loadSP(data: Uint8Array, cpu: Z80, memory: SpectrumMemory): SPRe
       offset += 16384;
     }
 
-    // Apply banking to sync flat memory
-    memory.port7FFD = port7FFD;
-    memory.currentBank = currentBank;
+    // Apply banking to sync flat memory. `latch7FFD` derives the page and the
+    // lock the way the machine does (see its doc), rather than assuming
+    // "D5 set means locked".
+    memory.latch7FFD(port7FFD);
     memory.currentROM = (port7FFD >> 4) & 1;
-    memory.pagingLocked = (port7FFD & 0x20) !== 0;
     memory.applyBanking();
 
     return {

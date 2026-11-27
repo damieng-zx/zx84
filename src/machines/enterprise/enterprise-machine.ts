@@ -20,10 +20,9 @@ import { Z80 } from '@/cores/z80.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -71,7 +70,7 @@ const TYPE_GAP_SCANS = 3;
 /** A minute of emulated time: a typer still waiting then never will be. */
 const TYPE_GIVE_UP_FRAMES = 50 * 60;
 
-export class EnterpriseMachine extends BaseMachine implements Machine {
+export class EnterpriseMachine extends Z80MachineBase implements Machine {
   readonly kind: MachineKind = 'enterprise';
   readonly model: EnterpriseModel;
   readonly services: EnterpriseServices;
@@ -407,12 +406,6 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
     });
   }
 
-  /** Run the rest of a frame a stop left open, so the machine is between
-   *  frames (where a snapshot is taken). */
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
-  }
-
   /**
    * Write the machine's sections of a `.epstate` (see snapshots/ep-state.ts).
    * The card and drive count go first, so a restore can refuse a mismatch
@@ -541,17 +534,11 @@ export class EnterpriseMachine extends BaseMachine implements Machine {
       note: 'lines are Nick\'s 64µs slots of 57×16 Nick clocks; the line parameter table decides what each one shows (or whether it is VSYNC), and a frame is 312 of them counted from reset, not locked to the table, so line 0 is not the top of the picture. displayStart is where slot 7, the first of the display area, falls in every line. Each line is drawn whole when the CPU reaches its end, so a video RAM or palette write shows from the line it is made in',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
   /** The loop takes Dave's interrupt in place of the next step, so a trap at
    *  the pc would report an instruction that does not run yet. */
   protected override interruptEntryPending(): boolean {
     return this.dave.irq && this.cpu.iff1 && !this.cpu.eiDelay;
   }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   protected runFrame(): void {
     this.skipAudio = this.speedMultiplier !== 1 || this.bootTurboActive;

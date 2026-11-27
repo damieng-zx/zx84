@@ -164,11 +164,17 @@ export function wireEinsteinPortIO(m: EinsteinMachine): void {
     }
   };
 
-  /** Port 0x00/0x01 strobe (MAME reset_r/reset_w): resets the AY, which
-   *  returns its I/O port A to input — no keyboard lines driven low. */
+  /** Port 0x00/0x01 strobe (MAME reset_r/reset_w): resets the AY — which
+   *  returns its I/O port A to input, so no keyboard lines are driven low —
+   *  *and* the WD1770. The board wires both chips' /RESET to this decode, so a
+   *  strobe abandons a command in flight and clears the controller's
+   *  registers. It is a master reset (that is what the pin is), so the drive
+   *  heads stay where they physically are and only the controller's own
+   *  position register is zeroed. */
   function resetPsg(): void {
     ay.reset();
     kbd.selectRows(0xFF);
+    fdc.masterReset();
   }
 
   function setIntMask(bit: number, val: number): void {

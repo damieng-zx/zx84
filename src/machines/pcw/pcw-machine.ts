@@ -26,7 +26,7 @@ import { UPD765A } from '@/cores/upd765a.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -40,9 +40,8 @@ import {
   PCW_FONT_BLOCK, PCW_FONT_BYTES, PCW_FONT_OFFSET,
   pcwScreenCells, pcwScreenText, type PcwOcrCells,
 } from '@/ocr/pcw.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { PcwMemory } from './pcw-memory.ts';
 import { PcwAsic, PCW_TIMING_50HZ, PCW_TIMING_60HZ, TickSync } from './asic.ts';
 import { PcwKeyboard } from './pcw-keyboard.ts';
@@ -63,7 +62,7 @@ import {
 /** The PCW has no sound chip; the mixer only ever sees the beeper bit. */
 const NO_SOUND_CHIP = { setSampleRate(_rate: number): void {} };
 
-export class PcwMachine extends BaseMachine implements Machine {
+export class PcwMachine extends Z80MachineBase implements Machine {
   protected get audioChip(): { setSampleRate(rate: number): void } { return NO_SOUND_CHIP; }
 
   readonly kind: MachineKind = 'pcw';
@@ -284,7 +283,9 @@ export class PcwMachine extends BaseMachine implements Machine {
   }
 
   applySettings(view: SettingsView): void {
-    const phosphor = PCW_PHOSPHORS[view.get('pcw-phosphor', this.config.phosphor)]
+    // 'auto' follows the monitor the model shipped with.
+    const wanted = view.get<string>('pcw-phosphor', 'auto');
+    const phosphor = PCW_PHOSPHORS[wanted === 'auto' ? this.config.phosphor : wanted]
       ?? PCW_PHOSPHORS[this.config.phosphor];
     this.asic.ink = phosphor.ink;
     this.asic.paper = phosphor.paper;
@@ -393,12 +394,6 @@ export class PcwMachine extends BaseMachine implements Machine {
         + 'T-states per 64us line',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   /**
    * Execute one field: 312 scan lines of 218 T-states (260 with the 60Hz link).
@@ -547,12 +542,6 @@ export class PcwMachine extends BaseMachine implements Machine {
 
   /** The PCW has no ROM (the bootstrap is native code), so no ROM CRCs. */
   stateRomCrcs(): number[] { return []; }
-
-  /** Run the rest of a frame a stop left open, so the machine is between
-   *  frames (where a snapshot is taken). */
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
-  }
 
   /**
    * Write the machine's sections of a `.pcwstate` (see snapshots/pcw-state.ts):

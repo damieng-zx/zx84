@@ -1,5 +1,5 @@
 import type { IMachineMemory } from '@/machines/machine.ts';
-import type { Zx8xModel } from './models.ts';
+import { zx8xBuiltinRamKb, type Zx8xModel } from './models.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
 const ADDRESS_SPACE = 0x10000;
@@ -16,8 +16,9 @@ const QUICKSILVA_RAM_SIZE = 0x1800;
 
 /**
  * ZX80/ZX81 memory decoding. A15 is not decoded, so the lower 32K is echoed in
- * the upper 32K. The internal 1K RAM repeats through the RAM window; fitting a
- * 16K pack replaces those mirrors with a contiguous 0x4000-0x7fff region.
+ * the upper 32K. The board's own RAM (1K, or 2K on the TS1000) repeats through
+ * the RAM window; fitting a 16K pack replaces those mirrors with a contiguous
+ * 0x4000-0x7fff region. The TS1500 has the 16K soldered in.
  */
 export class Zx8xMemory implements IMachineMemory {
   private rom: Uint8Array;
@@ -26,7 +27,6 @@ export class Zx8xMemory implements IMachineMemory {
   private readonly memotechRam = new Uint8Array(0x400);
   private readonly quickSilvaRam = new Uint8Array(QUICKSILVA_RAM_SIZE);
   private hrgRom = new Uint8Array(0);
-  private expanded = false;
   private udgRam = false;
   private udg128Ram = false;
   private wrxRam = false;
@@ -35,10 +35,13 @@ export class Zx8xMemory implements IMachineMemory {
 
   constructor(readonly model: Zx8xModel) {
     this.rom = new Uint8Array(model === 'zx80' ? 0x1000 : 0x2000);
-    this.ram = new Uint8Array(0x400);
+    this.ram = new Uint8Array(this.builtinRamSize);
   }
 
-  get has16kExpansion(): boolean { return this.expanded; }
+  /** Bytes of RAM on the board before any pack. */
+  get builtinRamSize(): number { return zx8xBuiltinRamKb(this.model) * 0x400; }
+  /** True once RAM fills the whole 0x4000-0x7fff window, by pack or on the board. */
+  get has16kExpansion(): boolean { return this.ram.length === 0x4000; }
   get hasUdgRam(): boolean { return this.udgRam; }
   get hasUdg128Ram(): boolean { return this.udg128Ram; }
   get hasWrxRam(): boolean { return this.wrxRam; }
@@ -47,11 +50,11 @@ export class Zx8xMemory implements IMachineMemory {
   get ramSize(): number { return this.ram.length; }
 
   set16kExpansion(enabled: boolean): void {
-    if (enabled === this.expanded) return;
-    const next = new Uint8Array(enabled ? 0x4000 : 0x400);
+    const size = enabled ? 0x4000 : this.builtinRamSize;
+    if (size === this.ram.length) return;
+    const next = new Uint8Array(size);
     next.set(this.ram.subarray(0, Math.min(next.length, this.ram.length)));
     this.ram = next;
-    this.expanded = enabled;
   }
 
   /** Character-generator RAM board decoded at $3000-$3FFF. */

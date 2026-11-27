@@ -81,6 +81,18 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'apple2-disk2': () => settings.apple2Disk2(),
   'c64-drive': () => settings.c64Drive(),
   'c64-sid': () => settings.c64Sid(),
+  'vic20-ram': () => settings.vic20Ram(),
+  'vic20-blk5': () => settings.vic20Blk5(),
+  'vic20-drive': () => settings.vic20Drive(),
+  'c128-drive': () => settings.c128Drive(),
+  'c128-vdc-ram': () => settings.c128VdcRam(),
+  'c128-vdc-chip': () => settings.c128VdcChip(),
+  'c128-display': () => settings.c128Display(),
+  'plus4-drive': () => settings.plus4Drive(),
+  'plus4-expansion': () => settings.plus4Expansion(),
+  'lynx-fdc': () => settings.lynxFdc(),
+  'mtx-floppy': () => settings.mtxFloppy(),
+  'pcw-phosphor': () => settings.pcwPhosphor(),
   'apple2-langcard': () => settings.apple2LangCard(),
   'apple2-joystick': () => settings.apple2Joystick(),
   'apple2-mockingboard': () => settings.apple2Mockingboard(),
@@ -89,6 +101,8 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'apple1-ram': () => settings.apple1Ram(),
   'apple1-basic-ram': () => settings.apple1BasicRam(),
   'apple1-aci': () => settings.apple1Aci(),
+  'atom-ram': () => settings.atomRam(),
+  'oric-microdisc': () => settings.oricMicrodisc(),
   'enterprise-exdos': () => settings.enterpriseExdos(),
   'pcw-60hz': () => settings.pcw60Hz(),
   // True while the SAA5050 upscaler is selected: machines that draw teletext
@@ -106,6 +120,20 @@ const SETTING_GETTERS: Record<string, () => unknown> = {
   'zx8x-vsync-sound': () => settings.zx8xVsyncSound(),
   'ace-ram-pack': () => settings.aceRamPack(),
 };
+
+/** Prefix families the view answers in addition to the literal getters: the
+ *  per-machine-kind saved drive setup. */
+const KEY_PREFIXES = ['drive-count:', 'drive-models:'] as const;
+
+/**
+ * Whether the view can answer `key` from the store. A key this rejects is
+ * served as its fallback, which is how a Hardware-pane option silently stops
+ * reaching its machine — see `tests/shell/settings-view.test.ts`.
+ */
+export function settingsViewKnows(key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(SETTING_GETTERS, key)
+    || KEY_PREFIXES.some(prefix => key.startsWith(prefix));
+}
 
 /** Whether a boolean setting is on, reactively (call inside a tracking scope).
  *  Gates a machine capability on a user-fitted peripheral — see
@@ -128,8 +156,7 @@ export function buildSettingsView(): SettingsView {
       // machine kind (one per drive).
       if (key.startsWith('drive-models:')) {
         return (settings.savedDriveModels(key.slice('drive-models:'.length)) ?? fallback) as T;
-      }
-      const getter = SETTING_GETTERS[key];
+      }      const getter = SETTING_GETTERS[key];
       return getter ? (getter() as T) : fallback;
     },
   };

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { fileUrls, basename, shortPublisher, resolveGame, planLoad, hasFormat, availableFormats, supportsMachine, parseLibraryQuery, CLONE_PENTAGON, CLONE_SCORPION, type RawCatalog } from '@/library/catalog.ts';
+import { fileUrls, basename, shortPublisher, resolveGame, planLoad, pickScreen, hasFormat, availableFormats, supportsMachine, parseLibraryQuery, CLONE_PENTAGON, CLONE_SCORPION, type RawCatalog } from '@/library/catalog.ts';
 
 const CDN = 'https://zx84files.bitsparse.com/library';
 const PROXY = 'https://zxfileserver.envytech.workers.dev';
@@ -133,8 +133,17 @@ describe('resolveGame', () => {
       id: 7, title: 'Jetpac', year: 1983, genre: 'Arcade: Action', publisher: 'Ultimate',
       tape16: '/pub/a16.tzx.zip', tape48: '/pub/a.tzx.zip', tape128: '/pub/a128.tzx.zip', plus3Disk: '/pub/a.dsk.zip',
       diskSides: [], betaDisk: '', clones: 0, mgt48: '/pub/a.mgt.zip', mgt128: '/pub/a128.mgt.zip', microdrive48: '/pub/a.mdr.zip', microdrive128: '/pub/a128.mdr.zip',
-      snap16: '/pub/a16.szx.zip', snap48: '/pub/a.z80.zip', snap128: '/pub/a128.szx.zip', screen: '/pub/a.scr', rom: '',
+      tapeTimex: '', snapTimex: '',
+      snap16: '/pub/a16.szx.zip', snap48: '/pub/a.z80.zip', snap128: '/pub/a128.szx.zip', screen: '/pub/a.scr', screenMlt: '', rom: '',
     });
+  });
+
+  it('exposes the Timex TC2048 tape and snapshot slots', () => {
+    const g = resolveGame({ i: 11, t: 'Hi-Color Hero', tf: '/pub/h.tzx.zip', tn: '/pub/h.szx.zip' }, cat);
+    expect(g.tapeTimex).toBe('/pub/h.tzx.zip');
+    expect(g.snapTimex).toBe('/pub/h.szx.zip');
+    expect(g.tape48).toBe('');
+    expect(g.snap48).toBe('');
   });
 
   it('exposes the ROM cartridge slot', () => {
@@ -305,5 +314,110 @@ describe('library media selection', () => {
     expect(supportsMachine(microdrive, '128')).toBe(true);
     expect(supportsMachine(romOnly, '16')).toBe(true);
     expect(supportsMachine(romOnly, '128')).toBe(false);
+  });
+});
+
+describe('Timex TC2048 titles', () => {
+  const cat: RawCatalog = { genres: [], publishers: [], games: [] };
+  const mk = (raw: Omit<RawCatalog['games'][number], 'i'>) => resolveGame({ i: 1, ...raw }, cat);
+  const timexTape = mk({ t: 'TX', tf: '/pub/tx.tzx.zip' });
+  const timexSnap = mk({ t: 'TXS', tn: '/pub/tx.szx.zip' });
+  const both = mk({ t: 'Both', f: '/pub/48.tzx.zip', tf: '/pub/tx.tzx.zip', n: '/pub/48.z80.zip', tn: '/pub/tx.szx.zip' });
+  const plain48 = mk({ t: 'P48', f: '/pub/48.tzx.zip' });
+  const plain48Snap = mk({ t: 'P48S', n: '/pub/48.z80.zip' });
+  const tape128 = mk({ t: 'T128', k: '/pub/128.tzx.zip' });
+  const romOnly = mk({ t: 'R', r: '/pub/x.rom.zip' });
+  const romAndTape = mk({ t: 'RT', f: '/pub/48.tzx.zip', r: '/pub/x.rom.zip' });
+  const diskOnly = mk({ t: 'D', d: '/pub/x.dsk.zip' });
+
+  describe('on a TC2048', () => {
+    it('plays its own tape on the TC2048, jumping the ROM loader', () => {
+      expect(planLoad(timexTape, 'tc2048')).toEqual({ target: 'tc2048', link: '/pub/tx.tzx.zip', kind: 'tape', boot: 'rom48k' });
+    });
+
+    it('prefers the Timex tape and snapshot over the plain 48K ones', () => {
+      expect(planLoad(both, 'tc2048')).toEqual({ target: 'tc2048', link: '/pub/tx.tzx.zip', kind: 'tape', boot: 'rom48k' });
+      expect(planLoad(both, 'tc2048', ['snapshot'])).toEqual({ target: 'tc2048', link: '/pub/tx.szx.zip', kind: 'snapshot', boot: 'snapshot' });
+    });
+
+    it('stays a TC2048 for a plain 48K tape or snapshot rather than becoming a 48K', () => {
+      expect(planLoad(plain48, 'tc2048')).toEqual({ target: 'tc2048', link: '/pub/48.tzx.zip', kind: 'tape', boot: 'rom48k' });
+      expect(planLoad(plain48Snap, 'tc2048')).toEqual({ target: 'tc2048', link: '/pub/48.z80.zip', kind: 'snapshot', boot: 'snapshot' });
+    });
+
+    it('plays a Timex snapshot when there is no tape', () => {
+      expect(planLoad(timexSnap, 'tc2048')).toEqual({ target: 'tc2048', link: '/pub/tx.szx.zip', kind: 'snapshot', boot: 'snapshot' });
+    });
+
+    it('does not use an Interface 2 cartridge, which it has no slot for', () => {
+      expect(planLoad(romAndTape, 'tc2048')).toEqual({ target: 'tc2048', link: '/pub/48.tzx.zip', kind: 'tape', boot: 'rom48k' });
+      expect(planLoad(romOnly, 'tc2048')!.target).toBe('zx48k');
+    });
+
+    it('leaves a TC2048 for a title it cannot run (a 128K tape, a +3 disk)', () => {
+      expect(planLoad(tape128, 'tc2048')).toEqual({ target: 'zx128k', link: '/pub/128.tzx.zip', kind: 'tape', boot: 'menu' });
+      expect(planLoad(diskOnly, 'tc2048')!.target).toBe('zx128kplus3');
+    });
+  });
+
+  describe('on another machine', () => {
+    it('never plays the Timex file when there is a plain 48K one', () => {
+      expect(planLoad(both, 'zx48k')).toEqual({ target: 'zx48k', link: '/pub/48.tzx.zip', kind: 'tape', boot: 'rom48k' });
+      expect(planLoad(both, 'zx128k')!.link).toBe('/pub/48.tzx.zip');
+    });
+
+    it('moves to a TC2048 for a title that has only a Timex file', () => {
+      for (const current of ['zx48k', 'zx128k', 'zx128kplus3', 'zx16k'] as const) {
+        expect(planLoad(timexTape, current)).toEqual({ target: 'tc2048', link: '/pub/tx.tzx.zip', kind: 'tape', boot: 'rom48k' });
+        expect(planLoad(timexSnap, current)).toEqual({ target: 'tc2048', link: '/pub/tx.szx.zip', kind: 'snapshot', boot: 'snapshot' });
+      }
+    });
+
+    it('honours the Format filter for a Timex-only title', () => {
+      expect(planLoad(timexTape, 'zx48k', ['tape'])!.target).toBe('tc2048');
+      expect(planLoad(timexSnap, 'zx48k', ['snapshot'])!.target).toBe('tc2048');
+    });
+  });
+
+  it('counts as having a tape or snapshot format, but is not a 48K title', () => {
+    expect(hasFormat(timexTape, 'tape')).toBe(true);
+    expect(hasFormat(timexSnap, 'snapshot')).toBe(true);
+    expect(availableFormats(both)).toEqual(['tape', 'snapshot']);
+    expect(supportsMachine(timexTape, '48')).toBe(false);
+    expect(supportsMachine(timexTape, '128')).toBe(false);
+    expect(supportsMachine(timexSnap, '+3')).toBe(false);
+  });
+
+  it('is offered by the TC2048 filter along with plain 48K software, but not 128K, ROM or disk titles', () => {
+    expect(supportsMachine(timexTape, 'tc2048')).toBe(true);
+    expect(supportsMachine(timexSnap, 'tc2048')).toBe(true);
+    expect(supportsMachine(plain48, 'tc2048')).toBe(true);
+    expect(supportsMachine(plain48Snap, 'tc2048')).toBe(true);
+    expect(supportsMachine(mk({ t: 'T16', a: '/pub/16.tzx.zip' }), 'tc2048')).toBe(true);
+    expect(supportsMachine(tape128, 'tc2048')).toBe(false);
+    expect(supportsMachine(romOnly, 'tc2048')).toBe(false);
+    expect(supportsMachine(diskOnly, 'tc2048')).toBe(false);
+  });
+});
+
+describe('which screen a title shows', () => {
+  const cat: RawCatalog = { genres: [], publishers: [], games: [] };
+  const mk = (raw: Omit<RawCatalog['games'][number], 'i'>) => resolveGame({ i: 1, ...raw }, cat);
+
+  it('exposes the multicolour screen slot', () => {
+    expect(mk({ t: 'Uridium', sm: '/zxdb/u.mlt' }).screenMlt).toBe('/zxdb/u.mlt');
+    expect(mk({ t: 'Plain' }).screenMlt).toBe('');
+  });
+
+  it('prefers a native .scr, then a multicolour .mlt, then a raster', () => {
+    expect(pickScreen(mk({ t: 'A', s: '/z/a.scr', sm: '/z/a.mlt' }))).toEqual({ link: '/z/a.scr', kind: 'scr' });
+    expect(pickScreen(mk({ t: 'B', s: '/z/b.png', sm: '/z/b.mlt' }))).toEqual({ link: '/z/b.mlt', kind: 'mlt' });
+    expect(pickScreen(mk({ t: 'C', sm: '/z/c.mlt' }))).toEqual({ link: '/z/c.mlt', kind: 'mlt' });
+    expect(pickScreen(mk({ t: 'D', s: '/z/d.gif' }))).toEqual({ link: '/z/d.gif', kind: 'image' });
+    expect(pickScreen(mk({ t: 'E', s: '/z/E.SCR' }))).toEqual({ link: '/z/E.SCR', kind: 'scr' });
+  });
+
+  it('has none for a title without a screen', () => {
+    expect(pickScreen(mk({ t: 'F', f: '/z/f.tzx.zip' }))).toBeNull();
   });
 });

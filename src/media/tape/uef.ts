@@ -38,6 +38,21 @@ const UEF_SIGNATURE = [0x55, 0x45, 0x46, 0x20, 0x46, 0x69, 0x6C, 0x65, 0x21, 0x0
 export const UEF_DEFAULT_BAUD = 1200;
 export const UEF_DEFAULT_BASE_HZ = 1200;
 
+/** A machine's default when a UEF says nothing (the Atom's tapes are 300 baud
+ *  and its UEFs usually omit the 0x0117 chunk). A 0x0117 in the file still
+ *  wins. */
+export interface UefOptions {
+  readonly defaultBaud?: number;
+  readonly defaultBaseHz?: number;
+  /** Force the base frequency, ignoring a 0x0113 chunk (an Atom UEF's measured
+   *  1226 Hz is a capture artefact; the receiver expects the nominal 1200 Hz). */
+  readonly fixedBaseHz?: number;
+  /** Ignore a negative stop-bit count's extra short wave after each packet.
+   *  The Atom's UEF data chunks carry that BBC convention but the Atom COS
+   *  reads a plain 8N1 frame. */
+  readonly noShortWave?: boolean;
+}
+
 export interface UefChunk {
   readonly id: number;
   readonly data: Uint8Array;
@@ -143,10 +158,10 @@ function readFloat(d: Uint8Array, off = 0): number {
 }
 
 /** Convert a chunk list to pulse blocks. */
-export function uefChunksToBlocks(chunks: readonly UefChunk[]): TapeBlock[] {
+export function uefChunksToBlocks(chunks: readonly UefChunk[], options: UefOptions = {}): TapeBlock[] {
   const blocks: TapeBlock[] = [];
-  let baud = UEF_DEFAULT_BAUD;
-  let baseHz = UEF_DEFAULT_BASE_HZ;
+  let baud = options.defaultBaud ?? UEF_DEFAULT_BAUD;
+  let baseHz = options.fixedBaseHz ?? options.defaultBaseHz ?? UEF_DEFAULT_BASE_HZ;
   const pb = new PulseBuf();
   // Running ideal vs emitted time (3.5MHz ticks), so rounding each half-cycle
   // to whole ticks never accumulates into tone drift.
@@ -207,7 +222,7 @@ export function uefChunksToBlocks(chunks: readonly UefChunk[]): TapeBlock[] {
         // wave (a cycle at twice the base frequency) after every packet.
         for (const byte of payload) {
           frame(byte, bits, parity, stop);
-          if (stopCount < 0) cycles(1, 2 * baseHz);
+          if (stopCount < 0 && !options.noShortWave) cycles(1, 2 * baseHz);
         }
         flush({ role: 'data', label: 'Data', detail: `${payload.length} bytes` });
         break;
@@ -273,7 +288,7 @@ export function uefChunksToBlocks(chunks: readonly UefChunk[]): TapeBlock[] {
       case 0x0115:                                    // phase change: no effect on a frequency receiver
         break;
       case 0x0113:                                    // base frequency
-        if (data.length >= 4) {
+        if (data.length >= 4 && options.fixedBaseHz === undefined) {
           const f = readFloat(data);
           if (f > 0 && Number.isFinite(f)) baseHz = f;
         }
@@ -292,9 +307,9 @@ export function uefChunksToBlocks(chunks: readonly UefChunk[]): TapeBlock[] {
 }
 
 /** Parse a (possibly gzipped) UEF into pulse blocks. */
-export async function parseUEF(data: Uint8Array): Promise<TapeBlock[]> {
+export async function parseUEF(data: Uint8Array, options: UefOptions = {}): Promise<TapeBlock[]> {
   const raw = isGzip(data) ? await gunzip(data) : data;
-  return uefChunksToBlocks(parseUefChunks(raw));
+  return uefChunksToBlocks(parseUefChunks(raw), options);
 }
 
 // ── Writing ────────────────────────────────────────────────────────────────

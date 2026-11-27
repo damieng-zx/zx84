@@ -64,8 +64,11 @@ const C64_UI: MachineUiCapabilities = {
   psgControls: ['sid-model'],
   statusLeds: ['kbd', 'load', 'dsk', 'chip', 'text'],
   keyboardBus: 'matrix',
+  // A Commodore's `"` is SHIFT+2 and its `+ - * /` are single caps of their
+  // own: the character decides the key, not the PC's physical position.
+  typedCharacters: true,
   tape: 'deck',
-  tapeSound: false,
+  tapeSound: true,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
   // 'tape-tap' downloads what the KERNAL has SAVEd to tape (as a C64 .tap).
   saveMenu: ['snapshot-c64state', 'tape-tap', 'screenshot-png', 'ram-bin'],

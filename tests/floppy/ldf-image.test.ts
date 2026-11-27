@@ -68,7 +68,12 @@ describe('Lynx .ldf geometry', () => {
   it('round-trips a dump byte for byte', () => {
     for (const [tracks, sides] of [[40, 1], [80, 2]] as const) {
       const data = makeLdf(tracks, sides);
-      expect(serializeLdf(parseLdf(data)!)).toEqual(data);
+      const out = serializeLdf(parseLdf(data)!);
+      // Compared by hand: a deep-equal of an 800K image is slow enough to
+      // time the test out.
+      expect(out.length, `${tracks}×${sides}: size`).toBe(data.length);
+      const first = out.findIndex((b, i) => b !== data[i]);
+      expect(first, `${tracks}×${sides}: first byte that differs`).toBe(-1);
     }
   });
 

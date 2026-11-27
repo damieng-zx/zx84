@@ -73,8 +73,10 @@ function invertKey(key: string): string {
 
 const romGlyphCache = new WeakMap<Uint8Array, Map<string, string>>();
 
-/** Every text glyph of the ROM font (both sets), keyed by its bytes. */
-function romGlyphs(chargen: Uint8Array): Map<string, string> {
+/** Every text glyph of the ROM font (both sets), keyed by its bytes. The
+ *  VIC-20's character ROM is laid out the same way (and holds the same
+ *  glyphs), so it serves there too. */
+export function cbmRomGlyphs(chargen: Uint8Array): Map<string, string> {
   const cached = romGlyphCache.get(chargen);
   if (cached) return cached;
   const map = new Map<string, string>();
@@ -101,6 +103,71 @@ function escapeHtml(ch: string): string {
 }
 
 /**
+ * What an 8×8 glyph at `addr` (read through `read`) shows: a ROM character,
+ * the reverse of one, or a space (blank, solid, or not a ROM character).
+ * `seen` caches it by address for one screen.
+ */
+export function cbmMatchGlyph(
+  rom: Map<string, string>, read: (addr: number) => number, addr: number,
+  seen: Map<number, { ch: string; reversed: boolean }>,
+): { ch: string; reversed: boolean } {
+  const hit = seen.get(addr);
+  if (hit) return hit;
+  let blank = true, solid = true;
+  const key = glyphKey(row => {
+    const b = read(addr + row) & 0xFF;
+    if (b !== 0) blank = false;
+    if (b !== 0xFF) solid = false;
+    return b;
+  });
+  let found: { ch: string; reversed: boolean } = { ch: ' ', reversed: false };
+  if (!blank && !solid) {
+    const direct = rom.get(key);
+    if (direct !== undefined) found = { ch: direct, reversed: false };
+    else {
+      const inverse = rom.get(invertKey(key));
+      if (inverse !== undefined) found = { ch: inverse, reversed: true };
+    }
+  }
+  seen.set(addr, found);
+  return found;
+}
+
+/** The overlay's text and HTML from a grid of matched cells (a space is
+ *  unmatched), each in its `ink` colour. */
+export function cbmGridText(
+  cells: readonly string[], ink: readonly number[], cols: number, rows: number, palette: Uint32Array,
+): { text: string; html: string } {
+  let text = '';
+  let html = '';
+  for (let row = 0; row < rows; row++) {
+    let curHex = '';
+    let open = false;
+    for (let col = 0; col < cols; col++) {
+      const idx = row * cols + col;
+      const ch = cells[idx];
+      text += ch;
+      if (ch === ' ') {
+        if (open) { html += '</span>'; open = false; curHex = ''; }
+        html += ' ';
+        continue;
+      }
+      const hex = abgrToHex(palette[ink[idx] & 0x0F]);
+      if (hex !== curHex) {
+        if (open) html += '</span>';
+        html += `<span style="color:${hex}">`;
+        curHex = hex;
+        open = true;
+      }
+      html += escapeHtml(ch);
+    }
+    if (open) html += '</span>';
+    if (row < rows - 1) { text += '\n'; html += '\n'; }
+  }
+  return { text, html };
+}
+
+/**
  * The 40x25 overlay grid. A matched cell is drawn in its colour RAM colour on
  * the background; one in reverse video swaps the two, and `paper` is the
  * colour the cell's pixels are blanked to (what the overlay's background
@@ -118,31 +185,9 @@ export function c64OcrGrid(input: C64OcrInput): C64OcrResult {
     const charBase = (regs[0x18] & 0x0E) << 10;
     const ecm = (regs[0x11] & 0x40) !== 0;
     const mcm = (regs[0x16] & 0x10) !== 0;
-    const rom = romGlyphs(input.chargen);
+    const rom = cbmRomGlyphs(input.chargen);
     const seen = new Map<number, { ch: string; reversed: boolean }>();
-
-    const read = (addr: number): { ch: string; reversed: boolean } => {
-      const hit = seen.get(addr);
-      if (hit) return hit;
-      let blank = true, solid = true;
-      const key = glyphKey(row => {
-        const b = input.vicRead(addr + row) & 0xFF;
-        if (b !== 0) blank = false;
-        if (b !== 0xFF) solid = false;
-        return b;
-      });
-      let found: { ch: string; reversed: boolean } = { ch: ' ', reversed: false };
-      if (!blank && !solid) {
-        const direct = rom.get(key);
-        if (direct !== undefined) found = { ch: direct, reversed: false };
-        else {
-          const inverse = rom.get(invertKey(key));
-          if (inverse !== undefined) found = { ch: inverse, reversed: true };
-        }
-      }
-      seen.set(addr, found);
-      return found;
-    };
+    const read = (addr: number) => cbmMatchGlyph(rom, a => input.vicRead(a), addr, seen);
 
     for (let i = 0; i < COLS * ROWS; i++) {
       const raw = input.vicRead(screen + i) & 0xFF;
@@ -159,31 +204,6 @@ export function c64OcrGrid(input: C64OcrInput): C64OcrResult {
     }
   }
 
-  let text = '';
-  let html = '';
-  for (let row = 0; row < ROWS; row++) {
-    let curHex = '';
-    let open = false;
-    for (let col = 0; col < COLS; col++) {
-      const idx = row * COLS + col;
-      const ch = cells[idx];
-      text += ch;
-      if (ch === ' ') {
-        if (open) { html += '</span>'; open = false; curHex = ''; }
-        html += ' ';
-        continue;
-      }
-      const hex = abgrToHex(input.palette[ink[idx] & 0x0F]);
-      if (hex !== curHex) {
-        if (open) html += '</span>';
-        html += `<span style="color:${hex}">`;
-        curHex = hex;
-        open = true;
-      }
-      html += escapeHtml(ch);
-    }
-    if (open) html += '</span>';
-    if (row < ROWS - 1) { text += '\n'; html += '\n'; }
-  }
+  const { text, html } = cbmGridText(cells, ink, COLS, ROWS, input.palette);
   return { text, html, mask, paper, grid: '40x25', cellWidth: 8, cellHeight: 8, cols: COLS, rows: ROWS };
 }

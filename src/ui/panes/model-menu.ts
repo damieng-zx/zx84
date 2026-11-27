@@ -27,6 +27,11 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   scorpion256: 'Scorpion ZS-256',
   zx80: 'ZX80',
   zx81: 'ZX81',
+  ts1000: 'Timex Sinclair 1000',
+  ts1500: 'Timex Sinclair 1500',
+  tc2048: 'Timex Computer 2048',
+  // One model in two TV standards: NTSC is the Timex Sinclair 2068, PAL the Timex Computer 2068.
+  ts2068: 'Timex 2068',
   cpc464: 'CPC 464',
   cpc664: 'CPC 664',
   cpc6128: 'CPC 6128',
@@ -48,6 +53,10 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   pcw8512: 'PCW 8512',
   pcw9256: 'PCW 9256',
   pcw9512: 'PCW 9512',
+  'acorn-system2': 'Acorn System 2',
+  'acorn-system3': 'Acorn System 3',
+  'acorn-system4': 'Acorn System 4',
+  'acorn-system5': 'Acorn System 5',
   'bbc-a': 'BBC Micro Model A',
   'bbc-b': 'BBC Micro Model B',
   electron: 'Electron',
@@ -68,7 +77,33 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   atari800xe: 'Atari 800XE',
   atari130xe: 'Atari 130XE',
   c64: 'Commodore 64',
+  vic20: 'Commodore VIC-20',
+  c128: 'Commodore 128',
+  atom: 'Acorn Atom',
+  atmos: 'Oric Atmos',
+  oric1: 'Oric-1',
+  plus4: 'Commodore Plus/4',
+  c16: 'Commodore 16',
 };
+
+/**
+ * Manufacturer names the model menu drops from a second-level entry, because
+ * the submenu (or the model itself) already says it: "Acorn > Atom", not
+ * "Acorn > Acorn Atom". `MODEL_LABELS` keeps the full name for the model box.
+ */
+const MAKERS = [
+  'Acorn', 'Apple', 'Atari', 'Camputers', 'Commodore', 'Memotech', 'Oric',
+  'Sony', 'Timex', 'Toshiba',
+] as const;
+
+/** The menu's label for a model: `MODEL_LABELS` with the maker's own name
+ *  dropped ("Acorn Atom" → "Atom"). A label that does not start with one
+ *  ("ZX Spectrum 48K", "Einstein TC-01", "Oric-1") is left alone. */
+export function menuLabel(model: MachineModel): string {
+  const name = MODEL_LABELS[model];
+  const maker = MAKERS.find((m) => name.startsWith(`${m} `));
+  return maker ? name.slice(maker.length + 1) : name;
+}
 
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
   uk: 'English',
@@ -98,12 +133,17 @@ export const MODEL_LOCALES: Partial<Record<MachineModel, MachineLocale[]>> = {
   atari800xe: ['uk', 'us'],
   atari130xe: ['uk', 'us'],
   c64: ['uk', 'us'],
+  vic20: ['uk', 'us'],
+  c128: ['uk', 'us'],
+  ts2068: ['uk', 'us'],
+  plus4: ['uk', 'us'],
+  c16: ['uk', 'us'],
 };
 
 /** Models whose locale variants are TV standards rather than languages. */
 const TV_STANDARD_MODELS: ReadonlySet<MachineModel> = new Set<MachineModel>([
   'atari400', 'atari800', 'atari600xl', 'atari800xl', 'atari1200xl',
-  'atari65xe', 'atari800xe', 'atari130xe', 'c64',
+  'atari65xe', 'atari800xe', 'atari130xe', 'c64', 'vic20', 'c128', 'ts2068', 'plus4', 'c16',
 ]);
 const TV_STANDARD_LABELS: Partial<Record<MachineLocale, string>> = { uk: 'PAL', us: 'NTSC' };
 
@@ -132,43 +172,37 @@ const FLAG_EMOJI: Record<MachineLocale, string> = {
 /** Build a model menu entry. Models with locale variants get flag icons. */
 function modelEntry(model: MachineModel): MenuItem {
   const variants = MODEL_LOCALES[model];
-  if (!variants) return { value: model, label: MODEL_LABELS[model] };
+  if (!variants) return { value: model, label: menuLabel(model) };
   return {
     value: model,
-    label: MODEL_LABELS[model],
+    label: menuLabel(model),
     flags: variants.map(l => ({ locale: localeLabelFor(model, l), emoji: FLAG_EMOJI[l], value: `${model}:${l}` })),
   };
 }
 
 /**
  * Model menu: every machine, behind a submenu for the make that built it.
+ * The maker submenus sit in alphabetical order, with the catch-all last. A
+ * second-level entry carries the model's own name, not the maker's
+ * ("Acorn > Atom"): `menuLabel` drops the maker from `MODEL_LABELS`.
  *
- * The niche British machines each sold in small numbers, so they share one
- * "British Obscure" group at the end rather than a one-model submenu apiece.
+ * The niche British machines each sold in small numbers — now including the
+ * two Orics — share one "British Obscure" group at the end rather than a
+ * one-model submenu apiece.
  */
 export const MODEL_MENU: MenuItem[] = [
   {
-    value: 'sinclair',
-    label: 'Sinclair',
+    value: 'acorn',
+    label: 'Acorn',
     children: [
-      modelEntry('zx80'),
-      modelEntry('zx81'),
-      modelEntry('zx16k'),
-      modelEntry('zx48k'),
-      modelEntry('zx128k'),
-      modelEntry('zx128kplus2'),
-      modelEntry('zx128kplus2a'),
-      modelEntry('zx128kplus3'),
-    ],
-  },
-  {
-    value: 'sinclair-clones',
-    label: 'Sinclair Clones',
-    children: [
-      modelEntry('pentagon128'),
-      modelEntry('pentagon512'),
-      modelEntry('pentagon1024'),
-      modelEntry('scorpion256'),
+      modelEntry('atom'),
+      modelEntry('acorn-system2'),
+      modelEntry('acorn-system3'),
+      modelEntry('acorn-system4'),
+      modelEntry('acorn-system5'),
+      modelEntry('bbc-a'),
+      modelEntry('bbc-b'),
+      modelEntry('electron'),
     ],
   },
   {
@@ -184,24 +218,6 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('pcw8512'),
       modelEntry('pcw9256'),
       modelEntry('pcw9512'),
-    ],
-  },
-  {
-    value: 'msx',
-    label: 'MSX',
-    children: [
-      modelEntry('hx-10'),
-      modelEntry('hb-55'),
-      modelEntry('hb-55p'),
-    ],
-  },
-  {
-    value: 'acorn',
-    label: 'Acorn',
-    children: [
-      modelEntry('bbc-a'),
-      modelEntry('bbc-b'),
-      modelEntry('electron'),
     ],
   },
   {
@@ -234,7 +250,55 @@ export const MODEL_MENU: MenuItem[] = [
     value: 'commodore',
     label: 'Commodore',
     children: [
+      modelEntry('vic20'),
+      modelEntry('c16'),
+      modelEntry('plus4'),
       modelEntry('c64'),
+      modelEntry('c128'),
+    ],
+  },
+  {
+    value: 'msx',
+    label: 'MSX',
+    children: [
+      modelEntry('hx-10'),
+      modelEntry('hb-55'),
+      modelEntry('hb-55p'),
+    ],
+  },
+  {
+    value: 'sinclair',
+    label: 'Sinclair',
+    children: [
+      modelEntry('zx80'),
+      modelEntry('zx81'),
+      modelEntry('zx16k'),
+      modelEntry('zx48k'),
+      modelEntry('zx128k'),
+      modelEntry('zx128kplus2'),
+      modelEntry('zx128kplus2a'),
+      modelEntry('zx128kplus3'),
+      // Sinclair-derived machines, one level down: Timex's own, and the clones.
+      {
+        value: 'timex',
+        label: 'Timex',
+        children: [
+          modelEntry('ts1000'),
+          modelEntry('ts1500'),
+          modelEntry('tc2048'),
+          modelEntry('ts2068'),
+        ],
+      },
+      {
+        value: 'sinclair-clones',
+        label: 'Clones',
+        children: [
+          modelEntry('pentagon128'),
+          modelEntry('pentagon512'),
+          modelEntry('pentagon1024'),
+          modelEntry('scorpion256'),
+        ],
+      },
     ],
   },
   {
@@ -257,11 +321,26 @@ export const MODEL_MENU: MenuItem[] = [
       // Enterprise.
       modelEntry('ep64'),
       modelEntry('ep128'),
+      // Oric (Tangerine).
+      modelEntry('atmos'),
+      modelEntry('oric1'),
     ],
   },
 ];
 
-/** Every model the menu can reach, in menu order. */
+/** Every model the menu can reach, in menu order, through any depth of submenus. */
 export function menuModels(): string[] {
-  return MODEL_MENU.flatMap(group => (group.children ?? []).map(item => item.value));
+  const models = (items: readonly MenuItem[]): string[] =>
+    items.flatMap(item => (item.children ? models(item.children) : [item.value]));
+  return MODEL_MENU.flatMap(group => models(group.children ?? []));
+}
+
+/** The submenu `value` is the value of, searched at any depth. */
+export function findMenuGroup(value: string, items: readonly MenuItem[] = MODEL_MENU): MenuItem | undefined {
+  for (const item of items) {
+    if (item.value === value && item.children) return item;
+    const found = item.children ? findMenuGroup(value, item.children) : undefined;
+    if (found) return found;
+  }
+  return undefined;
 }

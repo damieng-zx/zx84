@@ -275,6 +275,26 @@ describe('panes — floating', () => {
     expect(m.paneFloat('keyboard-panel')).toBeNull();
   });
 
+  it('draws a collapsed pane folded while docked, but open once it floats', async () => {
+    const m = await freshImport();
+    m.toggleCollapsed('keyboard-panel');
+    expect(m.isFolded('keyboard-panel')).toBe(true);
+
+    m.setPaneFloat('keyboard-panel', { x: 20, y: 20, width: 600, height: 240 });
+    expect(m.isFolded('keyboard-panel')).toBe(false);
+    expect(m.isCollapsed('keyboard-panel')).toBe(true);   // remembered
+
+    m.dockPane('keyboard-panel');
+    expect(m.isFolded('keyboard-panel')).toBe(true);      // folded again where the title bar can open it
+  });
+
+  it('never folds a pane that is not collapsed', async () => {
+    const m = await freshImport();
+    expect(m.isFolded('keyboard-panel')).toBe(false);
+    m.setPaneFloat('keyboard-panel', { x: 20, y: 20, width: 600, height: 240 });
+    expect(m.isFolded('keyboard-panel')).toBe(false);
+  });
+
   it('reloads a stored float, and shrugs off a corrupt or partial one', async () => {
     storage.setItem('zx84-pane-floats',
       JSON.stringify({ 'keyboard-panel': { x: 8, y: 9, width: 512, height: 260 } }));

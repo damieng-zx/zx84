@@ -12,6 +12,7 @@ import { EinsteinDiskService } from './disks.ts';
 import { EinsteinRomService } from './roms.ts';
 import { EinsteinMediaService } from './media.ts';
 import { EinsteinFrameProbe } from './frame-probe.ts';
+import { EinsteinInspection } from './inspect.ts';
 import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import { EINSTEIN_STATE } from '../snapshots/einstein-state.ts';
 
@@ -23,6 +24,7 @@ export interface EinsteinServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: EinsteinInputService;
   readonly probe: EinsteinFrameProbe;
+  readonly inspect: EinsteinInspection;
 }
 
 export function createEinsteinServices(e: EinsteinMachine): EinsteinServices {
@@ -35,6 +37,7 @@ export function createEinsteinServices(e: EinsteinMachine): EinsteinServices {
     media, roms, tape: null, disks, snapshots,
     input: new EinsteinInputService(e),
     probe: new EinsteinFrameProbe(e),
+    inspect: new EinsteinInspection(e),
     debug: new Z80DebugService(e),
   };
 }

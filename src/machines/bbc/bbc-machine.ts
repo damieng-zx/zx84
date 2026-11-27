@@ -17,8 +17,8 @@ import { Mc6850 } from '@/cores/mc6850.ts';
 import { CassetteDrive } from '@/machines/shared/cassette-drive.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
@@ -45,7 +45,6 @@ import { AnalogSticks, axisToRange } from '@/machines/shared/analog-stick.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
 import type { BbcDiscController } from './peripherals/disc-controller.ts';
 import { wireBbcIo } from './bbc-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { bbcDescriptor } from './descriptor.ts';
 import { createBbcServices, type BbcServices } from './services/index.ts';
 import {
@@ -85,7 +84,7 @@ export interface BbcIc32 {
   shiftLock: boolean;
 }
 
-export class BbcMachine extends BaseMachine implements Machine {
+export class BbcMachine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'bbc';
   readonly model: BbcModel;
   host: MachineHost | null = null;
@@ -175,8 +174,6 @@ export class BbcMachine extends BaseMachine implements Machine {
     this.memory.mirror16k = bbcRamSize(model) === 0x4000;
     this.display = display ?? null;
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
-    // The 6502 core makes its bus accesses before it counts the cycles.
-    this.deferAccessStamps = true;
     this.cpu.read = (addr) => {
       if (onSlowBus(addr)) this.holdForSlowBus(addr, false);
       const value = this.memory.readByte(addr);
@@ -567,18 +564,10 @@ export class BbcMachine extends BaseMachine implements Machine {
         + VIDEO_NOTES[this.videoAccuracy],
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
   /** An opcode is never read from the hardware pages, where reads have side effects. */
   protected override peekOpcode(addr: number): number {
     return addr >= 0xFC00 && addr < 0xFF00 ? -1 : this.memory.readByte(addr);
   }
-
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   // ── Video accuracy ─────────────────────────────────────────────────────
 
@@ -825,16 +814,6 @@ export class BbcMachine extends BaseMachine implements Machine {
   /** A disc interface, as the Hardware pane names it. */
   private static discName(system: string): string {
     return system === 'acorn' ? 'the 8271 interface' : system === '1770' ? 'the 1770 interface' : 'no disc interface';
-  }
-
-  /** Run the rest of a frame a stop left part-way, with every stop set aside,
-   *  so the machine is between frames (a snapshot is taken there). */
-  private completeFrame(): void {
-    if (!this.midFrame) return;
-    withStopsDisarmed(this, () => {
-      this.resumeSkipPc = -1;
-      this.stepFrame();
-    });
   }
 
   /**

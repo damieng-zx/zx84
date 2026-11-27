@@ -1,7 +1,7 @@
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { MachineDescriptor, MachineEntry, MachineLocale, MachineUiCapabilities } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
-import type { Zx8xModel } from './models.ts';
+import { isZx80, isZx81Class, isZx8xModel, type Zx8xModel } from './models.ts';
 import { Zx8xMachine } from './zx8x-machine.ts';
 import {
   ZX8X_ACTIVE_HEIGHT, ZX8X_ACTIVE_WIDTH, ZX8X_BORDER_LEFT, ZX8X_BORDER_TOP,
@@ -68,17 +68,19 @@ export function zx8xDescriptor(model: MachineModel, locale: MachineLocale = 'uk'
 
 export const zx8xEntry: MachineEntry = {
   kind: 'zx8x',
-  models: ['zx80', 'zx81'],
+  models: ['zx80', 'zx81', 'ts1000', 'ts1500'],
   descriptor: zx8xDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Zx8xMachine(model as Zx8xModel, display);
   },
   romSources(model: MachineModel, _locale?: MachineLocale) {
-    return [model === 'zx80' ? ZX80_ROM : ZX81_ROM];
+    // The Timex Sinclair 1000/1500 ROM is the ZX81's: same firmware, US picture strap.
+    return [isZx80(model) ? ZX80_ROM : ZX81_ROM];
   },
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
     if (data.length === 0x1000) return 'zx80';
-    if (data.length === 0x2000 && (current === 'zx80' || current === 'zx81')) return 'zx81';
+    // An 8K ROM is a ZX81 ROM: keep a Timex Sinclair model rather than demoting it.
+    if (data.length === 0x2000 && isZx8xModel(current)) return isZx81Class(current) ? current : 'zx81';
     return null;
   },
 };

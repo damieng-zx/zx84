@@ -90,6 +90,24 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/apple2/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
+  vic20: {
+    HardwareSection: lazy(() =>
+      import('@/machines/vic20/ui/hardware-section.tsx').then(m => ({ default: m.Vic20HardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/vic20/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  c128: {
+    HardwareSection: lazy(() =>
+      import('@/machines/c128/ui/hardware-section.tsx').then(m => ({ default: m.C128HardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/c128/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  plus4: {
+    HardwareSection: lazy(() =>
+      import('@/machines/plus4/ui/hardware-section.tsx').then(m => ({ default: m.Plus4HardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/plus4/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
   apple1: {
     HardwareSection: lazy(() =>
       import('@/machines/apple1/ui/hardware-section.tsx').then(m => ({ default: m.Apple1HardwareSection }))),
@@ -131,6 +149,24 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
   enterprise: {
     HardwareSection: lazy(() =>
       import('@/machines/enterprise/ui/hardware-section.tsx').then(m => ({ default: m.EnterpriseHardwareSection }))),
+  },
+  atom: {
+    HardwareSection: lazy(() =>
+      import('@/machines/atom/ui/hardware-section.tsx').then(m => ({ default: m.AtomHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/atom/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  // The System machines use the same ASCII deck as the Atom; each supplies its
+  // own driver (the Atom a matrix cell, the System an ASCII code).
+  'acorn-system': {
+    Keyboard: lazy(() =>
+      import('@/machines/acorn-system/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
+  },
+  oric: {
+    HardwareSection: lazy(() =>
+      import('@/machines/oric/ui/hardware-section.tsx').then(m => ({ default: m.OricHardwareSection }))),
+    Keyboard: lazy(() =>
+      import('@/machines/oric/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
 };
 

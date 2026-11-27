@@ -9,7 +9,7 @@
 import type { MachineModel } from '@/models.ts';
 
 export type SpectrumModel = 'zx16k' | 'zx48k' | 'zx128k' | 'zx128kplus2' | 'zx128kplus2a' | 'zx128kplus3'
-  | 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256';
+  | 'pentagon128' | 'pentagon512' | 'pentagon1024' | 'scorpion256' | 'tc2048' | 'ts2068';
 
 /** The ids the Spectrum models carried before they were unified under a `zx`
  *  prefix, paired with their current id. Saved settings, stored ROM overrides
@@ -32,6 +32,22 @@ export function is128kClass(m: MachineModel): boolean {
   return m === 'zx128k' || m === 'zx128kplus2' || m === 'zx128kplus2a' || m === 'zx128kplus3'
     || isPentagonClass(m) || isScorpionClass(m);
 }
+
+/** Returns true for the Timex machines built around the SCLD, the Timex ULA: the
+ *  TC2048 and the TS2068 / TC2068. Their SCLD adds the port-0xFF screen modes,
+ *  decodes its ports on the low eight address bits and has no floating bus. */
+export function isTimexClass(m: MachineModel): boolean { return m === 'tc2048' || isTimex2068Class(m); }
+
+/** Returns true for the Timex 2068: the TC2048's SCLD plus the 24K ROM (16K HOME and
+ *  an 8K EXROM), the horizontal memory mapper and cartridge dock (ports 0xF4 / 0xFF),
+ *  an AY-3-8912 (0xF5 / 0xF6) and two Atari-style joystick ports read through it.
+ *  One model in two TV standards, carried by the locale as on the C64 and Atari:
+ *  `'us'` is the Timex Sinclair 2068 (NTSC, 60 Hz), any other locale the Timex
+ *  Computer 2068 (PAL, 50 Hz). */
+export function isTimex2068Class(m: MachineModel): boolean { return m === 'ts2068'; }
+
+/** The Timex 2068's TV standard for a machine locale: NTSC for the US, PAL otherwise. */
+export function timex2068IsNtsc(locale: string | undefined): boolean { return locale === 'us'; }
 
 /** Returns true for the Pentagon family of Russian 128K clones: no contention,
  *  no floating bus, 71680 T-state frame, and a Beta Disk built in. */

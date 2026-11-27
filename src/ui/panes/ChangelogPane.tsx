@@ -2,6 +2,27 @@ import { createSignal, Show } from 'solid-js';
 
 const CHANGELOG: { version: string; items: string[] }[] = [
   {
+    version: '0.12.0',
+    items: [
+      'Add the Commodore VIC-20: PAL and NTSC, expansion RAM, cartridges, the Datasette with .tap files timed in its own cycles, 1541/1571/1581 drives, paddles, TEXT overlay and an on-screen keyboard',
+      'Add the Commodore 128: C128 and C64 modes, BASIC 7.0 listing and variables panes, the 80-column VDC display with 80-column OCR, 2 MHz mode, burst-mode fast serial on the 1571 and 1581, banked cartridges and function ROMs, Z80 debugging and tracing, and CP/M 3',
+      'Add the Commodore Plus/4 and Commodore 16: a beam-level TED picture, the 1 MHz mode, BASIC 3.5 listing, banked cartridges, Hannes and CSORY 256K RAM expansions, .tap loading timed in Plus/4 cycles, and hires and multicolour screens read as text',
+      'Add the Oric-1 and Oric Atmos, each with its own keyboard deck, plate legends and printed font',
+      'Add the Acorn Atom and the Acorn System 2, 3 (8271 disc controller), 4 and 5 (6502A), sharing the Acorn ASCII keyboard deck',
+      'Add the Timex Sinclair 1000 and 1500, the Timex Computer 2048 and the Timex 2068 (NTSC), with hi-res screens, on-screen keyboards and library titles',
+      'Atari: XEGS, Williams, Bounty Bob, SpartaDOS X, Diamond, Express and other banked cartridges',
+      'Apple II: 13-sector boot ROM, half tracks and weak bits, and booting the original ][ through the Monitor',
+      'The Datasette EAR line plays as loading sound while tapes run on the Commodores',
+      'C64: the ATN acknowledge completes and sprite collisions stay out of the border',
+      'CPC: typing types each key\'s own UK legend, not the PC keyboard position',
+      'BBC Micro: the 6522 counters run from power-up, teletext control codes decode, and the 1770 resets the controller, not the drive heads, on /MR',
+      'Einstein: reset strobe, interrupt chain, snapshot and typing fixes',
+      'ZX80/ZX81: multi-file zips mount as one tape so loaders find their parts',
+      'MCP: basic_listing and basic_vars read the machine\'s own BASIC program and variables, printable symbols type on each machine\'s keyboard, the Electron expansions can be fitted headlessly, and the Spectrum bench loader follows the app snapshot rules',
+      'The model menu lists makers alphabetically, drops the maker from second-level entries (Acorn > Atom), and files the Orics under British Obscure',
+      'Fixed: four Hardware toggles that never reached their machine (the Plus/4 drive and 256K expansion, the Lynx floppy, the MTX floppy), a latched Shift stuck after the keyboard pane closed, colour markers in the copied Z80 CPU state, the 6821 C2 bits, a RAM dump taken while the machine still ran, and the Oric status lights',
+    ]
+  }, {
     version: '0.11.0',
     items: [
       'Add Atari 8-bit support: 400, 800, XL and XE, NTSC and PAL',

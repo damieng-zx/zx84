@@ -11,6 +11,7 @@ import { LynxInputService } from './input.ts';
 import { LynxRomService } from './roms.ts';
 import { LynxMediaService } from './media.ts';
 import { LynxFrameProbe } from './frame-probe.ts';
+import { LynxInspection } from './inspect.ts';
 import { LynxTapeService } from './tape.ts';
 import { LynxDiskService } from './disks.ts';
 import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
@@ -24,6 +25,7 @@ export interface LynxServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: LynxInputService;
   readonly probe: LynxFrameProbe;
+  readonly inspect: LynxInspection;
 }
 
 export function createLynxServices(
@@ -41,6 +43,7 @@ export function createLynxServices(
     snapshots,
     input: new LynxInputService(m),
     probe: new LynxFrameProbe(m),
+    inspect: new LynxInspection(m),
     debug: new Z80DebugService(m),
   };
 }

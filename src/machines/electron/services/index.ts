@@ -3,6 +3,7 @@ import type { MachineServices } from '@/machines/machine.ts';
 import { AcornTapeService } from '@/machines/shared/acorn-tape-service.ts';
 import type { ElectronMachine } from '../electron-machine.ts';
 import { ElectronFrameProbe } from './frame-probe.ts';
+import { ElectronInspection } from './inspect.ts';
 import { ElectronInputService } from './input.ts';
 import { ElectronMediaService } from './media.ts';
 import { ElectronRomService } from './roms.ts';
@@ -18,6 +19,7 @@ export interface ElectronServices extends MachineServices {
   readonly snapshots: NativeSnapshotService;
   readonly input: ElectronInputService;
   readonly probe: ElectronFrameProbe;
+  readonly inspect: ElectronInspection;
 }
 
 export function createElectronServices(machine: ElectronMachine): ElectronServices {
@@ -32,6 +34,7 @@ export function createElectronServices(machine: ElectronMachine): ElectronServic
     snapshots,
     input: new ElectronInputService(machine),
     probe: new ElectronFrameProbe(machine),
+    inspect: new ElectronInspection(machine),
     debug: new M6502DebugService(machine),
   };
 }

@@ -5,6 +5,11 @@ with the TMS9929A video chip, SN76489A sound, banked memory, ROM BASIC, logical
 cassettes, the FDX/SDX floppy interface, the FDX 80-column display, the 512 KiB
 RAM expansion and a CP/M profile.
 
+<p align="center">
+  <img src="../images/machines/memotech-mtx.png" alt="The MTX512 at the READY prompt"><br>
+  <img src="../images/machines/memotech-mtx-keyboard.png" alt="The MTX512 keyboard, with its cursor keypad">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Memotech |

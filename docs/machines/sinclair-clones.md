@@ -6,6 +6,11 @@ Spectrum machine, so they share its ULA, keyboard, tape, snapshot and software
 tooling, but with their own timing, memory paging and a Beta Disk (TR-DOS) fitted
 on the board.
 
+<p align="center">
+  <img src="../images/machines/sinclair-clones.png" alt="The Pentagon 128 at its 128 menu"><br>
+  <img src="../images/machines/sinclair-clones-keyboard.png" alt="The Pentagon 128 keyboard">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Home-built and small-batch Russian and Ukrainian makers; the Scorpion by Scorpion Computers, Moscow |
@@ -59,7 +64,7 @@ keeps the Scorpion model when it is already selected.
 | 7FFD paging | all | ✅ | Pentagon 128: loose decode (A15, A1 low). 1024: A15=0, A14=1, A1=0. Scorpion: A15=0, A14=1, A5=1, A1=0, A0=1 |
 | Extended RAM | 512, 1024, Scorpion | ✅ | See Models; the page at 0xC000 is re-derived whenever EFF7 or 1FFD changes |
 | EFF7 control port | 1024 | ◐ | Bit 2 (128K / 1 MB), bit 3 (writable RAM bank 0 over 0x0000, ROM hidden) and bit 5 (hardware multicolour, below) emulated; the turbo, hi-res, 16-colour and other video bits are latched only |
-| Hardware multicolour | 1024 | ◐ | EFF7 bit 5: every bitmap byte takes its own attribute from 0x6000-0x77FF of the displayed bank (bitmap 0x4000-0x57FF), giving 32 × 192 attribute resolution. Renders per scanline like the standard screen; a CPU write into the attribute area flushes the beam. The attribute layout comes from the Pentagon 1024SL v2.2 / Pentagon-4096 descriptions, not from a measured board |
+| Hardware multicolour | 1024 | ◐ | EFF7 bit 5: every bitmap byte takes its own attribute from 0x6000-0x77FF of the displayed bank (bitmap 0x4000-0x57FF), giving 32 × 192 attribute resolution. Renders per scanline like the standard screen; a CPU write into the attribute area flushes the beam. The attribute layout comes from the Pentagon 1024SL v2.2 / Pentagon-4096 descriptions, not from a measured board. The Save menu writes the picture as a 12288-byte `.scr` or as an `.mlt` |
 | Even M1 wait | Scorpion | ✅ | An opcode fetch from RAM (including RAM mapped over 0x0000 by 1FFD D0) that would start on an odd T-state, counted from the frame interrupt, takes one extra wait. ROM fetches are not delayed. Implemented as a wrapper installed on the Scorpion's CPU at construction (`scorpion.ts`); other models keep the core's own `step` |
 | Turbo+ 7 MHz | Scorpion | ◐ | IN from the 7FFD address switches to 7 MHz, IN from 1FFD back to 3.5 MHz; reset returns to 3.5 MHz. Video, INT, AY and tape keep their 3.5 MHz timing, so each instruction (and interrupt acknowledge) is charged half its T-states, an odd half-T-state carried over. No even-M1 wait at 7 MHz (not documented). The state is kept in SZX (private `Z84C` block). The 7 MHz audio and AY pitch are not rescaled |
 | #FF attribute port | Scorpion | ◐ | Ports xxxxxxxx xx1xx111 read the attribute byte of the cell under the beam (0xFF in the border and retrace). The fetch phase within a cell is not documented, so the value is the cell's attribute for its whole 4 T-states |

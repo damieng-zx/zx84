@@ -12,6 +12,7 @@ import { AceTapeService } from './tape.ts';
 import { AceRomService } from './roms.ts';
 import { AceMediaService } from './media.ts';
 import { AceFrameProbe } from './frame-probe.ts';
+import { AceInspection } from './inspect.ts';
 import { AceSnapshotService } from './snapshots.ts';
 
 export interface AceServices extends MachineServices {
@@ -22,6 +23,7 @@ export interface AceServices extends MachineServices {
   readonly snapshots: AceSnapshotService;
   readonly input: AceInputService;
   readonly probe: AceFrameProbe;
+  readonly inspect: AceInspection;
 }
 
 export function createAceServices(m: JupiterAceMachine): AceServices {
@@ -34,6 +36,7 @@ export function createAceServices(m: JupiterAceMachine): AceServices {
     media, roms, tape, disks: null, snapshots,
     input: new AceInputService(m),
     probe: new AceFrameProbe(m),
+    inspect: new AceInspection(m),
     debug: new Z80DebugService(m),
   };
 }

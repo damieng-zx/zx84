@@ -10,6 +10,9 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { MachineModel } from '../src/models.ts';
 import { initMachine } from './state.ts';
 import { resolveMcpModel } from './models.ts';
@@ -23,12 +26,24 @@ import { register as registerMedia } from './tools/media.ts';
 import { register as registerTrace } from './tools/trace.ts';
 import { register as registerPeripherals } from './tools/peripherals.ts';
 import { register as registerSymbols } from './tools/symbols.ts';
+import { register as registerBasic } from './tools/basic.ts';
 import { register as registerBeam } from './tools/beam.ts';
 import { register as registerChips } from './tools/chips.ts';
 
+/** The app's version, from package.json — the same single source vite injects as
+ *  `__APP_VERSION__`. The MCP server used to hard-code its own and drift. */
+function appVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    return JSON.parse(readFileSync(resolve(here, '..', 'package.json'), 'utf8')).version;
+  } catch {
+    return '0.0.0';
+  }
+}
+
 const server = new McpServer({
   name: 'zx84',
-  version: '1.0.0',
+  version: appVersion(),
 });
 
 registerMachine(server);
@@ -40,6 +55,7 @@ registerMedia(server);
 registerTrace(server);
 registerPeripherals(server);
 registerSymbols(server);
+registerBasic(server);
 registerBeam(server);
 registerChips(server);
 

@@ -16,13 +16,13 @@
  * A/B select and bit 1 to data/control, the reverse of the chip's nominal
  * ordering). The board calls `readData`/`readControl` directly.
  *
- * Control-register bits (same layout for both ports):
+ * Control-register bits (same layout for both ports, as on the datasheet):
  *   bit 0  C1 interrupt enable
  *   bit 1  C1 active transition (0 = high-to-low, 1 = low-to-high)
  *   bit 2  data-register select (0 = DDR, 1 = peripheral register)
- *   bit 3  C2 interrupt enable
- *   bit 4  C2 direction (0 = input, 1 = output)
- *   bit 5  C2 input transition select (input) / output mode (output)
+ *   bit 3  C2 interrupt enable (input) / output mode (output)
+ *   bit 4  C2 input transition select (input) / output mode (output)
+ *   bit 5  C2 direction (0 = input, 1 = output)
  *   bit 6  C2 interrupt flag (read only)
  *   bit 7  C1 interrupt flag (read only)
  */
@@ -133,11 +133,11 @@ export class M6821 {
 
   /** Sample the C2 line (CA2 / CB2), when it is configured as an input. */
   setC2(port: number, high: boolean): void {
-    if ((this.cr[port] & 0x10) !== 0) return; // C2 is an output
+    if ((this.cr[port] & 0x20) !== 0) return; // C2 is an output
     const level = high ? 1 : 0;
     if (this.c2[port] === level) return;
     this.c2[port] = level;
-    const rising = (this.cr[port] & 0x20) !== 0;
+    const rising = (this.cr[port] & 0x10) !== 0;
     if (level === (rising ? 1 : 0)) this.flag[port * 2 + 1] = 1;
   }
 

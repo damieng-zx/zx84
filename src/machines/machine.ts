@@ -25,7 +25,7 @@ import type { MachineModel } from '@/models.ts';
 import type { OcrGridName, FontSource } from '@/ocr/ocr.ts';
 import type { BasicListingLine, BasicVariable } from '@/basic/types.ts';
 
-export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64';
+export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mtx' | 'lynx' | 'jupiter-ace' | 'pcw' | 'bbc' | 'electron' | 'acorn-system' | 'apple2' | 'apple1' | 'enterprise' | 'atari' | 'c64' | 'vic20' | 'c128' | 'atom' | 'oric' | 'plus4';
 
 /** Keyboard/ROM locale for international machine variants.
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
@@ -291,7 +291,7 @@ export type MemoryMapFlag = 'screen' | 'active';
  *  declared here so machine descriptors stay headless-safe. A machine lists the
  *  ids it exposes via `MachineUiCapabilities.statusLeds`. */
 export const STATUS_LED_IDS = [
-  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'text', 'rainbow', 'beep', 'chip',
+  'kbd', 'kemp', 'mouse', 'ear', 'load', 'dsk', 'columns', 'text', 'rainbow', 'beep', 'chip',
 ] as const;
 
 export type StatusLedId = typeof STATUS_LED_IDS[number];
@@ -379,8 +379,15 @@ export type SaveMenuItem =
   | 'snapshot-a1state'
   | 'snapshot-a2state'
   | 'snapshot-c64state'
+  | 'snapshot-vic20state'
+  | 'snapshot-c128state'
+  | 'snapshot-atomstate'
+  | 'snapshot-oricstate'
+  | 'snapshot-plus4state'
   | 'screenshot-png'
   | 'screen-scr'
+  /** The multicolour screen (`.mlt`): offered where the hardware can show an attribute per 8x1 line. */
+  | 'screen-mlt'
   | 'ram-bin'
   /** What the machine has sent its built-in printer, as text (`printerExport`). */
   | 'printer-txt';
@@ -515,6 +522,18 @@ export interface MachineUiCapabilities {
   readonly statusLeds: readonly StatusLedId[];
   /** Keyboard read path, for the KEY LED tip. */
   readonly keyboardBus: 'ula' | 'ppi' | 'matrix';
+  /**
+   * The keyboard maps a host keystroke by the character it produces
+   * (`HostKeyEvent.key`), not by the key's physical position: `"` is the key
+   * the machine's caps print it on, whatever a PC would put there.
+   *
+   * Hosts that type text (the MCP `type` tool, paste) then send a literal
+   * character — `{ code: '', key: ch }` — and let the machine press its own
+   * keys (with SHIFT, or CTRL for the Acorn cursor-key symbols). A machine
+   * that maps by position instead (`keyboardBus` alone says nothing about
+   * this) lists nothing here, and the host sends physical chords.
+   */
+  readonly typedCharacters?: boolean;
   /** Tape transport: 'deck' (pulse-level block list) or 'instant' (logical image).
    *  Omitted when the model has no cassette hardware (e.g. the GX4000 console). */
   readonly tape?: 'deck' | 'instant';
@@ -568,6 +587,9 @@ export interface MachineHost {
    *  that carries the board revision), so the panes and the next session agree
    *  with the running machine. Absent headless. */
   setFlagSetting?(key: string, on: boolean): void;
+  /** The same for a setting with a text value (the RAM expansion a program
+   *  needs, chosen before the machine is rebuilt for it). Absent headless. */
+  setTextSetting?(key: string, value: string): void;
   /** The operator's EPROM box: persistence + rebuild ops backing RomService.
    *  Provided by the shell (rom-manager + model switch); absent headless. */
   roms?: RomHostOps;
@@ -623,8 +645,11 @@ export interface AuxRomRequest {
   /** Wire the fetched bytes into the peripheral's chip. */
   apply(data: Uint8Array): void;
   /** Await the load before continuing (ROM must be present before reset), or
-   *  fire-and-forget (Multiface — paged only on the button press). */
+   *  fire-and-forget (Multiface - paged only on the button press). */
   readonly awaitLoad: boolean;
+  /** A failure is not fatal: the machine still builds without this ROM (an
+   *  optional firmware such as the 13-sector Disk ][ boot PROM). */
+  readonly optional?: boolean;
 }
 
 // ── Media / device services ─────────────────────────────────────────────────
@@ -1003,8 +1028,9 @@ export interface DebugService {
    *  live byte view + base address, or null when unavailable. */
   resolveMemoryRegion(value: string): { data: Uint8Array; baseAddr: number } | null;
   /** Raw screen-memory dump for the `.scr` export (machine-defined layout:
-   *  Spectrum bank 5, CPC CRTC quadrant, TMS9918A VRAM), or null. */
-  screenExport(): Uint8Array | null;
+   *  Spectrum bank 5, CPC CRTC quadrant, TMS9918A VRAM), or null. `mlt` asks for
+   *  the multicolour format (the Spectrum family only); null where there is none. */
+  screenExport(format?: 'scr' | 'mlt'): Uint8Array | null;
   /** RAM dump + suggested filename for the RAM export, or null. */
   ramExport(): { data: Uint8Array; filename: string } | null;
   /** What the machine has sent its printer, as a file + suggested filename
@@ -1097,6 +1123,21 @@ export interface InputService {
   keyUp(e: HostKeyEvent): boolean;
   /** Release everything (window blur). */
   releaseAll(): void;
+  /**
+   * Press (or release) the key that produces `char` on this machine, mapped
+   * onto its own keyboard layout. This is the character-level path a typed
+   * listing needs: every machine's layout differs (the Atom's shifted symbols,
+   * the BBC's SHIFT cells, an Oric's symbol keys, the Spectrum's SYM+key
+   * chords), so a caller that knows only "type a double quote" cannot pick a
+   * host key code and expect the right character there.
+   *
+   * Returns true when the character is printable here (the caller then
+   * releases it with `charUp`). A machine whose keyboard takes host key codes
+   * rather than characters omits these, and callers resolve the character
+   * themselves.
+   */
+  charDown?(char: string): boolean;
+  charUp?(char: string): void;
   readonly mouse: MouseSink | null;
   /** Mode-aware two-mouse routing, or null when the machine has no mice. */
   readonly mice?: MouseInput | null;
@@ -1129,6 +1170,8 @@ export interface FrameIndicators {
   disk: number;
   /** Sustained tape-turbo engine state — reflected immediately, not latched. */
   tapeTurbo: boolean;
+  /** Columns of the display on screen for a machine with two (the 128's 40 or 80), 0 otherwise. */
+  columns?: number;
 
   /* Cassette transport (deck machines; tapeLoaded=false ⇒ bridge leaves the
    * tape signals alone). */
@@ -1173,7 +1216,7 @@ export interface FrameIndicators {
 export function createFrameIndicators(): FrameIndicators {
   return {
     keyboard: 0, joystick: 0, mouse: 0, tapeIn: 0, tapeLoad: 0,
-    beeper: 0, psg: 0, videoFx: 0, disk: 0, tapeTurbo: false,
+    beeper: 0, psg: 0, videoFx: 0, disk: 0, tapeTurbo: false, columns: 0,
     tapeLoaded: false, tapePlaying: false, tapePaused: true, tapeFinished: false,
     tapePosition: 0, casBlock: -1, fastRomLoading: false,
     tracingActive: false,
@@ -1187,9 +1230,21 @@ export function createFrameIndicators(): FrameIndicators {
   };
 }
 
-/** Pull-on-demand debug-pane content. Called by the bridge only when the pane
- *  is open (and throttled as the bridge sees fit) — may allocate freely. */
-export interface FramePaneProvider {
+/**
+ * Pull-on-demand machine inspection: read-only views of what is in the machine
+ * right now, decoded into neutral plain data (never HTML).
+ *
+ * This is NOT per-frame telemetry, and does not belong on `FrameProbe`: the
+ * frame probe is sampled every rAF and must allocate nothing, while these are
+ * asked for on demand and may allocate freely. They are also not `DebugService`,
+ * which is per-CPU-family substrate shared by every machine of that family —
+ * a BASIC listing needs the machine's own memory layout and token table.
+ *
+ * Hosts: the debug panes (BASIC listing, BASIC variables, Banks, Font) and the
+ * headless MCP server's `basic_listing`/`basic_vars` tools. Every member is
+ * optional: a machine that has nothing to report simply omits it, and each host
+ * hides or declines the corresponding feature. */
+export interface MachineInspection {
   /** Structured memory-layout snapshot, or null when this model has none. */
   memoryMap?(): MemoryMapSnapshot | null;
   /** Detokenised BASIC program listing, as structured plain-text lines. */
@@ -1240,7 +1295,7 @@ export interface FrameProbe {
   frameTick?(out: FrameIndicators): void;
   /** Live disk image in panel slot 0..3 (post-format metadata refresh). */
   diskImageForSlot?(slot: number): DskImage | null;
-  readonly panes?: FramePaneProvider;
+  /** OCR text overlay (mutates the framebuffer while transcribe mode is on). */
   readonly transcribe?: TranscribeDriver;
 }
 
@@ -1260,7 +1315,11 @@ export interface MachineServices {
   readonly snapshots: SnapshotService | null;
   readonly debug: DebugService;
   readonly input: InputService;
+  /** Per-frame telemetry: sampled every rAF, allocation-free (tiers 3–4). */
   readonly probe: FrameProbe;
+  /** On-demand read-only views of machine state (BASIC listings, memory map).
+   *  Absent on a machine with nothing to report; hosts then hide the panes. */
+  readonly inspect?: MachineInspection;
   /** The machine's printer port, where it has one that keeps its output. */
   readonly printer?: PrinterCaptureService | null;
 }

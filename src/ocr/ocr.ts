@@ -12,10 +12,15 @@ export interface OcrConfig {
   xOffset?: number;
   /** Pixel y-offset of grid origin (default 0). */
   yOffset?: number;
+  /** The pixels are a linear hi-res bitmap (64 bytes a row, 512 pixels, no
+   *  attribute file) rather than the Spectrum's interleaved 32-byte-row screen. */
+  linear?: boolean;
 }
 
-/** Spectrum cell-grid presets (the heuristic detector chooses among these). */
-export type SpectrumOcrGrid = '32x24' | '51x24' | '64x24';
+/** Spectrum cell-grid presets (the heuristic detector chooses among these). The
+ *  `h` grids are for the Timex 512-pixel hi-res screen: 64 columns of 8 pixels,
+ *  85 of 6, 128 of 4. */
+export type SpectrumOcrGrid = '32x24' | '51x24' | '64x24' | '64x24h' | '85x24h' | '128x24h';
 
 /** CPC text grids — one per screen mode (mode 0/1/2 → 20/40/80 columns). */
 export type CpcOcrGrid = '20x25' | '40x25' | '80x25';
@@ -41,10 +46,19 @@ export type AceOcrGrid = '32x24';
  *  columns by 32 rows, or 25 rows in the gapped text modes 3 and 6. */
 export type BbcOcrGrid = `${20 | 40 | 80}x${25 | 32}`;
 
-/** Any grid label an OCR producer can stamp onto an OcrResult. */
+/** VIC-20 grids: the VIC's own column and row counts (22×23 as the KERNAL
+ *  sets them; programs choose others). */
+export type Vic20OcrGrid = `${number}x${number}`;
+
+/** Acorn Atom text grid: the 6847's 32x16 character window. */
+export type AtomOcrGrid = '32x16';
+
+/** Any grid label an OCR producer can stamp onto an OcrResult. `Vic20OcrGrid`
+ *  and the C128's VDC grid are open forms: both read their column and row
+ *  counts from registers, so any `WxH` a program sets is legitimate. */
 export type OcrGridName =
   SpectrumOcrGrid | CpcOcrGrid | EinsteinOcrGrid | MsxOcrGrid | PcwOcrGrid
-  | LynxOcrGrid | AceOcrGrid | BbcOcrGrid;
+  | LynxOcrGrid | AceOcrGrid | BbcOcrGrid | Vic20OcrGrid | AtomOcrGrid;
 
 /** A font source for OCR matching.
  *  `data` is always 768 bytes (96 chars × 8 bytes). For non-8-wide cells only

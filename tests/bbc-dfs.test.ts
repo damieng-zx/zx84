@@ -285,6 +285,23 @@ describe('bbc 1770 Acorn NMI handshake', () => {
     expect(d.read(0x85)).toBe(0x2A);
   });
 
+  it('leaves the heads where they are when /MR resets the controller', () => {
+    // The latch's bit 5 drives the controller's /MR pin, not the board's reset.
+    // /MR clears the chip but not the mechanism, so a head parked on a track
+    // stays there — which the DFS depends on: it asserts /MR to abort a command
+    // and then continues from the same track.
+    const d = disc([]);
+    d.write(0x80, 0x28);                 // drive 0, single density, reset released
+    // STEP IN five times; each pulse moves the head one track and updates TR.
+    for (let i = 0; i < 5; i++) { d.write(0x84, 0x50); d.tick(0x10000); }
+    expect(d.fdc.getUnitTrack(0), 'the head moved to track 5').toBe(5);
+
+    d.write(0x80, 0x00);                 // assert /MR
+    d.write(0x80, 0x28);                 // release
+    expect(d.fdc.getUnitTrack(0), 'and /MR did not send it back to track 0').toBe(5);
+    expect(d.read(0x85), 'but the track register was cleared').toBe(0);
+  });
+
   it('raises an NMI for every transferred byte, then one on completion', () => {
     const nmis: number[] = [];
     const d = disc(nmis);

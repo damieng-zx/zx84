@@ -18,7 +18,8 @@ depcheck`, zero exceptions).
   ULA, the CPC's Amstrad gate array, the microdrive) is **not** here — it lives
   in that machine's folder.
 - `src/machines/<name>/` — **one folder per machine = a motherboard**. Everything
-  specific to that machine: the machine class (extends `base-machine.ts`), its
+  specific to that machine: the machine class (extends its CPU-family base,
+  which extends `base-machine.ts`), its
   custom silicon (`spectrum/ula.ts`, `cpc/gate-array.ts`), `contention.ts`,
   `variants/`, `memory.ts`, `io.ts` (port decode if-chain — hot, load-bearing),
   `keyboard.ts`, `peripherals/`, `snapshots/`, `tape-loader.ts`, per-family
@@ -31,6 +32,11 @@ depcheck`, zero exceptions).
   `MachineDescriptor` + `MachineUiCapabilities`, `MachineHost`, `MachineEntry`.
 - `src/machines/base-machine.ts` — shared driver loop (frame pacing, turbo pump,
   audio back-pressure, lifecycle, debug-field storage). Untouched by machines.
+- `src/machines/shared/z80-machine-base.ts` / `m6502-machine-base.ts` — the
+  CPU-family bases every machine extends. They answer the CPU-facing debug seams
+  (`cpuCycles`/`stackPointer`/`cpuPc`/`interruptedPc`, the 6502's deferred access
+  stamps) from the machine's `cpu`, so a machine supplies only its frame loop,
+  port decode and bus hooks.
 - `src/machines/registry.ts` — the **parts catalog**: the only file besides
   `src/models.ts` allowed to name every machine. Stays headless-safe.
 - `src/media/` — format codecs → neutral models: `floppy/` (`DskImage`,

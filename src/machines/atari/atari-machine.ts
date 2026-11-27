@@ -75,6 +75,11 @@ import {
 /** The cartridge boards a snapshot may name. */
 const CART_TYPES: ReadonlySet<string> = new Set<AtariCartType>([
   'std8', 'std16', 'oss-m091', 'oss-034m', 'oss-043m', 'oss8',
+  'xegs32', 'xegs64', 'xegs128',
+  'will32', 'will64', 'express64', 'diamond64', 'sdx64', 'sdx128',
+  'atarimax128', 'db32',
+  'mega16', 'mega32', 'mega64', 'mega128', 'mega256', 'mega512', 'mega1024',
+  'bb40',
 ]);
 
 /** Cycle of the line at which ANTIC posts NMIST and raises a VBI/DLI NMI. */
@@ -191,7 +196,7 @@ export class AtariMachine extends BaseMachine implements Machine {
   private pokeyReadAddr = -1;
   private pokeyReadValue = 0;
   readonly mixer: AudioMixer;
-  readonly audio = new Audio();
+  readonly audio: Audio;
   display: IScreenRenderer | null;
 
   /** Per-frame activity counters read by the frame probe. */
@@ -622,8 +627,11 @@ export class AtariMachine extends BaseMachine implements Machine {
   }
 
   /** Run the rest of a frame that was stopped part-way, with every stop
-   *  ignored, so the machine is between frames (a snapshot needs that). */
-  private completeFrame(): void {
+   *  ignored, so the machine is between frames (a snapshot needs that). This
+   *  machine's own, not the driver's completeFrame(): the line loop keeps its
+   *  stop state in locals parked from line to line, which disarming the stop
+   *  fields does not reach. */
+  private completeOpenFrame(): void {
     if (!this.midFrame) return;
     this.ignoreStops = true;
     try {
@@ -830,7 +838,7 @@ export class AtariMachine extends BaseMachine implements Machine {
   saveState(w: StateWriter, withMedia: boolean): void {
     // A frame stopped part-way holds loop state this snapshot does not carry;
     // run the rest of it first, as step_frame would.
-    this.completeFrame();
+    this.completeOpenFrame();
     const cpu = this.cpu;
     const mem = this.memory;
     w.section('CPU ', () => {

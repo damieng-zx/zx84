@@ -19,5 +19,14 @@ export class AceInputService implements InputService {
 
   releaseAll(): void { this.m.keyboard.reset(); }
 
+  /** The Ace's own chord map, keyed by the produced character. */
+  charDown(char: string): boolean {
+    return this.m.keyboard.handleKeyEvent(char, true, char);
+  }
+
+  charUp(char: string): void {
+    this.m.keyboard.handleKeyEvent(char, false, char);
+  }
+
   readonly mouse: MouseSink | null = null;
 }

@@ -23,12 +23,20 @@ machine-blind.
 
 Populate it as a motherboard (omit what your hardware lacks):
 
-- `<name>-machine.ts` — the machine class. Extend `BaseMachine` (frame loop,
-  pacing, turbo, audio back-pressure, debug-field storage) and implement the
-  `Machine` SPI from `machines/machine.ts`. Own your `runFrame()`: poll chip
+- `<name>-machine.ts` — the machine class. Extend the base for its CPU family —
+  `M6502MachineBase` or `Z80MachineBase` (`src/machines/shared/`), which extends
+  `BaseMachine` (frame loop, pacing, turbo, audio back-pressure, debug-field
+  storage) — and implement the `Machine` SPI from `machines/machine.ts`. The
+  family base answers the CPU-facing debug seams (`cpuCycles`, `stackPointer`,
+  `cpuPc`, `interruptedPc`) from your `cpu` and `memory` fields, so the machine
+  declares those two and supplies what differs. Own your `runFrame()`: poll chip
   interrupt flags and call `cpu.interrupt()` yourself (the audited model — cores
   never call back into the machine). Keep `cpu.portInHandler`/`portOutHandler`
-  as direct closures — they are tier-1 hot paths.
+  and the `cpu.read`/`cpu.write` bus hooks as direct closures — they are tier-1
+  hot paths. Override `peekOpcode()` when an opcode could be fetched from a page
+  whose reads have side effects (the BBC, C64, Plus/4 and VIC-20 machines do),
+  and call `completeFrame()` at the top of a native `saveState`, so a state is
+  always taken between frames.
 - Custom silicon and support files as needed: `ula.ts`/`gate-array.ts`/`vdp`
   wiring, `contention.ts`, `variants/`, `memory.ts`, `io.ts` (the port-decode
   if-chain), `keyboard.ts`, `peripherals/`, `snapshots/`, `tape-loader.ts`.
@@ -83,6 +91,14 @@ frame):
 - `probe` — a `FrameProbe` whose `sample()` fills the shared `FrameIndicators`
   struct and **allocates nothing** (tier-3 hot path); `frameTick()` does the
   once-per-UI-frame device bookkeeping.
+- `inspect` — a `MachineInspection` with the pull-on-demand read-only views the
+  debug panes and the MCP's `basic_listing`/`basic_vars` tools bind to: the
+  memory map (`memoryMap`), the BASIC program and variables (`basicListing`,
+  `basicVars`), `hasSysvars`, and the Font pane's `romFontCandidate`. Unlike the
+  probe these may allocate freely and are read only when a pane is open or a
+  tool is called, so the BASIC parsers live here, not in `sample()`. Every
+  member is optional — omit what your machine has nothing to report for, and the
+  panes/tools decline. Omit `inspect` entirely if that is everything.
 
 ### 4. Optional `ui/` contributions
 
@@ -143,6 +159,38 @@ List each model's system-ROM image URLs in `descriptor.romSources(model)`. The
 shared `rom-manager` fetches, caches (IndexedDB), concatenates, and persists them
 generically; peripheral ROMs go through `AuxRomRequest` from your `prepare()`/
 `bootRoms()` hooks.
+
+### 8. The machine sheet and its pictures
+
+Every machine has a sheet under `docs/machines/` — start from `TEMPLATE.md` — and
+links from the README's table. It opens with two pictures: the machine at its
+boot prompt and the on-screen keyboard the pane draws (omit the picture where
+the machine has no keyboard contribution).
+
+Generate both rather than pasting screenshots:
+
+```
+npx tsx tools/machine-images.ts screen            # every machine's boot screen
+npx tsx tools/machine-images.ts keyboard          # needs `npx vite --port 5199`
+npx tsx tools/add-machine-images.ts               # put them in the sheets
+npx tsx tools/verify-machine-images.ts            # every reference resolves
+```
+
+Add the new machine to `SHOTS` in `tools/machine-images.ts` and to `PAIRS` in
+`tools/add-machine-images.ts` in the same commit, so the sheet and its pictures
+stay in step. Screens come straight from the machine's frame buffer; keyboards
+are the real faces captured headless through `tools/cdp.ts` (a Chromium-family
+browser is needed for those).
+
+Pictures are embedded **without** a `width` or `height` attribute, so each draws
+at its natural size and is never resampled. The keyboard captures are generated
+at the width of a docs column (`TARGET_WIDTH` in `tools/machine-keyboards.ts`),
+which keeps the key legends crisp; a larger capture would be scaled down by the
+renderer and blur them. `tools/verify-machine-images.ts` fails on any sheet that
+adds a size attribute back.
+
+`tools/check-readme-machines.ts` is the companion check for the README: it fails
+if a registered model id or a sheet on disk is not documented.
 
 ## What NOT to touch
 

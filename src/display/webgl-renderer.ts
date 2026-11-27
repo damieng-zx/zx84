@@ -606,12 +606,13 @@ export class WebGLRenderer implements IScreenRenderer {
     this.canvas.height = h;
     this.canvas.style.width = (w / dpr * this.pixelAspectX) + 'px';
     this.canvas.style.height = (h / dpr) + 'px';
-    // Non-square pixels are squeezed by the CSS box, so the compositor scales
-    // the backing store horizontally. `image-rendering: pixelated` there drops
-    // every other source pixel at 1x (missing columns); let the compositor
-    // filter that one axis instead. Vertical is always 1:1, so nothing else
-    // is affected.
-    this.canvas.style.imageRendering = this.pixelAspectX < 1 ? 'auto' : '';
+    // Non-square pixels are squeezed or stretched by the CSS box, so the
+    // compositor scales the backing store horizontally. `image-rendering:
+    // pixelated` there duplicates or drops whole columns (an aspect of 1.25
+    // duplicated every fourth column, an aspect of 0.5 dropped every other one);
+    // let the compositor filter that one axis instead. Vertical is always 1:1,
+    // and a square-pixel machine stays pixelated.
+    this.canvas.style.imageRendering = this.pixelAspectX === 1 ? 'pixelated' : 'auto';
 
     // Resize FBO texture to match display resolution
     gl.bindTexture(gl.TEXTURE_2D, this.fboTex);

@@ -101,9 +101,11 @@ describe('OCR_GRIDS — geometry sanity', () => {
     }
   });
 
-  it('every grid covers at most 256 pixel columns', () => {
+  it('every standard grid covers at most 256 pixel columns, and every hi-res grid at most 512, nearly all of them', () => {
     for (const g of Object.values(OCR_GRIDS)) {
-      expect(g.cols * g.cellWidth).toBeLessThanOrEqual(256);
+      const width = g.linear ? 512 : 256;
+      expect(g.cols * g.cellWidth).toBeLessThanOrEqual(width);
+      if (g.linear) expect(g.cols * g.cellWidth).toBeGreaterThanOrEqual(width - g.cellWidth);   // 85 x 6 = 510
     }
   });
 });

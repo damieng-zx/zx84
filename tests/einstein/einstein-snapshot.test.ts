@@ -165,6 +165,42 @@ describe('Einstein .einstate', () => {
     });
   });
 
+  it('carries the TC-01 ADC0844 channel and latched result across a restore', async () => {
+    const src = machine('einstein-tc01');
+    const dst = machine('einstein-tc01');
+    try {
+      // Convert channel 2 (joystick 2's X) with the stick pushed hard right, so
+      // the latched result is 0xFF — a value neither the reset default (0x80)
+      // nor any other channel produces here.
+      src.sticks.press('right', true, 1);
+      src.adcChannel = 2;
+      src.adcResult = src.adcInput(2);
+      expect(src.adcResult).toBe(0xFF);
+
+      expect(await dst.services.snapshots.restoreSync(src.services.snapshots.saveSync())).toBe(true);
+      // Port 0x38 returns the latched result, so a restored machine reports the
+      // right stick and axis without waiting for another conversion.
+      expect(dst.adcChannel).toBe(2);
+      expect(dst.cpu.portIn(0x38)).toBe(0xFF);
+    } finally {
+      src.destroy();
+      dst.destroy();
+    }
+  });
+
+  it('carries the 256 pseudo-ADC selection across a restore', async () => {
+    const src = machine('einstein-256');
+    const dst = machine('einstein-256');
+    try {
+      src.pseudoAdc = 0x06;                 // port A (joystick 2), X
+      expect(await dst.services.snapshots.restoreSync(src.services.snapshots.saveSync())).toBe(true);
+      expect(dst.pseudoAdc).toBe(0x06);
+    } finally {
+      src.destroy();
+      dst.destroy();
+    }
+  });
+
   it('a saved file carries the disks, their names and what was written to them', async () => {
     const src = machine('einstein-tc01', { disk: true });
     const dst = machine('einstein-tc01');

@@ -5,6 +5,11 @@ eight-colour bitmap display, and the 96K and 128K add a floppy interface. zx84
 emulates the 48K, 96K and 128K, booting the real system ROMs, with cassette
 loading, the FD1793 disk interface, the on-screen keyboard and screen OCR.
 
+<p align="center">
+  <img src="../images/machines/camputers-lynx.png" alt="The Lynx 48K at its prompt"><br>
+  <img src="../images/machines/camputers-lynx-keyboard.png" alt="The Lynx 48K keyboard, with its numeric keypad">
+</p>
+
 | | |
 | --- | --- |
 | **Manufacturer** | Camputers |

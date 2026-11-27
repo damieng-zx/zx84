@@ -40,12 +40,16 @@ async function freshImport() {
 }
 
 describe('machine-state — model load/save', () => {
+  // The first import of this file transforms the whole module graph it pulls in
+  // (machine-state reaches the registry and, behind it, every machine), which
+  // alone takes over three seconds; the 5-second default leaves no head room
+  // once the suite runs its workers in parallel.
   it('defaults to 128k when nothing is stored', async () => {
     const m = await freshImport();
     expect(m.currentModel()).toBe('zx128k');
     // Default should not leak back into storage — the module reads, not writes.
     expect(storage.getItem('zx84-model')).toBeNull();
-  });
+  }, 15_000);
 
   it('accepts every valid SpectrumModel string on load', async () => {
     for (const model of ['zx16k', 'zx48k', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3']) {

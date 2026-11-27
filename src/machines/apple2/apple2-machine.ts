@@ -12,8 +12,8 @@ import { M6502 } from '@/cores/m6502.ts';
 import { M65C02 } from '@/cores/m65c02.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import type { M6502Isa } from '@/debug/m6502/disasm.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
@@ -25,11 +25,11 @@ import type {
 import type { OcrResult } from '@/ocr/ocr.ts';
 import { ocrApple2Text } from '@/ocr/apple2.ts';
 import type { Apple2Model } from './models.ts';
-import { APPLE2_ROM_SIZE, apple2ModelInfo, type Apple2ModelInfo } from './models.ts';
+import { APPLE2_ROM_SIZE, DISK2_ROM_SIZE, apple2ModelInfo, type Apple2ModelInfo } from './models.ts';
 import { APPLE2_DEFAULT_OPTIONS, readApple2Options, type Apple2Options } from './options.ts';
 import {
   APPLE2_ACTIVE_HEIGHT, APPLE2_ACTIVE_WIDTH, APPLE2_BORDER_LEFT, APPLE2_BORDER_TOP, APPLE2_CPU_CLOCK, APPLE2_SCREEN_HEIGHT,
-  APPLE2_SCREEN_WIDTH, APPLE2_TSTATES_PER_FRAME, APPLE2_VBL_LINE, APPLE2_CYCLES_PER_LINE,
+  APPLE2_SCREEN_WIDTH, APPLE2_TSTATES_PER_FRAME, APPLE2_VBL_LINE, APPLE2_CYCLES_PER_LINE, DISK2_ROM13_SOURCE, DISK2_ROM_SOURCE, DISK2_SLOT,
 } from './constants.ts';
 import { Apple2Memory } from './apple2-memory.ts';
 import { Apple2eMemory } from './apple2e-memory.ts';
@@ -49,7 +49,6 @@ import { apple2Descriptor } from './descriptor.ts';
 import { wireApple2Io } from './apple2-io.ts';
 import { wireApple2eIo } from './apple2e-io.ts';
 import { createApple2Services, type Apple2Services } from './services/index.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Frames between flash-phase flips (the text-mode "flashing" attribute). */
@@ -79,7 +78,7 @@ class Apple2Speaker {
   toggle(): void { this.level ^= 1; }
 }
 
-export class Apple2Machine extends BaseMachine implements Machine {
+export class Apple2Machine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'apple2';
   readonly model: Apple2Model;
   private readonly modelInfo: Apple2ModelInfo;
@@ -110,6 +109,11 @@ export class Apple2Machine extends BaseMachine implements Machine {
   private tapeClockBase = 0;
   /** The Disk II turns its disk from the exact cycle of each access to it. */
   readonly disk2 = new Disk2((write) => this.busCycle(write === true));
+  /** The card's boot PROMs, kept so a 13-sector disk can be booted on a card
+   *  that has both. The slot ROM itself is swapped by `selectDisk2BootRom`. */
+  private disk2Rom16: Uint8Array | null = null;
+  private disk2Rom13: Uint8Array | null = null;
+  private disk2UsingRom13 = false;
   readonly speaker = new Apple2Speaker();
   readonly mixer = new AudioMixer(APPLE2_CPU_CLOCK);
   readonly audio = new Audio();
@@ -160,8 +164,6 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.cpu = this.modelInfo.cpuPart ? new M65C02(this.modelInfo.cpuPart) : new M6502();
     this.isa = this.modelInfo.cpuPart ?? false;
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
-    // The 6502 core makes its bus accesses before it counts the cycles.
-    this.deferAccessStamps = true;
     this.display = display ?? null;
     this.memory = this.modelInfo.iie ? new Apple2eMemory() : new Apple2Memory();
     this.keyboard = new Apple2Keyboard(this.modelInfo.iie);
@@ -230,13 +232,26 @@ export class Apple2Machine extends BaseMachine implements Machine {
     if (this.options.disk2 && !this.modelInfo.iic) {
       requests.push({
         cacheKey: 'apple2-disk2-rom',
-        source: 'apple2/disk2.rom',
+        source: DISK2_ROM_SOURCE,
         fetchingMsg: 'Fetching Disk II controller ROM…',
         loadedMsg: (bytes) => `Disk II ROM loaded (${bytes} bytes)`,
         failMsg: 'Failed to load the Disk II ROM — floppy boot unavailable',
         failId: 'apple2-disk2',
-        apply: (data) => this.memory.loadSlotRom(6, data),
+        apply: (data) => this.installDisk2Rom16(data),
         awaitLoad: true,
+      }, {
+        // Optional: a 16-sector card and every 16-sector disk work without it.
+        // The 13-sector P5 PROM lets .d13 / RDOS 2.1 / 13-sector nibble images
+        // boot, and is swapped into slot 6 when one is mounted.
+        cacheKey: 'apple2-disk2-rom-13',
+        source: DISK2_ROM13_SOURCE,
+        fetchingMsg: 'Fetching Disk II 13-sector boot ROM…',
+        loadedMsg: (bytes) => `Disk II 13-sector ROM loaded (${bytes} bytes)`,
+        failMsg: 'Failed to load the Disk II 13-sector boot ROM — 13-sector disks will not boot',
+        failId: 'apple2-disk2-13',
+        apply: (data) => this.installDisk2Rom13(data),
+        awaitLoad: true,
+        optional: true,
       });
     }
     const videx = this.videx;
@@ -378,14 +393,69 @@ export class Apple2Machine extends BaseMachine implements Machine {
     this.setStatus('Reset');
   }
 
+  /** The 16-sector boot PROM arriving from the ROM host. */
+  private installDisk2Rom16(data: Uint8Array): void {
+    this.disk2Rom16 = data.slice(0, DISK2_ROM_SIZE);
+    if (!this.disk2UsingRom13) this.loadDisk2SlotRom();
+  }
+
+  /** The optional 13-sector boot PROM arriving from the mirror. */
+  private installDisk2Rom13(data: Uint8Array): void {
+    this.disk2Rom13 = data.slice(0, DISK2_ROM_SIZE);
+    // A disk may already be in drive 1 (a late ROM fetch or a mount during
+    // start-up): fit the PROM it needs now.
+    const disk = this.disk2.getDiskImage(0);
+    if (disk && disk.apple2.sectorsPerTrack === 13) this.selectDisk2BootRom(13);
+    else if (this.disk2UsingRom13) this.loadDisk2SlotRom();
+  }
+
+  /** Put the selected boot PROM in slot 6 (the //c's drive firmware is in its
+   *  system ROM, so it has no card PROM to swap). */
+  private loadDisk2SlotRom(): void {
+    const rom = this.disk2UsingRom13 ? this.disk2Rom13 : this.disk2Rom16;
+    if (rom && this.options.disk2 && !this.modelInfo.iic) this.memory.loadSlotRom(DISK2_SLOT, rom);
+  }
+
+  /** Test/debug surface: fit both boot PROMs directly, as the ROM fetches do. */
+  installDisk2BootRoms(rom16: Uint8Array | null, rom13: Uint8Array | null): void {
+    this.disk2Rom16 = rom16 ? rom16.slice(0, DISK2_ROM_SIZE) : null;
+    this.disk2Rom13 = rom13 ? rom13.slice(0, DISK2_ROM_SIZE) : null;
+    this.loadDisk2SlotRom();
+  }
+
+  /** Whether the 13-sector boot PROM was fetched. */
+  get hasDisk2Rom13(): boolean { return this.disk2Rom13 !== null; }
+
+  /** Which boot PROM slot 6 currently holds. */
+  get disk2BootRomSectors(): 13 | 16 { return this.disk2UsingRom13 ? 13 : 16; }
+
+  /**
+   * Fit the boot PROM a disk needs. A real Disk ][ card had either the 13- or
+   * the 16-sector PROM; zx84 keeps both and swaps them when the drive-1 disk
+   * changes, so mounting a `.d13`/RDOS 2.1/13-sector nibble image boots it
+   * without rebuilding the machine. `sectors` null means no drive-1 disk.
+   */
+  selectDisk2BootRom(sectors: 13 | 16 | null): void {
+    this.disk2UsingRom13 = sectors === 13 && this.disk2Rom13 !== null;
+    this.loadDisk2SlotRom();
+  }
+
   /** Boot the disk in drive 1. On an Autostart Monitor (the ][+) a fresh reset
    *  with a disk in place is exactly how a real machine starts DOS: the ROM
    *  scans the slots and jumps into the Disk II card's boot ROM. The original
    *  ][ has no Autostart — its Reset drops into the Monitor — so the boot is
-   *  what the user would have typed, `C600G`. */
+   *  what the user would have typed, `C600G`. That command is typed *after* the
+   *  ROM's reset handler has run, though: the Monitor's start-up clears and
+   *  tests RAM and points the character-output vector ($36/$37) at its COUT
+   *  routine. Jumping straight at $C600 leaves that vector nil, and DOS's
+   *  first PRINT then fills the screen with NULs. Let the reset handler reach
+   *  its input loop first, as a user would before typing the command. */
   bootDisc(): void {
     this.resetHardware();
-    if (!this.modelInfo.autostart && this.options.disk2) this.cpu.pc = 0xC600;
+    if (!this.modelInfo.autostart && this.options.disk2) {
+      this.runUntil(10);
+      this.cpu.pc = 0xC600;
+    }
     this.setStatus('Boot: drive 1');
   }
 
@@ -464,18 +534,10 @@ export class Apple2Machine extends BaseMachine implements Machine {
       note: 'line 0 is the first text/graphics line and line 192 starts VBL. ' + VIDEO_NOTES[this.videoAccuracy],
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
   /** An opcode is never read from the soft switches, whose reads flip them. */
   protected override peekOpcode(addr: number): number {
     return (addr & 0xFF00) === 0xC000 ? -1 : this.memory.readByte(addr);
   }
-
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   // ── Video accuracy ─────────────────────────────────────────────────────
 
@@ -728,16 +790,6 @@ export class Apple2Machine extends BaseMachine implements Machine {
   private static cardsName(fitted: readonly boolean[]): string {
     const names = ['Disk II', 'language card', '80-column card', 'Mockingboard'].filter((_, i) => fitted[i]);
     return names.length === 0 ? 'no cards' : names.join(', ');
-  }
-
-  /** Run the rest of a frame a stop left part-way, with every stop set aside,
-   *  so the machine is between frames (a snapshot is taken there). */
-  private completeFrame(): void {
-    if (!this.midFrame) return;
-    withStopsDisarmed(this, () => {
-      this.resumeSkipPc = -1;
-      this.stepFrame();
-    });
   }
 
   /**

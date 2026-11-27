@@ -21,11 +21,23 @@ export interface Saa5050Cell {
   readonly pixels: Uint16Array;
   fg: number;
   bg: number;
+  /** Cell belongs to the top half of a double-height line (or, for the row
+   *  drawn beneath one, its bottom half); the machine draws the second row's
+   *  half from the cells it kept from the first. */
+  dh: boolean;
 }
 
 export function createSaa5050Cells(count: number): Saa5050Cell[] {
-  return Array.from({ length: count }, () => ({ pixels: new Uint16Array(20), fg: 7, bg: 0 }));
+  return Array.from(
+    { length: count },
+    () => ({ pixels: new Uint16Array(20), fg: 7, bg: 0, dh: false }),
+  );
 }
+
+/** The two halves a double-height line is drawn in: the row that carries the
+ *  double-height code shows the top, the row below it the bottom, and the row
+ *  after that is back to single height. */
+type Saa5050Height = 'normal' | 'top' | 'bottom';
 
 export class Saa5050 {
   private fg = 7;
@@ -34,6 +46,8 @@ export class Saa5050 {
   private separated = false;
   private hold = false;
   private holdChar = 0x20;
+  private concealed = false;
+  private height: Saa5050Height = 'normal';
   /** Apply the character rounding. Off emits the plain doubled dots, for a
    *  display stage that does the rounding itself (the SAA5050 upscaler). */
   rounding = true;
@@ -47,6 +61,8 @@ export class Saa5050 {
     this.separated = false;
     this.hold = false;
     this.holdChar = 0x20;
+    this.concealed = false;
+    this.height = 'normal';
   }
 
   /** Expand a 5-bit glyph row to the doubled 10-bit pattern (bit 0 = left). */
@@ -70,18 +86,33 @@ export class Saa5050 {
   }
 
   private applyControl(c: number): void {
-    if (c >= 0x1C) {
-      switch (c) {
-        case 0x1C: this.bg = 0; break;          // black background
-        case 0x1D: this.bg = this.fg; break;    // new background
-        case 0x1E: this.hold = true; break;     // hold mosaics
-        case 0x1F: this.hold = false; break;    // release mosaics
-      }
+    if (c < 0x08) {                    // alpha colour; latching states cleared
+      this.fg = c;
+      this.graphics = false;
+      this.concealed = false;
       return;
     }
-    this.fg = c & 7;
-    this.graphics = (c & 0x08) !== 0;
-    this.separated = (c & 0x10) !== 0;
+    if (c < 0x10) {                    // flash/box/height: not drawn
+      if (c === 0x0C) this.height = 'normal';
+      else if (c === 0x0D) this.height = 'top';
+      return;
+    }
+    if (c < 0x18) {                    // graphics colour; mosaics stay as chosen
+      this.fg = c & 7;
+      this.graphics = true;
+      this.concealed = false;
+      return;
+    }
+    switch (c) {
+      case 0x18: this.concealed = true; break;           // conceal
+      case 0x19: this.graphics = true; this.separated = false; this.concealed = false; break;
+      case 0x1A: this.graphics = true; this.separated = true; this.concealed = false; break;
+      case 0x1B: break;                                  // ESC: no colour-set switch
+      case 0x1C: this.bg = 0; break;                     // black background
+      case 0x1D: this.bg = this.fg; break;               // new background
+      case 0x1E: this.hold = true; break;                // hold mosaics
+      case 0x1F: this.hold = false; break;               // release mosaics
+    }
   }
 
   /** Alpha glyph: the 5x9 shape, doubled and diagonally rounded to 12x20. */
@@ -128,6 +159,20 @@ export class Saa5050 {
    * (and its pixel buffers) is preallocated by the machine and reused.
    */
   renderRow(chars: Uint8Array, count: number, out: Saa5050Cell[]): void {
+    if (this.height === 'bottom') {
+      // The row under a double-height row carries its bottom halves; the row's
+      // own characters are not drawn and height returns to normal afterwards.
+      // (Teletext encoders leave this row blank, so drawing the paper is right.)
+      for (let i = 0; i < count; i++) {
+        const cell = out[i];
+        cell.fg = this.fg;
+        cell.bg = this.bg;
+        cell.dh = false;                 // this row is not the top of a pair
+        cell.pixels.fill(0);
+      }
+      this.height = 'normal';
+      return;
+    }
     for (let i = 0; i < count; i++) {
       const c = chars[i] & 0x7F;
       const cell = out[i];
@@ -135,12 +180,16 @@ export class Saa5050 {
         this.applyControl(c);
         cell.fg = this.fg;
         cell.bg = this.bg;
+        cell.dh = this.height !== 'normal';
         cell.pixels.fill(0);
         continue;
       }
       cell.fg = this.fg;
       cell.bg = this.bg;
-      if (this.graphics) {
+      cell.dh = this.height !== 'normal';
+      if (this.concealed) {
+        cell.pixels.fill(0);
+      } else if (this.graphics) {
         if (c === 0x20 && !this.hold) { cell.pixels.fill(0); continue; }
         const bits = c === 0x20 ? this.holdChar : c;
         if (c !== 0x20) this.holdChar = c;
@@ -149,5 +198,7 @@ export class Saa5050 {
         this.alpha(c, cell.pixels);
       }
     }
+    // A double-height row draws its top half now, the row below its bottom.
+    if (this.height === 'top') this.height = 'bottom';
   }
 }

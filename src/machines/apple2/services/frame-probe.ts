@@ -1,5 +1,5 @@
 import type {
-  FrameIndicators, FrameProbe, FramePaneProvider, TranscribeDriver,
+  FrameIndicators, FrameProbe, TranscribeDriver,
 } from '@/machines/machine.ts';
 import { fixedDrive } from '@/media/floppy/floppy-sound.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -33,7 +33,6 @@ class Apple2TranscribeDriver implements TranscribeDriver {
 
 export class Apple2FrameProbe implements FrameProbe {
   readonly transcribe: Apple2TranscribeDriver;
-  readonly panes: FramePaneProvider = {};
 
   constructor(private readonly machine: Apple2Machine) {
     this.transcribe = new Apple2TranscribeDriver(machine);

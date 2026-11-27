@@ -6,11 +6,11 @@ import { switchModel, autoBootLoad, resetMachine } from '@/shell/lifecycle.ts';
 import { setStatus } from '@/shell/context.ts';
 import * as settings from '@/store/settings.ts';
 import { currentModel, cartridgeName } from '@/state/machine-state.ts';
-import { isPentagonClass, isScorpionClass, type MachineModel } from '@/models.ts';
+import { isPentagonClass, isScorpionClass, isTimexClass, type MachineModel } from '@/models.ts';
 import { tapeName } from '@/state/tape-state.ts';
 import { currentDiskName } from '@/state/disk-state.ts';
 import {
-  fetchCatalog, fileUrls, basename, resolveGame, parseLibraryQuery, planLoad, hasFormat, supportsMachine,
+  fetchCatalog, fileUrls, basename, resolveGame, parseLibraryQuery, planLoad, hasFormat, supportsMachine, pickScreen,
   type Game, type LibraryFormat, type LibraryMachine,
 } from '@/library/catalog.ts';
 import { renderScreenToCanvas } from '@/machines/spectrum/screen-to-canvas.ts';
@@ -41,12 +41,13 @@ const MACHINE_OPTIONS: { machine: LibraryMachine; label: string }[] = [
 ];
 
 /** The Machine filter options on offer: the four Sinclair ones always, plus
- *  Pentagon / Scorpion while running that clone (or while one is still ticked, so
- *  a persisted choice can always be unticked after switching away). */
+ *  Pentagon / Scorpion / TC2048 while running that machine (or while one is still
+ *  ticked, so a persisted choice can always be unticked after switching away). */
 function machineOptions(model: MachineModel, selected: ReadonlySet<LibraryMachine>): { machine: LibraryMachine; label: string }[] {
   const options = [...MACHINE_OPTIONS];
   if (isPentagonClass(model) || selected.has('pentagon')) options.push({ machine: 'pentagon', label: 'Pentagon' });
   if (isScorpionClass(model) || selected.has('scorpion')) options.push({ machine: 'scorpion', label: 'Scorpion' });
+  if (isTimexClass(model) || selected.has('tc2048')) options.push({ machine: 'tc2048', label: 'TC2048' });
   return options;
 }
 
@@ -91,18 +92,19 @@ function genrePrefix(g: string): string {
  *  publisher name below it. */
 function GameDetail(props: { game: Game }) {
   let canvasRef: HTMLCanvasElement | undefined;
+  const picked = pickScreen(props.game);
   const [shot, setShot] = createSignal<'none' | 'loading' | 'canvas' | 'image' | 'error'>(
-    props.game.screen ? 'loading' : 'none',
+    picked ? 'loading' : 'none',
   );
   const [imgUrl, setImgUrl] = createSignal('');
 
   onMount(async () => {
-    const screen = props.game.screen;
-    if (!screen) return;
+    if (!picked) return;
+    const screen = picked.link;
     try {
       const data = await fetchFirst(fileUrls(screen));
-      if (/\.scr$/i.test(screen)) {
-        setShot(canvasRef && renderScreenToCanvas(data, canvasRef) ? 'canvas' : 'error');
+      if (picked.kind !== 'image') {
+        setShot(canvasRef && renderScreenToCanvas(data, canvasRef, 'basic', picked.kind) ? 'canvas' : 'error');
       } else {
         // Raster screenshot — wrap the bytes in a blob URL for an <img>. Type it
         // by extension so the browser decodes it without content sniffing.

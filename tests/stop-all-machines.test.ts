@@ -12,14 +12,13 @@
 
 import { describe, it, expect } from 'vitest';
 import { registry } from '@/machines/registry.ts';
+import { bareBoot } from './bare-boot.ts';
 
 const FAMILIES = registry.map(entry => ({ kind: entry.kind, model: entry.models[0], entry }));
 
 describe.each(FAMILIES)('stops on $kind ($model)', ({ model, entry }) => {
   function boot() {
-    const m = entry.create(model, null);
-    m.reset();
-    return m;
+    return bareBoot(entry, model);
   }
 
   it('a break trap ends the run, and a resume tells the trap so and makes progress', () => {

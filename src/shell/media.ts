@@ -337,14 +337,17 @@ export async function saveSnapshot(format: string = 'szx'): Promise<void> {
   setStatus(`Saved ${filename}`);
 }
 
-export function saveScreenshot(format: 'png' | 'scr'): void {
+export function saveScreenshot(format: 'png' | 'scr' | 'mlt'): void {
   if (!machine) { setStatus('No machine running'); return; }
 
-  if (format === 'scr') {
-    const screenData = machine.services.debug.screenExport();
-    if (!screenData) { setStatus('.scr not supported for this machine'); return; }
-    downloadFile(screenData, 'screen.scr');
-    setStatus('Saved screen.scr');
+  if (format === 'scr' || format === 'mlt') {
+    const screenData = machine.services.debug.screenExport(format);
+    if (!screenData) {
+      setStatus(format === 'mlt' ? 'No .mlt for the screen mode in use (hi-res has no attributes)' : '.scr not supported for this machine');
+      return;
+    }
+    downloadFile(screenData, `screen.${format}`);
+    setStatus(`Saved screen.${format}`);
   } else {
     if (!machine.display) { setStatus('No display available'); return; }
     const canvas = machine.display['canvas'] as HTMLCanvasElement;
@@ -375,12 +378,15 @@ export function saveRecordedTape(): void {
 export function saveRAM(): void {
   if (!machine) { setStatus('No machine running'); return; }
 
-  const ram = machine.services.debug.ramExport();
-  if (!ram) { setStatus('RAM save not supported for this machine'); return; }
-
+  // Stop first, then read: the driver runs the machine between frames, so a
+  // dump taken while it is live can land mid-instruction and catch banks or
+  // paging half-updated. Every other export here has the same shape.
   const wasPaused = emulationPaused();
   if (!wasPaused) machine.stop();
+  let ram;
   try {
+    ram = machine.services.debug.ramExport();
+    if (!ram) { setStatus('RAM save not supported for this machine'); return; }
     downloadFile(ram.data, ram.filename);
   } finally {
     if (!wasPaused) machine.start();

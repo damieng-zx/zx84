@@ -20,6 +20,15 @@ export class Apple2InputService implements InputService {
     this.machine.paddles.release();
   }
 
+  /** The Apple II encoder takes the character's own byte. */
+  charDown(char: string): boolean {
+    return this.machine.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, true);
+  }
+
+  charUp(char: string): void {
+    this.machine.keyboard.handleEvent({ code: '', key: char, shift: false, ctrl: false, alt: false }, false);
+  }
+
   /** Digital joystick presses drive the paddles to an extreme; a gamepad's
    *  axes set them proportionally. */
   readonly joystick: JoystickInput = {

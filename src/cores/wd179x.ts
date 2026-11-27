@@ -308,6 +308,11 @@ export class WD179x {
     this.irqLevel = false;
     this.byteDelay = 0;
     this.afterByte = 'none';
+    // The lost-data window belongs to the command that was in flight; leaving
+    // it armed past a reset would let pollForLostData() raise LOST DATA for a
+    // command that no longer exists.
+    this.awaitingFirstByte = false;
+    this.idlePolls = 0;
     if (wasIrq) this.onInterrupt?.(false);
   }
 
