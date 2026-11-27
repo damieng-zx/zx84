@@ -22,7 +22,6 @@ const ACE_UI: MachineUiCapabilities = {
   ],
   memoryLayout: false,
   trace: true,
-  colorMap: 'mono',
   accuracy: false,
   builtinDisk: false,
   joystick: false,
@@ -43,7 +42,7 @@ const ACE_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ['.tap', '.tzx', '.csw', '.wav', '.zip'],
   // 'tape-tap' downloads whatever the machine has SAVEd to the cassette port.
-  saveMenu: ['snapshot-acestate', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
@@ -77,9 +76,9 @@ export function aceDescriptor(model: MachineModel, locale: MachineLocale = 'uk')
 
 const ACE_ROM = 'jupiter/ace.rom';
 
-export const aceEntry: MachineEntry = {
+export const aceEntry = {
   kind: 'jupiter-ace',
-  models: ['jupiter-ace'],
+  models: ['jupiter-ace'] as const,
   descriptor: aceDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new JupiterAceMachine(model as JupiterAceModel, display);
@@ -95,4 +94,4 @@ export const aceEntry: MachineEntry = {
     if (data.length === 0x2000 || data.length === 0x1000) return current;
     return null;
   },
-};
+} satisfies MachineEntry;

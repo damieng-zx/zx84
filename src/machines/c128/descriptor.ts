@@ -24,7 +24,6 @@ const C128_UI: MachineUiCapabilities = {
   trace: true,
   traceModes: ['full', 'portio'],
   // The VIC-IIe's sixteen colours and the VDC's RGBI ones are fixed.
-  colorMap: 'mono',
   accuracy: false,
   // The drive is on the serial bus; the Hardware pane plugs it in or out.
   builtinDisk: true,
@@ -69,7 +68,7 @@ const C128_UI: MachineUiCapabilities = {
   tapeSound: true,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
   // 'tape-tap' downloads what the KERNAL has SAVEd to tape (as a C64 .tap).
-  saveMenu: ['snapshot-c128state', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
@@ -134,9 +133,9 @@ export function c128Descriptor(
   };
 }
 
-export const c128Entry: MachineEntry = {
+export const c128Entry = {
   kind: 'c128',
-  models: ['c128'],
+  models: ['c128'] as const,
   descriptor: c128Descriptor,
   create(_model: MachineModel, display: IScreenRenderer | null, locale?: MachineLocale) {
     return new C128Machine(display, c128IsNtsc(locale));
@@ -148,4 +147,4 @@ export const c128Entry: MachineEntry = {
   detectModelForRom(data: Uint8Array): MachineModel | null {
     return data.length === C128_ROM_TOTAL ? 'c128' : null;
   },
-};
+} satisfies MachineEntry;

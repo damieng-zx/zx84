@@ -62,6 +62,9 @@ const mockState = vi.hoisted(() => {
 // ─────────────────────────────────────────────────────────────────────────
 
 vi.mock('@/store/settings.ts', () => ({
+  defOf: () => undefined,
+  hasSignal: () => false,
+  settingValue: () => undefined,
   joyP1: () => mockState.joyP1Type,
   joyP2: () => mockState.joyP2Type,
   joyMapP1: () => mockState.joyMapP1Mode,

@@ -176,11 +176,13 @@ describe('Acorn System 2 registry entry', () => {
   });
 
   it('recognises a 2K COS as a System 2 and a 4K DOS as a System 3', () => {
-    expect(acornSystemEntry.detectModelForRom!(new Uint8Array(0x800), 'acorn-system2'))
+    // `acornSystemEntry` keeps its literal shape (`satisfies MachineEntry`), so
+    // the hook's own narrower signature applies: the classifier reads only size.
+    expect(acornSystemEntry.detectModelForRom!(new Uint8Array(0x800)))
       .toBe('acorn-system2');
-    expect(acornSystemEntry.detectModelForRom!(new Uint8Array(0x1000), 'acorn-system2'))
+    expect(acornSystemEntry.detectModelForRom!(new Uint8Array(0x1000)))
       .toBe('acorn-system3');
-    expect(acornSystemEntry.detectModelForRom!(new Uint8Array(0x400), 'acorn-system2'))
+    expect(acornSystemEntry.detectModelForRom!(new Uint8Array(0x400)))
       .toBeNull();
   });
 });
@@ -448,7 +450,8 @@ describe('Acorn System 5', () => {
       expect(m.descriptor.screen.activeHeight).toBe(250);
       expect(m.frameWidth).toBe(672);
       expect(m.frameHeight).toBe(266);
-      expect(m.descriptor.ui.colorMap).toBe('mono');
+      // A mono card has no colour choice, so the Display pane hides the control.
+      expect(m.descriptor.ui.colorMapChoice).toBeUndefined();
       expect(m.descriptor.ui.builtinDisk).toBe(true);
       // 32K at &2000 plus 16K at &A000.
       expect(m.memory.ramBankCount).toBe(12);

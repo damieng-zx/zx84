@@ -23,7 +23,14 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     trace: true,
     // Eight fixed colours from three one-bit planes: nearest the ZX palette's
     // bright half, which is what 'spectrum' names.
-    colorMap: 'spectrum',
+    colorMapChoice: {
+      setting: 'color-map',
+      options: [
+        { value: 'basic', label: 'Basic' },
+        { value: 'measured', label: 'Measured' },
+        { value: 'vivid', label: 'Vivid' },
+      ],
+    },
     // The display is composed a whole scanline at a time under the 6845, with
     // no per-t-state effects to model.
     accuracy: false,
@@ -48,7 +55,7 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     tapeExtensions: ['.tap', '.zip'],
     // zx84's own snapshot; no screen-dump service, but a raw RAM dump is universal.
     // 'tape-tap' downloads what the ROM has SAVEd to cassette (as a Lynx .tap).
-    saveMenu: ['snapshot-lynxstate', 'tape-tap', 'screenshot-png', 'ram-bin'],
+    saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
     zipPolicy: 'media',
     persistMedia: disk,
     bootDisk: false,
@@ -84,9 +91,9 @@ export function lynxDescriptor(
   };
 }
 
-export const lynxEntry: MachineEntry = {
+export const lynxEntry = {
   kind: 'lynx',
-  models: ['lynx48', 'lynx96', 'lynx128'],
+  models: ['lynx48', 'lynx96', 'lynx128'] as const,
   descriptor: lynxDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new LynxMachine(model as LynxModel, display);
@@ -119,4 +126,4 @@ export const lynxEntry: MachineEntry = {
     if (data.length !== 0x6000 && data.length !== 0x8000) return null;
     return current === 'lynx128' ? 'lynx128' : 'lynx96';
   },
-};
+} satisfies MachineEntry;

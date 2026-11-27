@@ -666,8 +666,14 @@ describe('Timex 2068 — snapshots', () => {
   });
 
   it('offers no .z80 for a 2068, and refuses to write one', async () => {
-    expect(spectrumDescriptor('ts2068').ui.saveMenu).not.toContain('snapshot-z80');
-    expect(spectrumDescriptor('tc2048').ui.saveMenu).toContain('snapshot-z80');
+    // The rule lives on the snapshot service's formats(), which the Save menu
+    // is built from; the descriptor no longer names snapshot entries at all.
+    const saves = (model: 'ts2068' | 'tc2048') => {
+      const s = new Spectrum(model, null, 'uk');
+      return service(s).formats().find(f => f.ext === '.z80')?.canSave;
+    };
+    expect(saves('ts2068')).toBe(false);
+    expect(saves('tc2048')).toBe(true);
     await expect(service(make()).save('z80')).rejects.toThrow(/szx/);
   });
 });

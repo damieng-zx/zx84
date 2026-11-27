@@ -16,8 +16,13 @@ import { readCpcSnaModel, applyCpcSna, saveCpcSna } from '@/machines/cpc/snapsho
 export class CpcSnapshotService implements SnapshotService {
   constructor(private readonly c: CpcMachine, private readonly host: () => MachineHost | null) {}
 
-  formats(): { ext: string; canSave: boolean }[] {
-    return [{ ext: '.sna', canSave: true }];
+  formats(): { ext: string; canSave: boolean; label?: string; save?: string }[] {
+    // Two saveable versions of one extension, so each names its own menu entry
+    // and the `save` token picks the version.
+    return [
+      { ext: '.sna', canSave: true, label: 'Snapshot v2 (.sna)', save: '2' },
+      { ext: '.sna', canSave: true, label: 'Snapshot v3 (.sna)', save: '3' },
+    ];
   }
 
   async apply(data: Uint8Array, filename: string): Promise<SnapshotApplyResult> {

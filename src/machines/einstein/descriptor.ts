@@ -22,7 +22,14 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   hiddenPanes: ['tape-panel', 'sysvar-panel'],
   memoryLayout: true,
   trace: true,
-  colorMap: 'einstein',
+  colorMapChoice: {
+    setting: 'einstein-color-map',
+    options: [
+      { value: 'mame', label: 'MAME' },
+      { value: 'accurate', label: 'Accurate' },
+      { value: 'naive', label: 'Naive' },
+    ],
+  },
   accuracy: false,
   builtinDisk: true,
   builtinDrives: 2,
@@ -42,7 +49,7 @@ const EINSTEIN_UI: MachineUiCapabilities = {
   keyboardBus: 'ula',
   tapeSound: false,
   tapeExtensions: [],
-  saveMenu: ['snapshot-einstate', 'screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: true,
@@ -81,9 +88,9 @@ export function einsteinDescriptor(model: MachineModel, locale: MachineLocale = 
   };
 }
 
-export const einsteinEntry: MachineEntry = {
+export const einsteinEntry = {
   kind: 'einstein',
-  models: ['einstein-tc01', 'einstein-256'],
+  models: ['einstein-tc01', 'einstein-256'] as const,
   descriptor: einsteinDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new EinsteinMachine(model as EinsteinModel, display);
@@ -99,4 +106,4 @@ export const einsteinEntry: MachineEntry = {
     if (data.length === 0x2000) return 'einstein-tc01';
     return null;
   },
-};
+} satisfies MachineEntry;

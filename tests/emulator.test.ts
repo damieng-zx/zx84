@@ -306,12 +306,28 @@ vi.mock('@/managers/debug-manager.ts', () => ({
   },
 }));
 
-vi.mock('@/store/settings.ts', () => ({
+// The signal mocks, by the settings key each answers. `vi.mock` is hoisted
+// above this, so the factory reads it lazily (it is initialised by the time a
+// test calls into the shell).
+const SIGNAL_MOCK_BY_KEY: Record<string, string> = {
+  'vtx5000': 'vtx5000Enabled',
+  'multiface': 'multifaceEnabled',
+  'write-protect-a': 'writeProtectA',
+  'write-protect-b': 'writeProtectB',
+  'drive-b-force-ready': 'driveBForceReady',
+};
+
+vi.mock('@/store/settings.ts', () => {
+  const mock: Record<string, unknown> = {
   renderer:           vi.fn(() => 'canvas'),
   webglAvailable:     vi.fn(() => false),
   setWebglAvailable:  vi.fn(),
   setRenderer:        vi.fn(),
   persistSetting:     vi.fn(),
+  // The shell reads settings through the catalogue (defOf/hasSignal/
+  // settingValue) rather than a hand-kept getter table. Delegate to this mock's
+  // own signal functions, so both paths see one value.
+  defOf:              vi.fn(() => undefined),
   savedDriveCount:    vi.fn(() => undefined),
   borderSize:         vi.fn(() => 2),
   colorMap:           vi.fn(() => 'measured'),
@@ -362,7 +378,19 @@ vi.mock('@/store/settings.ts', () => ({
   einsteinColorMap:   vi.fn(() => 'accurate'),
   pcw60Hz:            vi.fn(() => false),
   pcwPhosphor:        vi.fn(() => 'auto'),
-}));
+  };
+  // The catalogue introspection the shell calls, bound to this mock's signals.
+  mock.hasSignal = vi.fn((key: string) => {
+    const name = SIGNAL_MOCK_BY_KEY[key];
+    return name ? true : typeof mock[key] === 'function';
+  });
+  mock.settingValue = vi.fn((key: string) => {
+    const name = SIGNAL_MOCK_BY_KEY[key] ?? key;
+    const getter = mock[name] as (() => unknown) | undefined;
+    return getter?.();
+  });
+  return mock;
+});
 
 vi.mock('@/store/persistence.ts', () => ({
   migrateDiskStorage: vi.fn(async () => {}),
@@ -1117,7 +1145,7 @@ describe('null guards — spectrum-dependent functions do not throw when null', 
     ['setMouseMode',        () => emulator.setMouseMode('kempston')],
     ['updateMousePosition', () => emulator.updateMousePosition(5, 5, 'kempston')],
     ['setMouseButton',      () => emulator.setMouseButton(0, true, 'kempston')],
-    ['saveSnapshot',        () => emulator.saveSnapshot()],
+    ['saveSnapshot',        () => emulator.saveSnapshot('szx')],
     ['saveScreenshot',      () => emulator.saveScreenshot('scr')],
     ['saveRAM',             () => emulator.saveRAM()],
     ['saveDisk',            () => emulator.saveDisk(0)],
@@ -1869,7 +1897,7 @@ describe('saveSnapshot', () => {
     await setupSpectrum();
     emulator.setEmulationPaused(false);
     const anchor = setupDOM();
-    await emulator.saveSnapshot();
+    await emulator.saveSnapshot('szx');
     expect(vi.mocked(szx.saveSZX)).toHaveBeenCalled();
     expect(anchor.download).toMatch(/\.szx$/);
   });
@@ -1895,7 +1923,7 @@ describe('saveSnapshot', () => {
 
   it('returns early with status when no spectrum', async () => {
     emulator.destroy();
-    await emulator.saveSnapshot();
+    await emulator.saveSnapshot('szx');
     expect(emulator.statusText()).toMatch(/No machine running/);
   });
 
@@ -1904,7 +1932,7 @@ describe('saveSnapshot', () => {
     emulator.setEmulationPaused(false);
     s.start.mockClear();
     vi.mocked(szx.saveSZX).mockImplementationOnce(() => { throw new Error('serialize'); });
-    await expect(emulator.saveSnapshot()).rejects.toThrow('serialize');
+    await expect(emulator.saveSnapshot('szx')).rejects.toThrow('serialize');
     expect(s.start).toHaveBeenCalledOnce();
   });
 

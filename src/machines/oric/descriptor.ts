@@ -37,7 +37,14 @@ function oricUi(): MachineUiCapabilities {
     traceModes: ['full', 'portio'],
     // Eight fixed 1-bit RGB colours: the closest existing family is the
     // Spectrum's eight, and the ULA cannot change them.
-    colorMap: 'spectrum',
+    colorMapChoice: {
+      setting: 'color-map',
+      options: [
+        { value: 'basic', label: 'Basic' },
+        { value: 'measured', label: 'Measured' },
+        { value: 'vivid', label: 'Vivid' },
+      ],
+    },
     // The ULA draws a whole line at a time from its 40-byte row; there is no
     // per-cycle effect to model.
     accuracy: false,
@@ -69,7 +76,7 @@ function oricUi(): MachineUiCapabilities {
     // No `tape-tap` either: the exporter's decoder is not written yet (see
     // `decodeSavedTape`), so offering the entry would promise a file that is
     // never produced.
-    saveMenu: ['snapshot-oricstate', 'screenshot-png', 'ram-bin'],
+    saveMenu: ['screenshot-png', 'ram-bin'],
     zipPolicy: 'media',
     persistMedia: true,
     bootDisk: false,
@@ -108,9 +115,9 @@ export function oricDescriptor(
   };
 }
 
-export const oricEntry: MachineEntry = {
+export const oricEntry = {
   kind: 'oric',
-  models: ['atmos', 'oric1'],
+  models: ['atmos', 'oric1'] as const,
   descriptor: oricDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new OricMachine(isOricModel(model) ? model : 'atmos', display);
@@ -133,7 +140,7 @@ export const oricEntry: MachineEntry = {
     if (text.includes('V1.1')) return 'atmos';
     return isOricModel(current) ? current : null;
   },
-};
+} satisfies MachineEntry;
 
 /** The image as a Latin-1 string, for signature checks. */
 function latin1(data: Uint8Array): string {

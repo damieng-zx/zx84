@@ -305,12 +305,31 @@ export type StatusLedId = typeof STATUS_LED_IDS[number];
  * Everything here is presentation-facing but *machine-owned*: the machine knows
  * which of its features the UI should surface. Pure data (headless-safe).
  */
-/** One Color map choice — see `MachineUiCapabilities.colorMapOptions`. */
+/** One Color map choice — see `MachineUiCapabilities.colorMap`. */
 export interface ColorMapOption {
   readonly value: string;
   readonly label: string;
   /** Tooltip saying what the choice models. */
   readonly title?: string;
+}
+
+/**
+ * The Display pane's Color-map control, as a machine describes it.
+ *
+ * A machine that offers a colour choice names the persisted setting holding it
+ * (`setting`, read and written through the shell's generic view) and the choices
+ * in display order (the first is the default when nothing is stored). The pane
+ * draws one drop-down from this and never learns which machine it is looking at,
+ * so a new palette family is a descriptor change, not a `Switch` in the UI.
+ *
+ * `options` may be a function where a machine computes its choices (the Atari's
+ * region-dependent set); a machine with a fixed set lists it directly.
+ */
+export interface ColorMapChoice {
+  /** The persisted setting key holding the chosen `value` (e.g. `color-map`). */
+  readonly setting: string;
+  /** The choices, in display order; the first is the default. */
+  readonly options: readonly ColorMapOption[] | (() => readonly ColorMapOption[]);
 }
 
 /** A Sound-pane PSG-shaping control — see `MachineUiCapabilities.psgControls`. */
@@ -350,8 +369,13 @@ export interface JoystickTypeInfo {
 /**
  * One entry in the Load/Save pane's Save menu. A machine lists exactly the
  * artifacts it can write and the pane renders the list verbatim, so a machine
- * that cannot produce a `.z80`/`.scr`/`.bin` simply does not name one. The
- * capability test holds each entry against the service that has to honour it.
+ * that cannot produce a `.z80`/`.scr`/`.bin` simply does not name one.
+ *
+ * Snapshot entries are the exception: they are not named here. A machine's
+ * SnapshotService reports them through `formats()`, and the pane lists every
+ * saveable format itself — so adding a snapshot format is a change to the
+ * machine's service, not to a shared menu or a UI table. This union covers only
+ * the exports that are not snapshots.
  */
 export type SaveMenuItem =
   /** Whatever the machine has written to its cassette port, in the format its
@@ -360,30 +384,6 @@ export type SaveMenuItem =
    *  CPC, .wav on the Apple I/II, .mtx on the MTX, .p/.o on the ZX81/ZX80).
    *  The menu labels it "Saved tape"; the id predates the other formats. */
   | 'tape-tap'
-  | 'snapshot-szx'
-  | 'snapshot-z80'
-  | 'snapshot-sna-v2'
-  | 'snapshot-sna-v3'
-  | 'snapshot-a8state'
-  /** zx84's native save states of the Z80 machines (see shared/native-state.ts). */
-  | 'snapshot-acestate'
-  | 'snapshot-zx8xstate'
-  | 'snapshot-lynxstate'
-  | 'snapshot-mtxstate'
-  | 'snapshot-msxstate'
-  | 'snapshot-einstate'
-  | 'snapshot-pcwstate'
-  | 'snapshot-epstate'
-  | 'snapshot-bbcstate'
-  | 'snapshot-elkstate'
-  | 'snapshot-a1state'
-  | 'snapshot-a2state'
-  | 'snapshot-c64state'
-  | 'snapshot-vic20state'
-  | 'snapshot-c128state'
-  | 'snapshot-atomstate'
-  | 'snapshot-oricstate'
-  | 'snapshot-plus4state'
   | 'screenshot-png'
   | 'screen-scr'
   /** The multicolour screen (`.mlt`): offered where the hardware can show an attribute per 8x1 line. */
@@ -402,12 +402,17 @@ export interface MachineUiCapabilities {
   /** The trace modes offered, when not all three ('zxtl' is a Z80 register
    *  layout, so a 6502 machine lists 'full' and 'portio'). */
   readonly traceModes?: readonly MachineTraceMode[];
-  /** Palette / colour-map family shown in the Display pane. */
-  readonly colorMap: 'spectrum' | 'cpc' | 'msx' | 'einstein' | 'bbc' | 'apple2' | 'atari' | 'mono';
-  /** The Color map drop-down's choices, where the machine computes them
-   *  rather than the pane listing a fixed set (the Atari's depend on its
-   *  region). The first is the default. */
-  readonly colorMapOptions?: readonly ColorMapOption[];
+  /**
+   * The Color-map drop-down, where the machine offers a colour choice: the
+   * persisted setting key and the options, in display order (the first is the
+   * default). The pane draws it generically — no machine-kind branch — reading
+   * the current value through the shell's SettingsView and writing with
+   * `persistSetting`, so a new palette family is this declaration alone.
+   *
+   * Absent (the mono machines omit it) the pane hides the control; declared,
+   * the capability test holds it to a setting the view can actually read.
+   */
+  readonly colorMapChoice?: ColorMapChoice;
   /**
    * Which Accuracy drop-down the Display pane offers, or false for none.
    *
@@ -545,7 +550,9 @@ export interface MachineUiCapabilities {
   readonly tapeSound: boolean;
   /** Extensions the tape loader accepts (Load picker). */
   readonly tapeExtensions: readonly string[];
-  /** Save-menu entries in the Load/Save pane, in display order. */
+  /** Save-menu entries in the Load/Save pane, in display order. Snapshot
+   *  entries are not listed here: the pane adds one per saveable format its
+   *  SnapshotService reports (see `SnapshotService.formats`). */
   readonly saveMenu: readonly SaveMenuItem[];
   /** How .zip archives are handled by the Load path: offer every entry
    *  ('all'), only entries matching accepts() ('media'), or reject ('none'). */
@@ -919,7 +926,16 @@ export interface SnapshotApplyResult {
 }
 
 export interface SnapshotService {
-  formats(): { ext: string; canSave: boolean }[];
+  /**
+   * The formats this machine can load and which of them it can write. The
+   * Load/Save pane builds its snapshot Save entries straight from this list (a
+   * format with `canSave` gets a "Snapshot (<ext>)" item), so a machine's save
+   * capabilities live here and nowhere else. `label` overrides the default
+   * `Snapshot (<ext>)` wording where a machine has two versions of one
+   * extension (the CPC's `.sna` v2/v3); `save` says what to pass to `save()`
+   * for such an entry, defaulting to `ext`.
+   */
+  formats(): { ext: string; canSave: boolean; label?: string; save?: string }[];
   apply(data: Uint8Array, filename: string): Promise<SnapshotApplyResult>;
   /** Serialize current state (async: some formats compress). */
   save(ext: string): Promise<Uint8Array>;

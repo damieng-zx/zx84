@@ -31,7 +31,6 @@ const PCW_UI: MachineUiCapabilities = {
   ],
   memoryLayout: true,
   trace: true,
-  colorMap: 'mono',
   accuracy: false,
   builtinDisk: true,
   // One joystick on an add-on interface, chosen in the Joystick pane.
@@ -58,7 +57,7 @@ const PCW_UI: MachineUiCapabilities = {
   // No tape hardware: `tape` is omitted entirely rather than set to a mode.
   tapeSound: false,
   tapeExtensions: [],
-  saveMenu: ['snapshot-pcwstate', 'screenshot-png', 'screen-scr', 'ram-bin', 'printer-txt'],
+  saveMenu: ['screenshot-png', 'screen-scr', 'ram-bin', 'printer-txt'],
   zipPolicy: 'media',
   persistMedia: true,
   // No hidden boot disc is offered: a PCW needs a CP/M+ system disc, and
@@ -93,9 +92,9 @@ export function pcwDescriptor(
   };
 }
 
-export const pcwEntry: MachineEntry = {
+export const pcwEntry = {
   kind: 'pcw',
-  models: ['pcw8256', 'pcw8512', 'pcw9512', 'pcw9256'],
+  models: ['pcw8256', 'pcw8512', 'pcw9512', 'pcw9256'] as const,
   descriptor: pcwDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new PcwMachine(model as PcwModel, display);
@@ -104,4 +103,4 @@ export const pcwEntry: MachineEntry = {
   romSources() {
     return [];
   },
-};
+} satisfies MachineEntry;

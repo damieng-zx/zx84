@@ -268,8 +268,10 @@ describe('the Save menu', () => {
     }
   });
 
-  it('keeps every Spectrum\'s .scr, and its snapshot formats as before', () => {
-    expect(spectrumDescriptor('zx48k').ui.saveMenu).toEqual(['snapshot-szx', 'snapshot-z80', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin']);
-    expect(spectrumDescriptor('pentagon1024').ui.saveMenu).toEqual(['snapshot-szx', 'tape-tap', 'screenshot-png', 'screen-scr', 'screen-mlt', 'ram-bin']);
+  it('keeps every Spectrum\'s .scr, and leaves snapshots to the service', () => {
+    // The menu holds only non-snapshot exports now; snapshot entries are built
+    // from SnapshotService.formats() (see the save-service tests).
+    expect(spectrumDescriptor('zx48k').ui.saveMenu).toEqual(['tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin']);
+    expect(spectrumDescriptor('pentagon1024').ui.saveMenu).toEqual(['tape-tap', 'screenshot-png', 'screen-scr', 'screen-mlt', 'ram-bin']);
   });
 });

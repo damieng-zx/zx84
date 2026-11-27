@@ -80,7 +80,8 @@ describe('Apple I snapshot', () => {
       expect(file.info.model).toBe('apple1');
       expect(file.info.media).toBe(true);
       expect(m.services.media.accepts().some(t => t.ext === EXT)).toBe(true);
-      expect(m.descriptor.ui.saveMenu).toContain('snapshot-a1state');
+      // Snapshots are offered from the service's formats(), not the menu.
+      expect(m.descriptor.ui.saveMenu.some(i => i.startsWith('snapshot-'))).toBe(false);
     } finally {
       m.destroy();
     }

@@ -24,7 +24,14 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     hiddenPanes: ['sysvar-panel', 'font-panel'],
     memoryLayout: true,
     trace: true,
-    colorMap: 'cpc',
+    colorMapChoice: {
+      setting: 'cpc-color-map',
+      options: [
+        { value: 'basic', label: 'Basic' },
+        { value: 'gate-array', label: 'Gate Array' },
+        { value: 'asic', label: 'ASIC' },
+      ],
+    },
     accuracy: false,
     // The 464's drives come with the DDI-1 interface (a Hardware-pane option):
     // the Drives pane shows them only while it is fitted.
@@ -54,9 +61,10 @@ function cpcUi(model: MachineModel): MachineUiCapabilities {
     tapeSound: false,
     tapeExtensions: cpcHasTape(model) ? ['.cdt', '.tzx', '.tap', '.csw', '.wav', '.zip'] : [],
     // 'tape-tap' downloads what the firmware has written to cassette (.cdt).
+    // The two .sna versions are added by the pane from the snapshot service.
     saveMenu: cpcHasTape(model)
-      ? ['snapshot-sna-v2', 'snapshot-sna-v3', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin']
-      : ['snapshot-sna-v2', 'snapshot-sna-v3', 'screenshot-png', 'screen-scr', 'ram-bin'],
+      ? ['tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin']
+      : ['screenshot-png', 'screen-scr', 'ram-bin'],
     zipPolicy: 'none',
     persistMedia: false,
     bootDisk: false,
@@ -142,9 +150,9 @@ export function cpcDescriptor(model: MachineModel, locale: MachineLocale = 'uk')
   };
 }
 
-export const cpcEntry: MachineEntry = {
+export const cpcEntry = {
   kind: 'cpc',
-  models: ['cpc464', 'cpc664', 'cpc6128', 'cpc6128plus', 'gx4000'],
+  models: ['cpc464', 'cpc664', 'cpc6128', 'cpc6128plus', 'gx4000'] as const,
   descriptor: cpcDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new CpcMachine(model as CpcModel, display);
@@ -157,4 +165,4 @@ export const cpcEntry: MachineEntry = {
   bootCartridgeSource(model: MachineModel) {
     return cpcIsPlusClass(model) ? PLUS_SYSTEM_CARTRIDGE : undefined;
   },
-};
+} satisfies MachineEntry;

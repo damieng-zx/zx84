@@ -3,16 +3,12 @@ import { Pane } from '@/ui/components/Pane.tsx';
 import {
   scale, setScale, scalingMode, setScalingMode,
   borderSize, setBorderSize,
-  renderer, webglAvailable, colorMap, setColorMap, scanlineAccuracy, setScanlineAccuracy,
-  cpcColorMap, setCpcColorMap, msxColorMap, setMsxColorMap,
-  einsteinColorMap, setEinsteinColorMap, bbcColorMap, setBbcColorMap,
-  apple2Video, setApple2Video,
-  atariColorMap, setAtariColorMap,
+  renderer, webglAvailable, scanlineAccuracy, setScanlineAccuracy,
   persistSetting, resetSettingsGroup,
 } from '@/store/settings.ts';
 import { machine } from '@/shell/context.ts';
 import { switchRenderer } from '@/shell/media.ts';
-import { applyDisplaySettings } from '@/shell/settings.ts';
+import { applyDisplaySettings, buildSettingsView } from '@/shell/settings.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import { SCALING_MODE_SAA5050 } from '@/display/scaling-modes.ts';
 
@@ -29,6 +25,43 @@ const SCALING_ALGOS: { mode: number; label: string; nativeScale: number }[] = [
   { mode: 5,  label: 'xBR-lv3',         nativeScale: 0 },  // any scale
   { mode: SCALING_MODE_SAA5050, label: 'SAA5050 rounding', nativeScale: 0 },  // any scale
 ];
+
+/**
+ * The Color-map drop-down, drawn entirely from the machine's declaration
+ * (`MachineUiCapabilities.colorMapChoice`): the setting it persists to and the
+ * choices in display order. The pane never learns which family it is rendering,
+ * so a machine adds a palette choice by declaring it, not by editing this file.
+ */
+function ColorMapSelect() {
+  const choice = () => machineCaps().colorMapChoice!;
+  const options = () => {
+    const opts = choice().options;
+    return typeof opts === 'function' ? opts() : opts;
+  };
+  // The stored value, falling back to the first option when it names a choice
+  // this model does not offer (the Atari's stored tint on a PAL machine).
+  const stored = () => {
+    const view = buildSettingsView();
+    const key = choice().setting;
+    const current = view.get<string>(key, options()[0]?.value ?? '');
+    return options().some(o => o.value === current) ? current : options()[0]?.value ?? '';
+  };
+  return (
+    <select
+      value={stored()}
+      title={options().find(o => o.value === stored())?.title}
+      onChange={(e) => {
+        const v = (e.target as HTMLSelectElement).value;
+        persistSetting(choice().setting, v);
+        applyDisplaySettings();
+      }}
+    >
+      <For each={options()}>
+        {(o) => <option value={o.value} title={o.title}>{o.label}</option>}
+      </For>
+    </select>
+  );
+}
 
 export function DisplayPane() {
   // Filter algorithms to those compatible with the current display scale
@@ -76,102 +109,10 @@ export function DisplayPane() {
           </select>
         </label>
       </div>
-      <Show when={machineCaps().colorMap !== 'mono'}>
+      <Show when={machineCaps().colorMapChoice}>
       <div class="slider-row">
         <span class="slider-label">Color map</span>
-        <Switch
-          fallback={
-            <select value={colorMap()} onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value as 'basic' | 'measured' | 'vivid';
-              setColorMap(v);
-              persistSetting('color-map', v);
-              applyDisplaySettings();
-            }}>
-              <option value="basic">Basic</option>
-              <option value="measured">Measured</option>
-              <option value="vivid">Vivid</option>
-            </select>
-          }
-        >
-          <Match when={machineCaps().colorMap === 'cpc'}>
-            <select value={cpcColorMap()} onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value as 'basic' | 'gate-array' | 'asic';
-              setCpcColorMap(v);
-              persistSetting('cpc-color-map', v);
-              applyDisplaySettings();
-            }}>
-              <option value="basic">Basic</option>
-              <option value="gate-array">Gate Array</option>
-              <option value="asic">ASIC</option>
-            </select>
-          </Match>
-          <Match when={machineCaps().colorMap === 'msx'}>
-            <select value={msxColorMap()} onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value as 'pal' | 'ntsc';
-              setMsxColorMap(v);
-              persistSetting('msx-color-map', v);
-              applyDisplaySettings();
-            }}>
-              <option value="pal">PAL</option>
-              <option value="ntsc">NTSC</option>
-            </select>
-          </Match>
-          <Match when={machineCaps().colorMap === 'einstein'}>
-            <select value={einsteinColorMap()} onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value as 'mame' | 'accurate' | 'naive';
-              setEinsteinColorMap(v);
-              persistSetting('einstein-color-map', v);
-              applyDisplaySettings();
-            }}>
-              <option value="mame">MAME</option>
-              <option value="accurate">Accurate</option>
-              <option value="naive">Naive</option>
-            </select>
-          </Match>
-          <Match when={machineCaps().colorMap === 'bbc'}>
-            <select value={bbcColorMap()} onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value as 'pal' | 'measured';
-              setBbcColorMap(v);
-              persistSetting('bbc-color-map', v);
-              applyDisplaySettings();
-            }}>
-              <option value="pal">PAL</option>
-              <option value="measured">Measured</option>
-            </select>
-          </Match>
-          <Match when={machineCaps().colorMap === 'apple2'}>
-            <select value={apple2Video()} onChange={(e) => {
-              const v = (e.target as HTMLSelectElement).value as 'mono' | 'ntsc' | 'pal';
-              setApple2Video(v);
-              persistSetting('apple2-video', v);
-              applyDisplaySettings();
-            }}>
-              <option value="mono">Mono</option>
-              <option value="ntsc">Composite NTSC</option>
-              <option value="pal">Composite PAL</option>
-            </select>
-          </Match>
-          <Match when={machineCaps().colorMap === 'atari'}>
-            {/* The machine lists its region's palettes; a stored choice the
-                region lacks (PAL has no 1702 tint) shows as the default. */}
-            <select
-              value={machineCaps().colorMapOptions?.some(o => o.value === atariColorMap())
-                ? atariColorMap()
-                : machineCaps().colorMapOptions?.[0]?.value}
-              title={machineCaps().colorMapOptions?.find(o => o.value === atariColorMap())?.title}
-              onChange={(e) => {
-                const v = (e.target as HTMLSelectElement).value;
-                setAtariColorMap(v);
-                persistSetting('atari-color-map', v);
-                applyDisplaySettings();
-              }}
-            >
-              <For each={machineCaps().colorMapOptions ?? []}>
-                {(o) => <option value={o.value} title={o.title}>{o.label}</option>}
-              </For>
-            </select>
-          </Match>
-        </Switch>
+        <ColorMapSelect />
       </div>
       </Show>
       <Show when={machineCaps().accuracy}>

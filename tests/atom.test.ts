@@ -103,7 +103,9 @@ describe('atom registration', () => {
 
   it('offers the native snapshot, screenshot and RAM save entries', () => {
     const ui = atomEntry.descriptor('atom').ui;
-    expect(ui.saveMenu).toContain('snapshot-atomstate');
+    // The native snapshot is a `formats()` entry (see machine-capabilities.test);
+    // the descriptor names only the non-snapshot exports.
+    expect(ui.saveMenu).not.toContain('snapshot-atomstate');
     expect(ui.saveMenu).toContain('screenshot-png');
     expect(ui.saveMenu).toContain('ram-bin');
     expect(ui.hiddenPanes).not.toContain('tape-panel');

@@ -95,7 +95,8 @@ describe('MSX .msxstate', () => {
     try {
       expect(m.services.snapshots.formats()).toEqual([{ ext: '.msxstate', canSave: true }]);
       expect(m.services.media.accepts().map(t => t.ext)).toContain('.msxstate');
-      expect(m.descriptor.ui.saveMenu).toContain('snapshot-msxstate');
+      // Snapshots are offered from the service's formats(), not the menu.
+      expect(m.descriptor.ui.saveMenu.some(i => i.startsWith('snapshot-'))).toBe(false);
     } finally {
       m.destroy();
     }

@@ -24,7 +24,13 @@ const SYSTEM_UI: MachineUiCapabilities = {
   // The teletext card's eight SAA5050 colours: the BBC's palette family, and
   // the machine honours 'bbc-color-map' (PAL or measured levels). The 80x25
   // card is monochrome and ignores the choice.
-  colorMap: 'bbc',
+  colorMapChoice: {
+    setting: 'bbc-color-map',
+    options: [
+      { value: 'pal', label: 'PAL' },
+      { value: 'measured', label: 'Measured' },
+    ],
+  },
   accuracy: false,
   builtinDisk: false,
   builtinDrives: 2,
@@ -62,7 +68,8 @@ const DISK_UI: MachineUiCapabilities = {
 /** The 80x25 card is monochrome, so the Colour map choice does not apply. */
 function uiFor(info: ReturnType<typeof acornSystemModelInfo>): MachineUiCapabilities {
   const base = info.disk ? DISK_UI : SYSTEM_UI;
-  return info.vdu === 'mono80' ? { ...base, colorMap: 'mono' } : base;
+  // The 80x25 card is monochrome: it has no colour choice, so the pane hides it.
+  return info.vdu === 'mono80' ? { ...base, colorMapChoice: undefined } : base;
 }
 
 export function acornSystemDescriptor(
@@ -89,9 +96,9 @@ export function acornSystemDescriptor(
   };
 }
 
-export const acornSystemEntry: MachineEntry = {
+export const acornSystemEntry = {
   kind: 'acorn-system',
-  models: ['acorn-system2', 'acorn-system3', 'acorn-system4', 'acorn-system5'],
+  models: ['acorn-system2', 'acorn-system3', 'acorn-system4', 'acorn-system5'] as const,
   descriptor: acornSystemDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new AcornSystemMachine(model as AcornSystemModel, display);
@@ -113,4 +120,4 @@ export const acornSystemEntry: MachineEntry = {
     if (data.length === 0x1000) return 'acorn-system3';
     return null;
   },
-};
+} satisfies MachineEntry;

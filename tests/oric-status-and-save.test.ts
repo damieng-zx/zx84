@@ -90,7 +90,9 @@ describe('Oric Save menu', () => {
     const menu = oricEntry.descriptor('oric1').ui.saveMenu;
     expect(menu).not.toContain('tape-tap');
     expect(menu).toEqual(expect.arrayContaining([
-      'snapshot-oricstate', 'screenshot-png', 'ram-bin',
+      'screenshot-png', 'ram-bin',
     ]));
+    // The snapshot lives on the service, not the menu.
+    expect(menu).not.toContain('snapshot-oricstate');
   });
 });

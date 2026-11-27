@@ -170,7 +170,8 @@ describe('PCW .pcwstate', () => {
     try {
       expect(m.services.snapshots.formats()).toEqual([{ ext: '.pcwstate', canSave: true }]);
       expect(m.services.media.accepts().some(t => t.ext === '.pcwstate' && t.target === 'snapshot')).toBe(true);
-      expect(m.descriptor.ui.saveMenu).toContain('snapshot-pcwstate');
+      // Snapshots are offered from the service's formats(), not the menu.
+      expect(m.descriptor.ui.saveMenu.some(i => i.startsWith('snapshot-'))).toBe(false);
     } finally {
       m.destroy();
     }

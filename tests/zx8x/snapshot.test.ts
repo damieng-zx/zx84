@@ -84,7 +84,8 @@ describe('ZX80/ZX81 .zx8xstate', () => {
       try {
         expect(m.services.snapshots.formats()).toEqual([{ ext: '.zx8xstate', canSave: true }]);
         expect(m.services.media.accepts()).toContainEqual({ ext: '.zx8xstate', target: 'snapshot' });
-        expect(m.descriptor.ui.saveMenu).toContain('snapshot-zx8xstate');
+        // Snapshots are offered from the service's formats(), not the menu.
+        expect(m.descriptor.ui.saveMenu.some(i => i.startsWith('snapshot-'))).toBe(false);
       } finally {
         m.destroy();
       }
