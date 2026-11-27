@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   decodeKernalBytes, encodeC64Tap, encodeKernalTap, halvesToPulses, isC64Tap, parseC64Tap,
-  readC64TapPulses,
+  readC64TapEntries, readC64TapPulses, tapFormat,
 } from '@/media/tape/c64-tap.ts';
 import { isT64, parsePrg, parseT64 } from '@/media/tape/t64.ts';
 import { TAPE_REF_HZ, type CswBlock } from '@/media/tape/tap.ts';
@@ -65,8 +65,24 @@ describe('C64 .tap', () => {
     expect(Array.from(pulses)).toEqual([0x0F4240, 0x30 * 8]);
   });
 
-  it('refuses the C16 half-wave version', () => {
-    expect(() => readC64TapPulses(tapFile(2, [0x30]))).toThrow();
+  it('reads the C16 half-wave version as one level per entry', () => {
+    // Version 2 counts 8 cycles of half the Plus/4's clock, i.e. 16 machine
+    // cycles per unit; its first entry is a high half.
+    const e = readC64TapEntries(tapFile(2, [0x1A, 0x1A, 0x34, 0x34]));
+    expect(e.halfwave).toBe(true);
+    expect(Array.from(e.entries)).toEqual([0x1A * 16, 0x1A * 16, 0x34 * 16, 0x34 * 16]);
+    // A zero's exact 24-bit length is in that same half-clock unit.
+    expect(Array.from(readC64TapEntries(tapFile(2, [0x00, 0x40, 0x42, 0x0F])).entries))
+      .toEqual([0x0F4240 * 2]);
+    // The legacy view pairs the levels back into full pulses.
+    expect(Array.from(readC64TapPulses(tapFile(2, [0x1A, 0x1A, 0x34, 0x34])).pulses))
+      .toEqual([(0x1A + 0x1A) * 16, (0x34 + 0x34) * 16]);
+  });
+
+  it('writes a half-wave format as version 2 in half-clock units', () => {
+    const file = encodeC64Tap([416, 840, 50_000], tapFormat(2, 0));
+    expect(file[12]).toBe(2);
+    expect(Array.from(readC64TapEntries(file).entries)).toEqual([416, 848, 50_000]);
   });
 
   it('writes pulses back as a version-1 file', () => {

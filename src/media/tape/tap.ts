@@ -70,6 +70,10 @@ export interface PulsesBlock   { kind: 'pulses'; lengths: number[]; }
 export interface CswBlock      {
   kind: 'csw';
   pulses: Uint32Array;
+  /** The level the pulses start from, for a format whose stream is not a run
+   *  of even-length full pulses (the C16's half-waves start on a chosen half
+   *  and alternate from there). Omitted: carry on from the previous block. */
+  startLevel?: 0 | 1;
   /** What a format that builds its pulses from higher-level chunks (UEF) knows
    *  about this run, so the pane can name it instead of calling it a recording. */
   role?: 'data' | 'tone';
@@ -552,7 +556,9 @@ export class TapeDeck {
         case 'csw':
           // A CSW capture is just a long Pulse Sequence: reuse the PULSES phase
           // over its packed Uint32Array. The preceding set-level block has
-          // already seeded earBit to the initial polarity.
+          // already seeded earBit to the initial polarity, or the block names
+          // its own starting level (the C16's half-waves are not paired).
+          if (block.startLevel !== undefined) this.earBit = block.startLevel;
           if (block.pulses.length === 0) {
             this.position = idx + 1;
             idx++;
