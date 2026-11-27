@@ -14,31 +14,31 @@ Each machine has its own sheet covering its models, built-in hardware, periphera
 
 | Machine | Models | CPU |
 | --- | --- | --- |
-| [Sinclair ZX Spectrum](docs/machines/zx-spectrum.md) | 16K, 48K, 128K, +2, +2A, +3 | Z80 |
-| [Sinclair clones](docs/machines/sinclair-clones.md) | Pentagon 128, 512, 1024; Scorpion ZS-256 | Z80 |
-| [Sinclair ZX80 / ZX81](docs/machines/zx80-zx81.md) | ZX80, ZX81, Timex Sinclair 1000, Timex Sinclair 1500 | Z80 |
-| [Timex Computer 2048](docs/machines/timex-computer-2048.md) | Timex Computer 2048 | Z80 |
-| [Timex Sinclair 2068](docs/machines/timex-sinclair-2068.md) | Timex Sinclair 2068, Timex Computer 2068 | Z80 |
-| [Amstrad CPC](docs/machines/amstrad-cpc.md) | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Z80 |
-| [Amstrad PCW](docs/machines/amstrad-pcw.md) | 8256, 8512, 9256, 9512 | Z80 |
-| [Tatung Einstein](docs/machines/tatung-einstein.md) | TC-01, 256 | Z80 |
-| [MSX](docs/machines/msx.md) | Toshiba HX-10, Sony HB-55, Sony HB-55P | Z80 |
-| [Memotech MTX](docs/machines/memotech-mtx.md) | MTX500, MTX512, RS128 | Z80 |
-| [Camputers Lynx](docs/machines/camputers-lynx.md) | 48K, 96K, 128K | Z80 |
-| [Jupiter Ace](docs/machines/jupiter-ace.md) | Jupiter Ace | Z80 |
-| [Enterprise](docs/machines/enterprise.md) | 64, 128 | Z80 |
-| [Acorn System](docs/machines/acorn-system.md) | System 2, 3, 4, 5 | 6502 / 6502A |
 | [Acorn Atom](docs/machines/acorn-atom.md) | Acorn Atom (2K or 12K) | 6502 |
-| [Oric-1 / Oric Atmos](docs/machines/oric-atmos.md) | Oric-1, Oric Atmos (+ Microdisc) | 6502 |
 | [Acorn BBC Micro](docs/machines/bbc-micro.md) | Model B | 6502 |
 | [Acorn Electron](docs/machines/acorn-electron.md) | Electron | 6502 |
+| [Acorn System](docs/machines/acorn-system.md) | System 2, 3, 4, 5 | 6502 / 6502A |
+| [Amstrad CPC](docs/machines/amstrad-cpc.md) | CPC 464, CPC 664, CPC 6128, 6128 Plus, GX4000 | Z80 |
+| [Amstrad PCW](docs/machines/amstrad-pcw.md) | 8256, 8512, 9256, 9512 | Z80 |
 | [Apple I](docs/machines/apple-i.md) | Apple I | 6502 |
 | [Apple II](docs/machines/apple-ii.md) | Apple ][, ][+, //e, Enhanced //e, //c | 6502 / 65C02 |
 | [Atari 8-bit](docs/machines/atari-8bit.md) | 400, 800, 600XL, 800XL, 1200XL, 65XE, 800XE, 130XE | 6502 |
+| [Camputers Lynx](docs/machines/camputers-lynx.md) | 48K, 96K, 128K | Z80 |
 | [Commodore 64](docs/machines/commodore-64.md) | Commodore 64 (PAL and NTSC) | 6510 |
 | [Commodore 128](docs/machines/commodore-128.md) | Commodore 128 (PAL and NTSC) | 8502 / Z80 |
-| [Commodore VIC-20](docs/machines/commodore-vic-20.md) | VIC-20 (PAL and NTSC) | 6502 |
 | [Commodore Plus/4 and Commodore 16](docs/machines/commodore-plus-4.md) | Plus/4, C16 (PAL and NTSC) | 7501 |
+| [Commodore VIC-20](docs/machines/commodore-vic-20.md) | VIC-20 (PAL and NTSC) | 6502 |
+| [Enterprise](docs/machines/enterprise.md) | 64, 128 | Z80 |
+| [Jupiter Ace](docs/machines/jupiter-ace.md) | Jupiter Ace | Z80 |
+| [Memotech MTX](docs/machines/memotech-mtx.md) | MTX500, MTX512, RS128 | Z80 |
+| [MSX](docs/machines/msx.md) | Toshiba HX-10, Sony HB-55, Sony HB-55P | Z80 |
+| [Oric-1 / Oric Atmos](docs/machines/oric-atmos.md) | Oric-1, Oric Atmos (+ Microdisc) | 6502 |
+| [Sinclair clones](docs/machines/sinclair-clones.md) | Pentagon 128, 512, 1024; Scorpion ZS-256 | Z80 |
+| [Sinclair ZX Spectrum](docs/machines/zx-spectrum.md) | 16K, 48K, 128K, +2, +2A, +3 | Z80 |
+| [Sinclair ZX80 / ZX81](docs/machines/zx80-zx81.md) | ZX80, ZX81, Timex Sinclair 1000, Timex Sinclair 1500 | Z80 |
+| [Tatung Einstein](docs/machines/tatung-einstein.md) | TC-01, 256 | Z80 |
+| [Timex Computer 2048](docs/machines/timex-computer-2048.md) | Timex Computer 2048 | Z80 |
+| [Timex Sinclair 2068](docs/machines/timex-sinclair-2068.md) | Timex Sinclair 2068, Timex Computer 2068 | Z80 |
 
 ## Features
 
@@ -96,7 +96,7 @@ Known models:
 `atmos` `oric1`
 `bbc-b` `bbc-a` `electron` `apple1` `apple2` `apple2-plus` `apple2e` `apple2e-enhanced` `apple2c`
 `atari400` `atari800` `atari600xl` `atari800xl` `atari1200xl` `atari65xe` `atari800xe` `atari130xe`
-`c64` `c128` `vic20`.
+`c64` `c128` `vic20` `plus4` `c16`.
 
 ### Display And Audio
 

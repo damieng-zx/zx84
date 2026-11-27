@@ -170,12 +170,16 @@ const FLAG_EMOJI: Record<MachineLocale, string> = {
 };
 
 /** Build a model menu entry. Models with locale variants get flag icons. */
-function modelEntry(model: MachineModel): MenuItem {
+/** One model entry. British Obscure mixes makers, so its entries keep the
+ *  maker's name (`full`: "Memotech MTX500", "Oric Atmos"); everywhere else the
+ *  submenu already names it and `menuLabel` drops it ("Commodore > 64"). */
+function modelEntry(model: MachineModel, full = false): MenuItem {
+  const label = full ? MODEL_LABELS[model] : menuLabel(model);
   const variants = MODEL_LOCALES[model];
-  if (!variants) return { value: model, label: menuLabel(model) };
+  if (!variants) return { value: model, label };
   return {
     value: model,
-    label: menuLabel(model),
+    label,
     flags: variants.map(l => ({ locale: localeLabelFor(model, l), emoji: FLAG_EMOJI[l], value: `${model}:${l}` })),
   };
 }
@@ -306,24 +310,24 @@ export const MODEL_MENU: MenuItem[] = [
     label: 'British Obscure',
     children: [
       // Einstein — Tatung's UK division.
-      modelEntry('einstein-tc01'),
-      modelEntry('einstein-256'),
+      modelEntry('einstein-tc01', true),
+      modelEntry('einstein-256', true),
       // Memotech MTX.
-      modelEntry('mtx500'),
-      modelEntry('mtx512'),
-      modelEntry('rs128'),
+      modelEntry('mtx500', true),
+      modelEntry('mtx512', true),
+      modelEntry('rs128', true),
       // Camputers Lynx.
-      modelEntry('lynx48'),
-      modelEntry('lynx96'),
-      modelEntry('lynx128'),
+      modelEntry('lynx48', true),
+      modelEntry('lynx96', true),
+      modelEntry('lynx128', true),
       // Jupiter Cantab.
-      modelEntry('jupiter-ace'),
+      modelEntry('jupiter-ace', true),
       // Enterprise.
-      modelEntry('ep64'),
-      modelEntry('ep128'),
+      modelEntry('ep64', true),
+      modelEntry('ep128', true),
       // Oric (Tangerine).
-      modelEntry('atmos'),
-      modelEntry('oric1'),
+      modelEntry('atmos', true),
+      modelEntry('oric1', true),
     ],
   },
 ];

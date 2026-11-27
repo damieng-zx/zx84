@@ -32,20 +32,23 @@ describe('model menu', () => {
   });
 
   it('gives every entry a label, and every group (at any depth) a name and children', () => {
-    const walk = (items: readonly MenuItem[]): void => {
+    // British Obscure mixes makers, so its entries keep the maker's name;
+    // everywhere else the submenu names it and the label drops it.
+    const walk = (items: readonly MenuItem[], full = false): void => {
       for (const item of items) {
         if (item.children) {
           expect(item.label, item.value).toBeTruthy();
           expect(item.children.length, item.value).toBeGreaterThan(0);
-          walk(item.children);
+          walk(item.children, full);
         } else {
-          expect(item.label, item.value).toBe(menuLabel(item.value as keyof typeof MODEL_LABELS));
+          const name = item.value as keyof typeof MODEL_LABELS;
+          expect(item.label, item.value).toBe(full ? MODEL_LABELS[name] : menuLabel(name));
         }
       }
     };
     for (const group of MODEL_MENU) {
       expect(group.children?.length, group.value).toBeGreaterThan(0);
-      walk(group.children ?? []);
+      walk(group.children ?? [], group.label === 'British Obscure');
     }
   });
 
@@ -73,6 +76,15 @@ describe('model menu', () => {
       'ep64', 'ep128',
       'atmos', 'oric1',
     ].sort());
+    // The group names no maker, so each entry keeps its maker's own name.
+    expect((british[0].children ?? []).map(item => item.label)).toEqual([
+      'Einstein TC-01', 'Einstein 256',
+      'Memotech MTX500', 'Memotech MTX512', 'Memotech RS128',
+      'Camputers Lynx 48K', 'Camputers Lynx 96K', 'Camputers Lynx 128K',
+      'Jupiter Ace',
+      'Enterprise 64', 'Enterprise 128',
+      'Oric Atmos', 'Oric-1',
+    ]);
   });
 
   it('leaves no one-maker submenu for a machine folded into British Obscure', () => {
