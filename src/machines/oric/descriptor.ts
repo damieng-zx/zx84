@@ -66,7 +66,10 @@ function oricUi(): MachineUiCapabilities {
     // No `screen-scr`: `.scr` is the Spectrum's interleaved bitmap+attribute
     // layout and means nothing on a machine with a flat 40x28 text screen. The
     // screenshot covers the picture and the raw RAM dump the screen bytes.
-    saveMenu: ['snapshot-oricstate', 'tape-tap', 'screenshot-png', 'ram-bin'],
+    // No `tape-tap` either: the exporter's decoder is not written yet (see
+    // `decodeSavedTape`), so offering the entry would promise a file that is
+    // never produced.
+    saveMenu: ['snapshot-oricstate', 'screenshot-png', 'ram-bin'],
     zipPolicy: 'media',
     persistMedia: true,
     bootDisk: false,

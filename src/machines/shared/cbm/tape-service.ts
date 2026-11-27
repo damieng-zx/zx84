@@ -150,7 +150,16 @@ export class CbmTapeService implements TapeService {
   recordedBytes(): { data: Uint8Array; filename: string } | null {
     const halves = this.m.tapeRecorder.pulses();
     if (halves.length < 2) return null;
-    const data = encodeC64Tap(halvesToPulses(halves), this.format);
+    let data: Uint8Array;
+    if (this.format.halfwave) {
+      // The C16/Plus/4's SAVE is a run of half-waves and its .tap writes each
+      // one as its own entry. Version 2 starts on a high half, so drop a
+      // leading low one (the first interval is leader anyway) rather than
+      // invert the whole recording.
+      data = encodeC64Tap(this.m.tapeRecorder.firstLevel === 0 ? halves.subarray(1) : halves, this.format);
+    } else {
+      data = encodeC64Tap(halvesToPulses(halves), this.format);
+    }
     const first = parseC64Tap(data).files[0]?.name ?? '';
     const name = first.replace(/[^A-Za-z0-9 _.-]/g, '').trim();
     return { data, filename: `${name || this.fallbackName}.tap` };

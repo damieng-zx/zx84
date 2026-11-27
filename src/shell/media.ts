@@ -378,12 +378,15 @@ export function saveRecordedTape(): void {
 export function saveRAM(): void {
   if (!machine) { setStatus('No machine running'); return; }
 
-  const ram = machine.services.debug.ramExport();
-  if (!ram) { setStatus('RAM save not supported for this machine'); return; }
-
+  // Stop first, then read: the driver runs the machine between frames, so a
+  // dump taken while it is live can land mid-instruction and catch banks or
+  // paging half-updated. Every other export here has the same shape.
   const wasPaused = emulationPaused();
   if (!wasPaused) machine.stop();
+  let ram;
   try {
+    ram = machine.services.debug.ramExport();
+    if (!ram) { setStatus('RAM save not supported for this machine'); return; }
     downloadFile(ram.data, ram.filename);
   } finally {
     if (!wasPaused) machine.start();

@@ -8,7 +8,7 @@
  * SHIFT and a physical Shift coexist without desyncing.)
  */
 
-import { createSignal } from 'solid-js';
+import { createSignal, onCleanup } from 'solid-js';
 import { createMatrixKeyboard } from '@/ui/components/matrix-keyboard.ts';
 import { activeZx8x } from '@/machines/zx8x/ui/active.ts';
 import { SHIFT, type Cell } from './legends.ts';
@@ -61,6 +61,19 @@ export function useKeyboard(): KeyboardController {
       setShiftLatched(false);
     }
   };
+
+  /**
+   * Let go of a latched SHIFT. The pane can be closed with SHIFT latched, and
+   * the machine outlives the pane: without this the matrix keeps the SHIFT bit
+   * held and the machine reads a stuck SHIFT forever.
+   */
+  const releaseLatched = () => {
+    if (!shiftLatched()) return;
+    keyboard()?.setKey(SHIFT[0], SHIFT[1], false);
+    setShiftLatched(false);
+  };
+
+  onCleanup(releaseLatched);
 
   return { isDown, onDown, onUp };
 }

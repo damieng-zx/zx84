@@ -207,8 +207,27 @@ export function useKeyboard(): KeyboardController {
     if (changed) setLatched(next);
   };
 
+  /**
+   * Let go of everything this controller has asserted: a pending chord pulse
+   * and every latched key (CAPS/SYMBOL SHIFT one-shots and the mode holds). The
+   * pane can be closed with a shift latched — the machine outlives the pane, so
+   * without this the matrix keeps that bit held and the machine reads a stuck
+   * SHIFT forever.
+   */
+  const releaseAll = () => {
+    const kb = activeSpectrum()?.keyboard;
+    if (chordTimer) { clearTimeout(chordTimer); chordTimer = undefined; }
+    if (kb) {
+      for (const [r, b] of chordPositions) kb.setKey(r, b, false);
+      for (const entry of latched().values()) {
+        for (const [r, b] of entry.positions) kb.setKey(r, b, false);
+      }
+    }
+    chordPositions = [];
+    setLatched(new Map());
+  };
 
-  onCleanup(() => { if (chordTimer) clearTimeout(chordTimer); });
+  onCleanup(releaseAll);
 
   return { isDown, onDown, onUp };
 }

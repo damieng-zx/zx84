@@ -163,19 +163,25 @@ export type V9938Mode =
   | 'graphic1' | 'graphic2' | 'graphic3'
   | 'graphic4' | 'graphic5' | 'graphic6' | 'graphic7' | 'unknown';
 
-/** The data book's display-mode table: which of M1–M5 are set for each mode. */
-const MODE_BY_BITS: Readonly<Record<string, V9938Mode>> = {
-  '': 'graphic1',
-  M1: 'text1',
-  M2: 'multicolor',
-  M3: 'graphic2',
-  M4: 'graphic3',
-  M4M1: 'text2',
-  M4M3: 'graphic4',
-  M5: 'graphic5',
-  M5M3: 'graphic6',
-  M5M4M3: 'graphic7',
-};
+/** The data book's display-mode table, indexed by the five mode bits packed as
+ *  M5<<4 | M4<<3 | M3<<2 | M2<<1 | M1. Every other combination is unknown. */
+const MODE_BY_BITS: readonly V9938Mode[] = (() => {
+  const table: V9938Mode[] = new Array(32).fill('unknown');
+  const set = (m5: number, m4: number, m3: number, m2: number, m1: number, mode: V9938Mode): void => {
+    table[(m5 << 4) | (m4 << 3) | (m3 << 2) | (m2 << 1) | m1] = mode;
+  };
+  set(0, 0, 0, 0, 0, 'graphic1');
+  set(0, 0, 0, 0, 1, 'text1');
+  set(0, 0, 0, 1, 0, 'multicolor');
+  set(0, 0, 1, 0, 0, 'graphic2');
+  set(0, 1, 0, 0, 0, 'graphic3');
+  set(0, 1, 0, 0, 1, 'text2');
+  set(0, 1, 1, 0, 0, 'graphic4');
+  set(1, 0, 0, 0, 0, 'graphic5');
+  set(1, 0, 1, 0, 0, 'graphic6');
+  set(1, 1, 1, 0, 0, 'graphic7');
+  return table;
+})();
 
 export class V9938 {
   /** 192KB private video RAM (128KB main + 64KB expansion at 0x20000). */
@@ -436,18 +442,23 @@ export class V9938 {
 
   /**
    * Screen mode from the five mode bits: M1 and M2 in R1 (bits 4 and 3), M3,
-   * M4 and M5 in R0 (bits 1, 2 and 3). The data book's mode table is keyed
-   * here as a string of the set bits.
+   * M4 and M5 in R0 (bits 1, 2 and 3).
+   *
+   * This is called for every rendered scanline (and by the VRAM address mapper
+   * on each port transfer), so it packs the bits into an index and looks them
+   * up in a 32-entry table rather than assembling a string each time.
    */
   mode(): V9938Mode {
-    const r0 = this.regs[0], r1 = this.regs[1];
-    let bits = '';
-    if (r0 & 0x08) bits += 'M5';
-    if (r0 & 0x04) bits += 'M4';
-    if (r0 & 0x02) bits += 'M3';
-    if (r1 & 0x08) bits += 'M2';
-    if (r1 & 0x10) bits += 'M1';
-    return MODE_BY_BITS[bits] ?? 'unknown';
+    // The table is keyed M5<<4 | M4<<3 | M3<<2 | M2<<1 | M1, and the bits live
+    // in the registers as R0 bit 3 = M5, bit 2 = M4, bit 1 = M3, R1 bit 4 =
+    // M1 and R1 bit 3 = M2. Shifting each into its place:
+    //   R0 bits 3..1 (M5,M4,M3) -> index bits 4..2  = (R0 & 0x0E) << 1
+    //   R1 bit 3     (M2)       -> index bit 1       = (R1 & 0x08) >> 2
+    //   R1 bit 4     (M1)       -> index bit 0       = (R1 & 0x10) >> 4
+    const index = ((this.regs[0] & 0x0E) << 1)
+      | ((this.regs[1] & 0x08) >> 2)
+      | ((this.regs[1] & 0x10) >> 4);
+    return MODE_BY_BITS[index];
   }
 
   /** True while the display is enabled (R1 BL set). */

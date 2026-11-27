@@ -48,19 +48,25 @@ export class OricFrameProbe implements FrameProbe {
     out.keyboard = m.activity.keyboardReads;
     out.joystick = 0;
     out.mouse = 0;
-    out.tapeIn = 0;
-    out.tapeLoad = 0;
+    // The cassette's read line (the data line the VIA's CB1 sees) and whether
+    // the ROM is pulling data off it right now.
+    const tape = m.tape;
+    out.tapeIn = tape.earBit;
+    out.tapeLoad = tape.playing && !tape.paused ? 1 : 0;
     out.beeper = 0;
     // The PSG's sound LED follows whether a channel is audible.
     out.psg = m.psg.sounding ? 1 : 0;
     // The ULA's blink clock is the only "effect" this machine has.
     out.videoFx = (m.ula.fieldCounter & 0x20) !== 0 ? 1 : 0;
-    out.disk = 0;
+    // The Microdisc's controller, when the interface is fitted: its accesses
+    // this frame drive the disk LED, as `fdcAccesses` does on every other
+    // machine with a floppy controller.
+    out.disk = m.activity.fdcAccesses;
     out.tapeTurbo = false;
-    out.tapeLoaded = false;
-    out.tapePlaying = false;
-    out.tapePaused = true;
-    out.tapeFinished = false;
+    out.tapeLoaded = tape.loaded;
+    out.tapePlaying = tape.playing && !tape.paused;
+    out.tapePaused = tape.paused;
+    out.tapeFinished = tape.finished;
     out.tapePosition = 0;
     out.casBlock = -1;
     out.fastRomLoading = false;

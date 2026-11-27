@@ -355,10 +355,10 @@ export function loadZ80(
       offset += (blockLen === 0xFFFF) ? 16384 : blockLen;
     }
 
-    // Apply 128K paging state
-    memory.port7FFD = port7FFD;
-    memory.currentBank = port7FFD & 0x07;
-    memory.pagingLocked = (port7FFD & 0x20) !== 0;
+    // Apply 128K paging state. `latch7FFD` derives the $C000 page and the lock
+    // from the file's value the way the machine does — the Pentagon 1024 in
+    // 1MB mode uses D5 as a page bit, so "D5 set" is not a lock there.
+    memory.latch7FFD(port7FFD);
     // Only +3 (7, and XZX-Pro's mistaken 8) and +2A (13) have a 0x1FFD.
     const sourceHas1FFD = hwMode === 7 || hwMode === 8 || hwMode === 13;
     if (memory.hasPlus2ARoms && !sourceHas1FFD) {

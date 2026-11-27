@@ -70,17 +70,48 @@ describe('m6821 interrupts', () => {
 
   it('sets the C2 flag only while C2 is configured as an input', () => {
     const pia = new M6821();
-    pia.writeControl(0, 0x2d);       // C2 input, rising, enable
+    // CRA: bit 4 selects the active transition, bit 5 the direction, bit 3 the
+    // C2 interrupt enable, bit 2 the data register. An input with the rising
+    // edge selected and C2's interrupt enabled is $1C: bit 5 clear (input),
+    // bit 4 set (rising), bit 3 set (enable), bit 2 set (register).
+    pia.writeControl(0, 0x1c);
     pia.setC2(0, false);             // falling: not selected
-    pia.setC2(0, true);
-    expect(pia.readControl(0) & 0x40).toBe(0x40);
-    expect(pia.irq).toBe(true);
+    expect(pia.readControl(0) & 0x40, 'the falling edge is not the active one').toBe(0);
+    pia.setC2(0, true);              // rising: the active edge
+    expect(pia.readControl(0) & 0x40, 'the rising edge sets the flag').toBe(0x40);
+    expect(pia.irq, 'the flag is enabled').toBe(true);
+    pia.readData(0);                 // clear the flags
+    expect(pia.irq).toBe(false);
+    pia.setC2(0, false);
 
-    pia.writeControl(0, 0x15);       // C2 becomes an output
-    pia.readData(0);                 // clear flags
+    // Bit 5 set makes C2 an output, and then the C2 input is ignored.
+    pia.writeControl(0, 0x24);       // C2 output (bit 5), bit 4 clear
     pia.setC2(0, false);
     pia.setC2(0, true);
-    expect(pia.readControl(0) & 0x40).toBe(0);
+    expect(pia.readControl(0) & 0x40, 'an output C2 raises no flag').toBe(0);
+  });
+
+  it('reads bit 5 as the C2 direction and bit 4 as its edge select', () => {
+    // This pair is the one that is easy to get backwards, so it is pinned
+    // directly: the datasheet numbers bit 5 "C2 direction" and bit 4 "C2
+    // transition", and the same reading is used by m6820.ts.
+    const pia = new M6821();
+    pia.writeControl(0, 0x20);                 // bit 5: C2 output
+    pia.setC2(0, false);                       // an output ignores its input
+    pia.setC2(0, true);
+    expect(pia.readControl(0) & 0x40, 'an output C2 raises no flag').toBe(0);
+
+    // Bit 5 clear makes C2 an input; bit 4 then selects its active edge.
+    pia.writeControl(0, 0x10);                 // input, rising selected
+    pia.setC2(0, false);                       // falling: not the active edge
+    expect(pia.readControl(0) & 0x40, 'bit 4 set: only the rising edge').toBe(0);
+    pia.setC2(0, true);                        // rising: the active edge
+    expect(pia.readControl(0) & 0x40, 'bit 4 set selects the rising edge').toBe(0x40);
+
+    pia.writeControl(0, 0x00);                 // bit 4 clear: falling selected
+    pia.readData(0);                           // clear the flag
+    pia.setC2(0, false);
+    expect(pia.readControl(0) & 0x40, 'bit 4 clear selects the falling edge').toBe(0x40);
   });
 
   it('reset clears registers, direction and flags', () => {

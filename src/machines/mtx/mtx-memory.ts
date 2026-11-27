@@ -121,8 +121,9 @@ export class MtxMemory implements IMachineMemory {
       }
       return this.romPages[this.selectedRomPage][addr - 0x2000];
     }
-    const mapped = this.ramLocation(addr);
-    return mapped ? mapped.bank[mapped.offset] : 0xFF;
+    const block = this.ramBlock(addr);
+    const bank = block >= 0 ? this.ramBanks[block] : undefined;
+    return bank ? bank[addr & 0x3FFF] : 0xFF;
   }
 
   writeByte(addr: number, value: number): void {
@@ -134,8 +135,9 @@ export class MtxMemory implements IMachineMemory {
       return;
     }
     if (!this.ramMode && addr < 0x4000) return;
-    const mapped = this.ramLocation(addr);
-    if (mapped) mapped.bank[mapped.offset] = value;
+    const block = this.ramBlock(addr);
+    const bank = block >= 0 ? this.ramBanks[block] : undefined;
+    if (bank) bank[addr & 0x3FFF] = value;
   }
 
   readBlock(addr: number, len: number): Uint8Array {
@@ -190,28 +192,27 @@ export class MtxMemory implements IMachineMemory {
     this.romPack = r.bool() ? r.bytes(ROM_PACK_MAX_SIZE) : null;
   }
 
-  private ramLocation(addr: number): { bank: Uint8Array; offset: number } | null {
-    if (addr >= 0xC000) {
-      return { bank: this.ramBanks[0], offset: addr - 0xC000 };
-    }
+  /**
+   * The RAM block `addr` maps to, or -1 when nothing answers there.
+   *
+   * Returns the *block index* rather than `{ bank, offset }`: this runs on the
+   * per-access path (every Z80 read and write), and an object literal there is
+   * one allocation per memory access. The caller indexes `ramBanks` inline.
+   */
+  private ramBlock(addr: number): number {
+    if (addr >= 0xC000) return 0;
 
     const region = addr >> 14; // 0:0000, 1:4000, 2:8000
-    let block: number;
+    const page = this.selectedRamPage;
     if (this.ramMode) {
-      const page = this.selectedRamPage;
       // Page zero is wired in reverse order so its conventional ROM-mode
       // banks remain at 0x8000, 0x4000, then 0x0000 when ROMs are removed.
-      block = page === 0 ? 3 - region : 1 + page * 3 + region;
-    } else {
-      const page = this.selectedRamPage;
-      // The MTX ROM's memory-sizing routine probes page 15. Real expanded
-      // systems leave 0x4000-0x7FFF open there so it stops at 512 KiB rather
-      // than counting the motherboard RAM a second time.
-      if (page === 0x0F && region === 1) return null;
-      block = region === 2 ? 1 + page * 2 : 2 + page * 2;
+      return page === 0 ? 3 - region : 1 + page * 3 + region;
     }
-
-    const bank = this.ramBanks[block];
-    return bank ? { bank, offset: addr & 0x3FFF } : null;
+    // The MTX ROM's memory-sizing routine probes page 15. Real expanded
+    // systems leave 0x4000-0x7FFF open there so it stops at 512 KiB rather
+    // than counting the motherboard RAM a second time.
+    if (page === 0x0F && region === 1) return -1;
+    return region === 2 ? 1 + page * 2 : 2 + page * 2;
   }
 }

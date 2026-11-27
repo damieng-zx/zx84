@@ -72,7 +72,7 @@ banked map), so it is not a socket of its own.
 
 | Peripheral | Type | Models | Status | Notes |
 | --- | --- | --- | --- | --- |
-| Datasette (tape) | Tape | all | ✅ | The 7501's port carries it: bit 4 is the read line, bit 3 the motor (low = on), bit 1 the write line, and PIO 1 bit 2 is the PLAY sense. A mounted tape has PLAY down; the motor moves it; the read line's falling edges drive the TED's timer 1 interrupt. Turbo follows the TED's status-register reads and the write line. Dropping a `.prg` or `.t64` also mounts a generated KERNAL-format tape of it |
+| Datasette (tape) | Tape | all | ✅ | The 7501's port carries it: bit 4 is the read line, bit 3 the motor (low = on), bit 1 the write line, and PIO 1 bit 2 is the PLAY sense. A mounted tape has PLAY down; the motor moves it; the read line's falling edges drive the TED's timer 1 interrupt. Tapes are the C16's half-wave format (VICE `.tap` version 2): the KERNAL times both halves of every dipole and carries a bit in which half is short, so a `.prg` or `.t64` dropped on the machine is written as a version-2 recording the KERNAL can LOAD. Turbo follows the TED's status-register reads and the write line |
 | Commodore 1541 / 1571 / 1581 | Disk | all | ✅ | The shared drive-level model on the shared open-collector serial bus, bit-banged on the 7501's port (ATN bit 7, CLK bit 6, DATA bit 5 out, the two line levels back on the same bits). Up to four drives, devices 8 to 11, each chosen in the Drives pane. The DOS ROMs share the C64's files and cache |
 | Cartridges | Expansion port | all | ✅ | Plain `.crt`/`.bin` ROMs, and the banked boards: the c264 magic cart (128K-2MB, bank at `$FDFE`), the Plus/4 multi cart (2MB/4MB, bank at `$FDA0`) and the JACINT 1MB (64 banks, bank at `$FE00`); a raw `.bin` of 16K, 32K or 64K is placed from `$8000` up. The Speedy freezer (type 4) is refused. The `$FDD0` bank select decides which window answers. Fitting or ejecting one is a power cycle, and snapshots carry it |
 | Joystick | Input | all | ✅ | Control port 1 or 2 per player (Joystick pane). Nothing analogue: the TED has no paddle inputs |
@@ -88,7 +88,7 @@ there are several.
 
 | Extension | Kind | Device | Load | Save | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `.tap` | Tape | Datasette | ✅ | ✅ | "C64-TAPE-RAW" with platform 2 (the C16/Plus/4) and the pulses in that machine's clock. Save downloads what the KERNAL has SAVEd |
+| `.tap` | Tape | Datasette | ✅ | ✅ | "C64-TAPE-RAW" with platform 2 (the C16/Plus/4), version 2: one entry per half-wave, both halves of every dipole timed, as the C16 KERNAL writes it. Save downloads a version-2 tape of what the KERNAL has SAVEd |
 | `.t64` | Program | Datasette | ✅ | — | Injected and run (resets, loads, types `RUN`); a generated tape is mounted as well |
 | `.prg` | Program | Datasette | ✅ | — | As `.t64`, at either of BASIC 3.5's two starting places (`$1001`, or `$4001` with a graphics area) |
 | `.d64` / `.g64` / `.g41` | Disk | A 1541 (device 8-11) | ✅ | ✅ | The shared GCR formats |
@@ -164,6 +164,8 @@ there are several.
 | [`tests/plus4/mc6551.test.ts`](../../tests/plus4/mc6551.test.ts) | The ACIA's frame timing on transmit and receive, the stop and parity bits in the frame, the transmit interrupt, and overrun | 2026-11-25 |
 | [`tests/plus4/plus4-ocr.test.ts`](../../tests/plus4/plus4-ocr.test.ts) | The TEXT overlay's hires-bitmap matching (direct and inverse), non-glyph tiles, the multicolour bitmap being left alone, and multicolour text cells | 2026-11-25 |
 | [`tests/plus4/plus4-media.test.ts`](../../tests/plus4/plus4-media.test.ts) | Cartridge parsing (plain and the three banked boards, and the Speedy refusal), the bank registers, media routing, the .tap platform and the TEXT overlay on the real ROM's banner | 2026-11-25 |
+| [`tests/plus4/plus4-tape-format.test.ts`](../../tests/plus4/plus4-tape-format.test.ts) | The version-2 half-wave codec: the four-level 0/1 and word marker, the odd-parity bit, the 16-cycle entry unit and exact zero entry, the block starting level, and a SAVE export keeping both halves | 2026-11-26 |
+| [`tests/plus4/plus4-tape-load.test.ts`](../../tests/plus4/plus4-tape-load.test.ts) | With the real ROMs: a dropped `.prg` LOADs to `FOUND`/`READY` and `LIST`s, and a KERNAL `SAVE` round-trips through `recordedBytes()` onto a fresh machine | 2026-11-26 |
 | [`tests/plus4/plus4-expansion.test.ts`](../../tests/plus4/plus4-expansion.test.ts) | The Hannes 64K banks, the `$1000`/`$4000` switch bound and the TED's bank bit, and the CSORY 16K window (and that the TED does not see it) | 2026-11-25 |
 | [`tests/machine-capabilities.test.ts`](../../tests/machine-capabilities.test.ts) | Every registered model's declared capability held against the service that has to honour it, including both Plus/4 models | 2026-11-22 |
 

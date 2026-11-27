@@ -103,7 +103,9 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     // LD-BYTES is trapped at LD-START when the 48K BASIC owns slot 0.
     fastRomLoading: true,
     tapeSound: true,
-    tapeExtensions: ['.tap', '.tzx', '.csw', '.wav', '.zip'],
+    // `.cdt` is a TZX container with a different name, and mount() routes it
+    // exactly like `.tzx` — the picker must accept what the service does.
+    tapeExtensions: ['.tap', '.tzx', '.cdt', '.csw', '.wav', '.zip'],
     // 'tape-tap' downloads what SAVE has written to the MIC line (as .tzx).
     // .z80 holds at most 128K of RAM (and has no Scorpion paging), so the
     // Pentagon 512/1024 and the Scorpion save only as .szx.
