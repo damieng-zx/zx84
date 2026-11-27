@@ -29,6 +29,7 @@ import type {
   AuxRomRequest, BorderMode, HostKeyEvent, Machine, MachineDescriptor, MachineHost, MachineKind, SettingsView,
 } from '@/machines/machine.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
+import { crc32 } from '@/utils/crc32.ts';
 import {
   BEAM_DL, BEAM_DMA, BEAM_EFF, BEAM_IO, DL_FETCH, DL_VISIBLE, IRQ_CRITIC, IRQ_I_SET, m6502ReturnAddress,
   type BeamInfo, type BeamPos,
@@ -826,6 +827,12 @@ export class AtariMachine extends BaseMachine implements Machine {
   }
 
   // ── Snapshots (see snapshots/atari-state.ts for the file container) ───────
+
+  /** CRC-32s of the OS ROM and of the internal BASIC ROM (0 when there is
+   *  none), in the order the snapshot's HEAD records them. */
+  stateRomCrcs(): number[] {
+    return [crc32(this.memory.osRom), this.memory.basicRom ? crc32(this.memory.basicRom) : 0];
+  }
 
   /**
    * Write the machine's state. Taken between frames (the frame loop is not

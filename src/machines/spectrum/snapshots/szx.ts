@@ -15,6 +15,7 @@
 import { Z80 } from '@/cores/z80.ts';
 import { SpectrumMemory } from '@/machines/spectrum/memory.ts';
 import type { SpectrumModel } from '@/machines/spectrum/spectrum.ts';
+import { deflate, inflate } from '@/utils/compress.ts';
 
 export interface SZXResult {
   /** The header's machine id (see MODEL_TO_MACHINE_ID); set by the loader. */
@@ -76,62 +77,6 @@ function r32(d: Uint8Array, o: number): number {
 
 function blockId(d: Uint8Array, o: number): string {
   return String.fromCharCode(d[o], d[o + 1], d[o + 2], d[o + 3]);
-}
-
-/** Deflate data using browser CompressionStream. */
-async function deflate(raw: Uint8Array): Promise<Uint8Array> {
-  const cs = new CompressionStream('deflate');
-  const writer = cs.writable.getWriter();
-  const reader = cs.readable.getReader();
-
-  writer.write(raw as unknown as BufferSource);
-  writer.close();
-
-  const chunks: Uint8Array[] = [];
-  let totalLen = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    totalLen += value.byteLength;
-  }
-
-  const result = new Uint8Array(totalLen);
-  let off = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, off);
-    off += chunk.byteLength;
-  }
-  return result;
-}
-
-/** Inflate zlib (deflate) data using browser DecompressionStream. */
-async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
-  const ds = new DecompressionStream('deflate');
-  const writer = ds.writable.getWriter();
-  const reader = ds.readable.getReader();
-
-  writer.write(compressed as unknown as BufferSource);
-  writer.close();
-
-  const chunks: Uint8Array[] = [];
-  let totalLen = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    totalLen += value.byteLength;
-  }
-
-  if (chunks.length === 1) return chunks[0];
-
-  const result = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
 }
 
 // ── Machine ID mapping ──────────────────────────────────────────────────

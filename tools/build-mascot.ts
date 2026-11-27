@@ -18,6 +18,7 @@
 import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { crc32 } from '../src/utils/crc32.ts';
 
 const PAL: Record<string, string> = {
   K: '#0b0b14', // outline
@@ -90,18 +91,6 @@ function svg(rows: readonly string[]): string {
     }
   });
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges">${rects}</svg>\n`;
-}
-
-const CRC_TABLE = new Uint32Array(256).map((_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-
-function crc32(buf: Buffer): number {
-  let c = ~0;
-  for (const b of buf) c = CRC_TABLE[(c ^ b) & 255] ^ (c >>> 8);
-  return ~c >>> 0;
 }
 
 function pngChunk(type: string, data: Buffer): Buffer {

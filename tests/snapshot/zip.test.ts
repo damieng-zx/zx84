@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
 import { unzip } from '@/media/zip.ts';
 import { LynxMachine } from '@/machines/lynx/lynx-machine.ts';
+import { crc32 } from '@/utils/crc32.ts';
 
 // ── Low-level ZIP helpers (used by both buildZip and hand-rolled tests) ────
 
@@ -85,17 +86,6 @@ interface BuildEntry {
   data: Uint8Array;
   method?: 0 | 8;
   utf8?: boolean;
-}
-
-function crc32(buf: Uint8Array): number {
-  let crc = 0xFFFFFFFF;
-  for (let i = 0; i < buf.length; i++) {
-    crc ^= buf[i];
-    for (let k = 0; k < 8; k++) {
-      crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
-    }
-  }
-  return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
 function buildZip(entries: BuildEntry[], opts: { trailingComment?: Uint8Array } = {}): Uint8Array {

@@ -27,6 +27,7 @@
  * drive model only ever sees bits. Saving always writes WOZ 2.
  */
 
+import { crc32 } from '@/utils/crc32.ts';
 import {
   APPLE2_BIT_TIMING, APPLE2_NO_TRACK, APPLE2_QUARTER_TRACKS, type Apple2BitTrack,
 } from './apple2-bitstream.ts';
@@ -67,20 +68,8 @@ export interface WozImage {
 
 // ── CRC-32 (the zip/PNG polynomial, which WOZ uses) ───────────────────────
 
-const CRC_TABLE: Uint32Array = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-
 export function wozCrc32(data: Uint8Array): number {
-  let c = 0xFFFFFFFF;
-  for (let i = 0; i < data.length; i++) c = CRC_TABLE[(c ^ data[i]) & 0xFF] ^ (c >>> 8);
-  return (c ^ 0xFFFFFFFF) >>> 0;
+  return crc32(data);
 }
 
 // ── Parse ──────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@
 
 import { dbLoad, dbSave, getSaved, setSaved } from '@/store/persistence.ts';
 import { is128kClass, isPlus3, isTimexClass, hasBuiltinBetaDisk, type SpectrumModel, type MachineModel } from '@/models.ts';
+import { gunzip } from '@/utils/compress.ts';
 
 /** One game in the compact on-wire schema. Short keys keep the JSON small. Each
  *  slot retains one preferred file for a format and its native machine class.
@@ -434,29 +435,6 @@ const CATALOG_VERSION_URL = `${CATALOG_BASE}/catalog-version.json`;
 /** gzip magic bytes (0x1f 0x8b) — distinguishes a .gz blob from plain JSON. */
 function isGzip(d: Uint8Array): boolean {
   return d.length >= 2 && d[0] === 0x1f && d[1] === 0x8b;
-}
-
-/** Decompress gzip bytes via the browser DecompressionStream (no runtime deps). */
-async function gunzip(data: Uint8Array): Promise<Uint8Array> {
-  const ds = new DecompressionStream('gzip');
-  const writer = ds.writable.getWriter();
-  writer.write(data as unknown as BufferSource);
-  writer.close();
-
-  const reader = ds.readable.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    total += value.byteLength;
-  }
-  if (chunks.length === 1) return chunks[0];
-  const out = new Uint8Array(total);
-  let off = 0;
-  for (const c of chunks) { out.set(c, off); off += c.byteLength; }
-  return out;
 }
 
 /** Fetch the published catalog version hash, or '' if it can't be reached. */

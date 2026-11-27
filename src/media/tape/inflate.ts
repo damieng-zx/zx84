@@ -1,12 +1,12 @@
 /**
  * Synchronous zlib (RFC 1950) / DEFLATE (RFC 1951) decoder.
  *
- * The rest of the codebase inflates through the browser DecompressionStream,
- * which is async. The TZX parser is synchronous (and called synchronously by
- * every machine's tape service), yet a TZX 0x18 CSW Recording block may carry
- * its pulse stream Z-RLE compressed — so it needs an inflater it can call
- * inline. Tape blocks are small, so a straightforward table-driven decoder is
- * plenty fast.
+ * The rest of the codebase inflates through the shared
+ * `src/utils/compress.ts` (`DecompressionStream`), which is async. The TZX
+ * parser is synchronous (and called synchronously by every machine's tape
+ * service), yet a TZX 0x18 CSW Recording block may carry its pulse stream Z-RLE
+ * compressed — so it needs an inflater it can call inline. Tape blocks are
+ * small, so a straightforward table-driven decoder is plenty fast.
  */
 
 // Length codes 257..285: base lengths and extra bits (RFC 1951 §3.2.5).
