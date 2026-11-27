@@ -86,6 +86,25 @@ export const MODEL_LABELS: Record<MachineModel, string> = {
   c16: 'Commodore 16',
 };
 
+/**
+ * Manufacturer names the model menu drops from a second-level entry, because
+ * the submenu (or the model itself) already says it: "Acorn > Atom", not
+ * "Acorn > Acorn Atom". `MODEL_LABELS` keeps the full name for the model box.
+ */
+const MAKERS = [
+  'Acorn', 'Apple', 'Atari', 'Camputers', 'Commodore', 'Memotech', 'Oric',
+  'Sony', 'Timex', 'Toshiba',
+] as const;
+
+/** The menu's label for a model: `MODEL_LABELS` with the maker's own name
+ *  dropped ("Acorn Atom" → "Atom"). A label that does not start with one
+ *  ("ZX Spectrum 48K", "Einstein TC-01", "Oric-1") is left alone. */
+export function menuLabel(model: MachineModel): string {
+  const name = MODEL_LABELS[model];
+  const maker = MAKERS.find((m) => name.startsWith(`${m} `));
+  return maker ? name.slice(maker.length + 1) : name;
+}
+
 export const LOCALE_LABELS: Record<MachineLocale, string> = {
   uk: 'English',
   es: 'Español',
@@ -153,54 +172,37 @@ const FLAG_EMOJI: Record<MachineLocale, string> = {
 /** Build a model menu entry. Models with locale variants get flag icons. */
 function modelEntry(model: MachineModel): MenuItem {
   const variants = MODEL_LOCALES[model];
-  if (!variants) return { value: model, label: MODEL_LABELS[model] };
+  if (!variants) return { value: model, label: menuLabel(model) };
   return {
     value: model,
-    label: MODEL_LABELS[model],
+    label: menuLabel(model),
     flags: variants.map(l => ({ locale: localeLabelFor(model, l), emoji: FLAG_EMOJI[l], value: `${model}:${l}` })),
   };
 }
 
 /**
  * Model menu: every machine, behind a submenu for the make that built it.
+ * The maker submenus sit in alphabetical order, with the catch-all last. A
+ * second-level entry carries the model's own name, not the maker's
+ * ("Acorn > Atom"): `menuLabel` drops the maker from `MODEL_LABELS`.
  *
- * The niche British machines each sold in small numbers, so they share one
- * "British Obscure" group at the end rather than a one-model submenu apiece.
+ * The niche British machines each sold in small numbers — now including the
+ * two Orics — share one "British Obscure" group at the end rather than a
+ * one-model submenu apiece.
  */
 export const MODEL_MENU: MenuItem[] = [
   {
-    value: 'sinclair',
-    label: 'Sinclair',
+    value: 'acorn',
+    label: 'Acorn',
     children: [
-      modelEntry('zx80'),
-      modelEntry('zx81'),
-      modelEntry('zx16k'),
-      modelEntry('zx48k'),
-      modelEntry('zx128k'),
-      modelEntry('zx128kplus2'),
-      modelEntry('zx128kplus2a'),
-      modelEntry('zx128kplus3'),
-      // Sinclair-derived machines, one level down: Timex's own, and the clones.
-      {
-        value: 'timex',
-        label: 'Timex',
-        children: [
-          modelEntry('ts1000'),
-          modelEntry('ts1500'),
-          modelEntry('tc2048'),
-          modelEntry('ts2068'),
-        ],
-      },
-      {
-        value: 'sinclair-clones',
-        label: 'Clones',
-        children: [
-          modelEntry('pentagon128'),
-          modelEntry('pentagon512'),
-          modelEntry('pentagon1024'),
-          modelEntry('scorpion256'),
-        ],
-      },
+      modelEntry('atom'),
+      modelEntry('acorn-system2'),
+      modelEntry('acorn-system3'),
+      modelEntry('acorn-system4'),
+      modelEntry('acorn-system5'),
+      modelEntry('bbc-a'),
+      modelEntry('bbc-b'),
+      modelEntry('electron'),
     ],
   },
   {
@@ -216,29 +218,6 @@ export const MODEL_MENU: MenuItem[] = [
       modelEntry('pcw8512'),
       modelEntry('pcw9256'),
       modelEntry('pcw9512'),
-    ],
-  },
-  {
-    value: 'msx',
-    label: 'MSX',
-    children: [
-      modelEntry('hx-10'),
-      modelEntry('hb-55'),
-      modelEntry('hb-55p'),
-    ],
-  },
-  {
-    value: 'acorn',
-    label: 'Acorn',
-    children: [
-      modelEntry('atom'),
-      modelEntry('acorn-system2'),
-      modelEntry('acorn-system3'),
-      modelEntry('acorn-system4'),
-      modelEntry('acorn-system5'),
-      modelEntry('bbc-a'),
-      modelEntry('bbc-b'),
-      modelEntry('electron'),
     ],
   },
   {
@@ -279,11 +258,47 @@ export const MODEL_MENU: MenuItem[] = [
     ],
   },
   {
-    value: 'tangerine',
-    label: 'Tangerine',
+    value: 'msx',
+    label: 'MSX',
     children: [
-      modelEntry('atmos'),
-      modelEntry('oric1'),
+      modelEntry('hx-10'),
+      modelEntry('hb-55'),
+      modelEntry('hb-55p'),
+    ],
+  },
+  {
+    value: 'sinclair',
+    label: 'Sinclair',
+    children: [
+      modelEntry('zx80'),
+      modelEntry('zx81'),
+      modelEntry('zx16k'),
+      modelEntry('zx48k'),
+      modelEntry('zx128k'),
+      modelEntry('zx128kplus2'),
+      modelEntry('zx128kplus2a'),
+      modelEntry('zx128kplus3'),
+      // Sinclair-derived machines, one level down: Timex's own, and the clones.
+      {
+        value: 'timex',
+        label: 'Timex',
+        children: [
+          modelEntry('ts1000'),
+          modelEntry('ts1500'),
+          modelEntry('tc2048'),
+          modelEntry('ts2068'),
+        ],
+      },
+      {
+        value: 'sinclair-clones',
+        label: 'Clones',
+        children: [
+          modelEntry('pentagon128'),
+          modelEntry('pentagon512'),
+          modelEntry('pentagon1024'),
+          modelEntry('scorpion256'),
+        ],
+      },
     ],
   },
   {
@@ -306,6 +321,9 @@ export const MODEL_MENU: MenuItem[] = [
       // Enterprise.
       modelEntry('ep64'),
       modelEntry('ep128'),
+      // Oric (Tangerine).
+      modelEntry('atmos'),
+      modelEntry('oric1'),
     ],
   },
 ];

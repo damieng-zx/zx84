@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { registry } from '@/machines/registry.ts';
-import { MODEL_LABELS, MODEL_MENU, menuModels } from '@/ui/panes/model-menu.ts';
+import { MODEL_LABELS, MODEL_MENU, menuLabel, menuModels } from '@/ui/panes/model-menu.ts';
 import type { MenuItem } from '@/ui/components/DropDownMenuButton.tsx';
 
 const registered = registry.flatMap(entry => entry.models);
@@ -39,7 +39,7 @@ describe('model menu', () => {
           expect(item.children.length, item.value).toBeGreaterThan(0);
           walk(item.children);
         } else {
-          expect(item.label, item.value).toBe(MODEL_LABELS[item.value as keyof typeof MODEL_LABELS]);
+          expect(item.label, item.value).toBe(menuLabel(item.value as keyof typeof MODEL_LABELS));
         }
       }
     };
@@ -71,13 +71,39 @@ describe('model menu', () => {
       'lynx48', 'lynx96', 'lynx128',
       'jupiter-ace',
       'ep64', 'ep128',
+      'atmos', 'oric1',
     ].sort());
   });
 
   it('leaves no one-maker submenu for a machine folded into British Obscure', () => {
     const labels = MODEL_MENU.map(group => group.label);
-    for (const maker of ['Tatung', 'Memotech', 'Camputers', 'Jupiter Cantab', 'Enterprise']) {
+    for (const maker of ['Tangerine', 'Oric', 'Tatung', 'Memotech', 'Camputers', 'Jupiter Cantab', 'Enterprise']) {
       expect(labels).not.toContain(maker);
     }
+  });
+
+  it('drops the maker from a second-level label, and keeps MODEL_LABELS full for the model box', () => {
+    // The menu drops the maker the submenu already names.
+    expect(menuLabel('atom')).toBe('Atom');
+    expect(menuLabel('acorn-system3')).toBe('System 3');
+    expect(menuLabel('c64')).toBe('64');
+    expect(menuLabel('vic20')).toBe('VIC-20');
+    expect(menuLabel('hx-10')).toBe('HX-10');
+    expect(menuLabel('hb-55')).toBe('HB-55');
+    expect(menuLabel('mtx500')).toBe('MTX500');
+    expect(menuLabel('lynx48')).toBe('Lynx 48K');
+    expect(menuLabel('ts1000')).toBe('Sinclair 1000');
+    expect(menuLabel('ts2068')).toBe('2068');
+    expect(menuLabel('apple2e')).toBe('//e');
+    expect(menuLabel('atari800xl')).toBe('800XL');
+    expect(menuLabel('atmos')).toBe('Atmos');
+    // A label with no maker prefix, or whose maker is part of the model's
+    // name, stands as it is — here and on the model box.
+    expect(menuLabel('zx48k')).toBe('ZX Spectrum 48K');
+    expect(menuLabel('bbc-a')).toBe('BBC Micro Model A');
+    expect(menuLabel('einstein-tc01')).toBe('Einstein TC-01');
+    expect(menuLabel('oric1')).toBe('Oric-1');
+    expect(MODEL_LABELS.atom).toBe('Acorn Atom');
+    expect(MODEL_LABELS.c64).toBe('Commodore 64');
   });
 });
