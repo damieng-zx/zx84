@@ -9,7 +9,7 @@ import type { SoundDeviceInfo, StatusLedId } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
 import { isCpcModel } from '@/models.ts';
 import type { SpectrumModel } from './models.ts';
-import { is128kClass, isUspeechCapable, isPlus2AClass, isScorpionClass, isTimexClass, isTimex2068Class, isPlus3, isInterface2Capable, romPageSlotCount, ramBankCountFor } from './models.ts';
+import { is128kClass, isUspeechCapable, isPlus2AClass, isScorpionClass, isTimexClass, isTimex2068Class, isPlus3, isInterface2Capable, romPageSlotCount } from './models.ts';
 import { TIMEX_JOY_LEFT, TIMEX_JOY_RIGHT } from './peripherals/joysticks.ts';
 import { Spectrum } from './spectrum.ts';
 import { SCREEN_WIDTH, SCREEN_HEIGHT } from './ula.ts';
@@ -49,18 +49,15 @@ function spectrumSoundDevices(model: MachineModel): SoundDeviceInfo[] {
   return devices;
 }
 
-/** The Save menu: snapshots, the tape recorded, screen dumps (plus the multicolour
- *  one where the hardware has an attribute per 8x1 line: the Timex and the Pentagon
- *  1024) and the RAM. .z80 holds at most 128K of RAM (and has no Scorpion paging),
- *  so the Pentagon 512/1024, the Scorpion and the Timex 2068 save only as .szx. */
+/** The Save menu: exports that are not snapshots (the tape recorded, screen
+ *  dumps — plus the multicolour one where the hardware has an attribute per 8x1
+ *  line: the Timex and the Pentagon 1024 — and the RAM). Snapshots are added by
+ *  the pane from `SnapshotService.formats()`. */
 function spectrumSaveMenu(model: MachineModel): MachineUiCapabilities['saveMenu'] {
   const screens: MachineUiCapabilities['saveMenu'] = isTimexClass(model) || model === 'pentagon1024'
     ? ['screenshot-png', 'screen-scr', 'screen-mlt']
     : ['screenshot-png', 'screen-scr'];
-  // The 2068's port 0xF4 (dock / EXROM paging) has no place in .z80 either.
-  return ramBankCountFor(model) > 8 || isTimex2068Class(model)
-    ? ['snapshot-szx', 'tape-tap', ...screens, 'ram-bin']
-    : ['snapshot-szx', 'snapshot-z80', 'tape-tap', ...screens, 'ram-bin'];
+  return ['tape-tap', ...screens, 'ram-bin'];
 }
 
 function spectrumUi(model: MachineModel): MachineUiCapabilities {
@@ -68,7 +65,14 @@ function spectrumUi(model: MachineModel): MachineUiCapabilities {
     hiddenPanes: [],
     memoryLayout: is128kClass(model),
     trace: true,
-    colorMap: 'spectrum',
+    colorMapChoice: {
+      setting: 'color-map',
+      options: [
+        { value: 'basic', label: 'Basic' },
+        { value: 'measured', label: 'Measured' },
+        { value: 'vivid', label: 'Vivid' },
+      ],
+    },
     accuracy: 'scanline',
     builtinDisk: isPlus3(model),
     // The +3's pair, and the +D / Beta Disk pairs, are the most drives it can fit.
@@ -193,9 +197,9 @@ export function spectrumDescriptor(
   };
 }
 
-export const spectrumEntry: MachineEntry = {
+export const spectrumEntry = {
   kind: 'spectrum',
-  models: ['zx16k', 'zx48k', 'tc2048', 'ts2068', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'],
+  models: ['zx16k', 'zx48k', 'tc2048', 'ts2068', 'zx128k', 'zx128kplus2', 'zx128kplus2a', 'zx128kplus3', 'pentagon128', 'pentagon512', 'pentagon1024', 'scorpion256'] as const,
   descriptor: spectrumDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null, locale?: MachineLocale) {
     return new Spectrum(model as SpectrumModel, display, locale);
@@ -218,4 +222,4 @@ export const spectrumEntry: MachineEntry = {
     if (data.length >= 16384) return isTimexClass(cur) ? cur : 'zx48k';
     return null;   // too small to be a system ROM
   },
-};
+} satisfies MachineEntry;

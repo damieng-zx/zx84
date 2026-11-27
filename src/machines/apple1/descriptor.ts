@@ -25,7 +25,6 @@ const APPLE1_UI: MachineUiCapabilities = {
   memoryLayout: false,
   trace: true,
   traceModes: ['full', 'portio'],
-  colorMap: 'mono',
   accuracy: false,
   builtinDisk: false,
   joystick: false,
@@ -42,7 +41,7 @@ const APPLE1_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ['.wav'],
   // 'tape-tap' downloads what the machine has written to its cassette output (.wav).
-  saveMenu: ['snapshot-a1state', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,
@@ -74,9 +73,9 @@ export function apple1Descriptor(
   };
 }
 
-export const apple1Entry: MachineEntry = {
+export const apple1Entry = {
   kind: 'apple1',
-  models: ['apple1'],
+  models: ['apple1'] as const,
   descriptor: apple1Descriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Apple1Machine(model as Apple1Model, display);
@@ -88,4 +87,4 @@ export const apple1Entry: MachineEntry = {
   detectModelForRom(data: Uint8Array): MachineModel | null {
     return data.length === APPLE1_ROM_SIZE ? 'apple1' : null;
   },
-};
+} satisfies MachineEntry;

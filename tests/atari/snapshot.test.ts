@@ -145,7 +145,8 @@ describe('Atari snapshot service', () => {
     try {
       expect(m.services.snapshots.formats()).toEqual([{ ext: '.a8state', canSave: true }]);
       expect(m.services.media.accepts().some(t => t.ext === '.a8state')).toBe(true);
-      expect(m.descriptor.ui.saveMenu).toContain('snapshot-a8state');
+      // Snapshots are offered from the service's formats(), not the descriptor.
+      expect(m.descriptor.ui.saveMenu).not.toContain('snapshot-a8state');
     } finally {
       m.destroy();
     }

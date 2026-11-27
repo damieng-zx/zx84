@@ -95,7 +95,8 @@ describe('MTX .mtxstate', () => {
     try {
       expect(m.services.snapshots.formats()).toEqual([{ ext: '.mtxstate', canSave: true }]);
       expect(m.services.media.accepts()).toContainEqual({ ext: '.mtxstate', target: 'snapshot' });
-      expect(m.descriptor.ui.saveMenu).toContain('snapshot-mtxstate');
+      // Snapshots are offered from the service's formats(), not the menu.
+      expect(m.descriptor.ui.saveMenu.some(i => i.startsWith('snapshot-'))).toBe(false);
     } finally {
       m.destroy();
     }

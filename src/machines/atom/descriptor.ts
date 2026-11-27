@@ -29,7 +29,6 @@ const ATOM_UI: MachineUiCapabilities = {
   trace: true,
   traceModes: ['full', 'portio'],
   // The colour-board palette is fixed; there is no brightness/colour-map choice.
-  colorMap: 'mono',
   accuracy: false,
   builtinDisk: false,
   joystick: false,
@@ -46,7 +45,7 @@ const ATOM_UI: MachineUiCapabilities = {
   tape: 'deck',
   tapeSound: false,
   tapeExtensions: [...ATOM_TAPE_EXTENSIONS],
-  saveMenu: ['snapshot-atomstate', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,
@@ -85,9 +84,9 @@ function resetVector(data: Uint8Array, offset: number): number {
   return data[offset + 0xFFC] | (data[offset + 0xFFD] << 8);
 }
 
-export const atomEntry: MachineEntry = {
+export const atomEntry = {
   kind: 'atom',
-  models: ['atom'],
+  models: ['atom'] as const,
   descriptor: atomDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new AtomMachine(model as AtomModel, display);
@@ -103,4 +102,4 @@ export const atomEntry: MachineEntry = {
     if (data.length === 0x1000 && resetVector(data, 0) >= 0xF000) return 'atom';
     return null;
   },
-};
+} satisfies MachineEntry;

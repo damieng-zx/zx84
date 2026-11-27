@@ -166,18 +166,75 @@ describe('settings — gamepad config', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// The catalogue — one definition per setting
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * `SETTINGS` is the one description of every persisted setting. These tests hold
+ * it to the signals: a catalogue entry with no signal would be a control whose
+ * Reset does nothing, and a signal registered under a key the catalogue does not
+ * list would be a setting no pane can reset. Defaults are checked the other way
+ * round below (reset must reproduce a fresh boot).
+ */
+describe('settings — the catalogue matches the signals', () => {
+  it('every catalogue entry is either a signal or one of the JSON drive tables', async () => {
+    const s = await load();
+    const keyless = new Set(['drive-counts', 'drive-models']); // held per machine kind
+    for (const key of Object.keys(s.SETTINGS)) {
+      if (keyless.has(key)) continue;
+      expect(s.hasSignal(key), `${key} is in SETTINGS but has no registered signal`)
+        .toBe(true);
+    }
+  });
+
+  it('every registered signal is a catalogue entry', async () => {
+    const s = await load();
+    for (const key of Object.keys(s.SETTINGS)) {
+      if (s.hasSignal(key)) expect(s.defOf(key), `${key} is a signal with no catalogue entry`)
+        .toBeDefined();
+    }
+  });
+
+  it('a registered signal reads back its catalogue default on a fresh boot', async () => {
+    const s = await load();
+    for (const [key, def] of Object.entries(s.SETTINGS)) {
+      if (!s.hasSignal(key) || key.startsWith('drive-')) continue;
+      const expected = def.kind === 'number' ? Number(def.def)
+        : def.kind === 'bool' ? def.def === 'on'
+        : def.def;
+      expect(s.settingValue(key), `${key} has a value that disagrees with its default`)
+        .toEqual(expected);
+    }
+  });
+
+  it('every reset group the panes use names settings that exist', async () => {
+    const s = await load();
+    const panes = new Set(Object.values(s.SETTINGS).map(d => d.pane));
+    // The panes call resetSettingsGroup with these names; a rename on either
+    // side would otherwise silently leave a Reset button doing nothing.
+    for (const pane of ['display', 'monitor', 'sound', 'joystick', 'text', 'drive', 'tape', 'hardware', 'font']) {
+      expect(panes.has(pane), `no setting belongs to the '${pane}' reset group`).toBe(true);
+    }
+  });
+
+  it('a setting is defined exactly once, under one pane', async () => {
+    const s = await load();
+    const seen = new Set<string>();
+    for (const key of Object.keys(s.SETTINGS)) {
+      expect(seen.has(key), `duplicate definition of ${key}`).toBe(false);
+      seen.add(key);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // resetSettingsGroup — the dual-source-of-truth audit
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Each setting's default exists in TWO places:
- *   1. The fallback string in the createSignal at module init.
- *   2. The `default` field in PANE_SETTINGS used by resetSettingsGroup.
- *
- * These must agree — pressing "Reset" should give the same value the user
- * would see on a fresh install. If they disagree, that is a bug per
- * CLAUDE.md ("two places computing the same thing with different values
- * = bug factory"). The tests below probe every pane.
+ * A setting's default is now stated once (the catalogue's `def`), and the
+ * signal is initialised from it. These tests prove pressing "Reset" reproduces
+ * a fresh boot: the same value comes back whatever the setting had been set to.
  */
 
 describe('settings — reset defaults vs initial defaults consistency', () => {

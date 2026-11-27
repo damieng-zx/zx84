@@ -26,7 +26,13 @@ const BBC_B_UI: MachineUiCapabilities = {
   trace: true,
   traceModes: ['full', 'portio'],
   // Mode 7 / ULA palette control; 'bbc' selects the BBC palette family.
-  colorMap: 'bbc',
+  colorMapChoice: {
+    setting: 'bbc-color-map',
+    options: [
+      { value: 'pal', label: 'PAL' },
+      { value: 'measured', label: 'Measured' },
+    ],
+  },
   accuracy: 'raster',
   builtinDisk: true,
   builtinDrives: 2,
@@ -48,7 +54,7 @@ const BBC_B_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ACORN_TAPE_EXTENSIONS,
   // 'tape-tap' downloads whatever the OS has SAVEd to the cassette port (.uef).
-  saveMenu: ['snapshot-bbcstate', 'tape-tap', 'screenshot-png', 'ram-bin', 'printer-txt'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin', 'printer-txt'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
@@ -94,9 +100,9 @@ export function bbcDescriptor(
   };
 }
 
-export const bbcEntry: MachineEntry = {
+export const bbcEntry = {
   kind: 'bbc',
-  models: ['bbc-b', 'bbc-a'],
+  models: ['bbc-b', 'bbc-a'] as const,
   descriptor: bbcDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new BbcMachine(model as BbcModel, display);
@@ -105,4 +111,4 @@ export const bbcEntry: MachineEntry = {
   romSources() {
     return ['bbc/os12.rom', 'bbc/basic2.rom'];
   },
-};
+} satisfies MachineEntry;

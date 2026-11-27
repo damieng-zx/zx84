@@ -139,7 +139,8 @@ describe('Apple II snapshot container', () => {
       const sync = await decodeNativeState(APPLE2_STATE_SPEC, m.services.snapshots.saveSync());
       expect(sync.info.media).toBe(false);
       expect(m.services.media.accepts().some(t => t.ext === EXT)).toBe(true);
-      expect(m.descriptor.ui.saveMenu).toContain('snapshot-a2state');
+      // Snapshots are offered from the service's formats(), not the menu.
+      expect(m.descriptor.ui.saveMenu.some(i => i.startsWith('snapshot-'))).toBe(false);
     } finally {
       m.destroy();
     }

@@ -12,7 +12,7 @@
 import type { MachineHost, SnapshotApplyResult, SnapshotService } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { is128kClass, isPlus2AClass } from '@/models.ts';
-import { isTimex2068Class, timex2068IsNtsc } from '@/machines/spectrum/models.ts';
+import { isTimex2068Class, timex2068IsNtsc, ramBankCountFor } from '@/machines/spectrum/models.ts';
 import { loadSNA } from '@/machines/spectrum/snapshots/sna.ts';
 import { loadZ80, saveZ80 } from '@/machines/spectrum/snapshots/z80format.ts';
 import { loadSZX, saveSZX, saveSZXSync, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
@@ -26,12 +26,25 @@ export class SpectrumSnapshotService implements SnapshotService {
   constructor(private readonly s: Spectrum, private readonly host: () => MachineHost | null) {}
 
   formats(): { ext: string; canSave: boolean }[] {
+    // .z80 holds at most 128K of RAM and has no Scorpion paging, so the larger
+    // machines (Pentagon 512/1024, Scorpion) and the 2068 (whose port 0xF4 has
+    // no place in the format) cannot *write* it — but every Spectrum can still
+    // load one, so the entry stays with `canSave` false. `savesFormat` is the
+    // one rule the descriptor's Save menu and this list both read.
+    // .szx leads because it is the format a Spectrum prefers to save.
     return [
-      { ext: '.sna', canSave: false },
-      { ext: '.z80', canSave: true },
       { ext: '.szx', canSave: true },
+      { ext: '.z80', canSave: this.savesFormat('.z80') },
+      { ext: '.sna', canSave: false },
       { ext: '.sp', canSave: false },
     ];
+  }
+
+  /** Whether this machine can write a snapshot in `ext` (see `formats`). */
+  savesFormat(ext: string): boolean {
+    if (ext === '.szx') return true;
+    if (ext === '.z80') return ramBankCountFor(this.s.model) <= 8 && !isTimex2068Class(this.s.model);
+    return false;
   }
 
   /** Ask the host for a 128K-class rebuild. False (declined / no host) keeps

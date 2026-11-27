@@ -15,7 +15,6 @@ const UI: MachineUiCapabilities = {
   hiddenPanes: ['drive-panel', 'microdrive-panel', 'joystick-panel', 'mouse-panel', 'font-panel', 'sysvar-panel', 'banks-panel'],
   memoryLayout: false,
   trace: true,
-  colorMap: 'mono',
   accuracy: false,
   builtinDisk: false,
   joystick: false,
@@ -45,7 +44,7 @@ const UI: MachineUiCapabilities = {
   tapeSound: false,
   // 'tape-tap' downloads the most recent SAVE as the program image LOAD
   // reads back (.p on the ZX81, .o on the ZX80).
-  saveMenu: ['snapshot-zx8xstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,
@@ -66,9 +65,9 @@ export function zx8xDescriptor(model: MachineModel, locale: MachineLocale = 'uk'
   };
 }
 
-export const zx8xEntry: MachineEntry = {
+export const zx8xEntry = {
   kind: 'zx8x',
-  models: ['zx80', 'zx81', 'ts1000', 'ts1500'],
+  models: ['zx80', 'zx81', 'ts1000', 'ts1500'] as const,
   descriptor: zx8xDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Zx8xMachine(model as Zx8xModel, display);
@@ -83,4 +82,4 @@ export const zx8xEntry: MachineEntry = {
     if (data.length === 0x2000 && isZx8xModel(current)) return isZx81Class(current) ? current : 'zx81';
     return null;
   },
-};
+} satisfies MachineEntry;

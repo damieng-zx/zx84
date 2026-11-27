@@ -20,6 +20,7 @@ import { blankTrdDisk } from '@/media/floppy/trd-image.ts';
 import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { buildSpectrumAuxRoms } from '@/machines/spectrum/aux-roms.ts';
 import { loadSZX, saveSZXSync, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
+import { SpectrumSnapshotService } from '@/machines/spectrum/services/snapshots.ts';
 import { entryForModel } from '@/machines/registry.ts';
 import { findMenuGroup } from '@/ui/panes/model-menu.ts';
 import { bootWaitPc } from '@/machines/spectrum/boot-trap.ts';
@@ -333,8 +334,9 @@ describe('Scorpion — snapshots (SZX)', () => {
   });
 
   it('saves only as .szx (no .z80 export, which has no Scorpion paging)', () => {
-    expect(scorpion().descriptor.ui.saveMenu).not.toContain('snapshot-z80');
-    expect(scorpion().descriptor.ui.saveMenu).toContain('snapshot-szx');
+    const formats = new SpectrumSnapshotService(scorpion(), () => null).formats();
+    expect(formats.find(f => f.ext === '.z80')?.canSave).toBe(false);
+    expect(formats.find(f => f.ext === '.szx')?.canSave).toBe(true);
   });
 });
 

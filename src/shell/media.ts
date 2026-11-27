@@ -12,7 +12,7 @@
 
 import { batch } from 'solid-js';
 import type { Machine, MountResult, TapeStashState } from '@/machines/machine.ts';
-import type { MachineKind } from '@/machines/machine.ts';
+import type { MachineKind, SaveMenuItem } from '@/machines/machine.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { parseFloppyImage } from '@/media/floppy/hfe.ts';
 import { unzip } from '@/media/zip.ts';
@@ -51,7 +51,6 @@ export {
   loadMicrodrive, ejectMicrodrive, insertBlankMicrodrive, saveMicrodrive, setMicrodriveWriteProtect,
 } from '@/shell/peripheral-drives.ts';
 export type { PlusDBlankGeometry, BetaDiskBlankGeometry } from '@/shell/peripheral-drives.ts';
-import type { SpectrumModel } from '@/models.ts';
 
 // ── Cassette / cartridge ──────────────────────────────────────────────────
 
@@ -118,6 +117,52 @@ export function loadableExtensions(): string[] {
   const exts = machine.services.media.accepts().map(t => t.ext);
   if (machine.descriptor.ui.zipPolicy !== 'none') exts.push('.zip');
   return exts;
+}
+
+/** One row of the Load/Save pane's Save menu: a label and what it runs. */
+export interface SaveMenuItemView {
+  readonly id: string;
+  readonly label: string;
+  run(): void;
+}
+
+/**
+ * The Load/Save pane's Save menu for the running machine, in display order.
+ *
+ * Snapshot entries come straight from `SnapshotService.formats()` — one item per
+ * saveable format, so a machine gains a menu entry by teaching its service the
+ * format and nothing here changes. The descriptor's `ui.saveMenu` contributes
+ * the non-snapshot exports (screens, RAM, recorded tape, printer) in its declared
+ * order, appended after the snapshots.
+ */
+export function saveMenuItems(): SaveMenuItemView[] {
+  const m = machine;
+  if (!m) return [];
+  const items: SaveMenuItemView[] = [];
+
+  for (const fmt of m.services.snapshots?.formats() ?? []) {
+    if (!fmt.canSave) continue;
+    const token = fmt.save ?? fmt.ext;
+    items.push({
+      id: `snapshot:${fmt.ext}:${token}`,
+      label: fmt.label ?? `Snapshot (${fmt.ext})`,
+      run: () => { void saveSnapshot(token, fmt.ext); },
+    });
+  }
+
+  const actions: Partial<Record<SaveMenuItem, { label: string; run: () => void }>> = {
+    'screenshot-png': { label: 'Screenshot (.png)', run: () => saveScreenshot('png') },
+    'screen-scr': { label: 'Screen (.scr)', run: () => saveScreenshot('scr') },
+    'screen-mlt': { label: 'Multicolour screen (.mlt)', run: () => saveScreenshot('mlt') },
+    'ram-bin': { label: 'RAM (.bin)', run: () => saveRAM() },
+    'tape-tap': { label: 'Saved tape', run: () => saveRecordedTape() },
+    'printer-txt': { label: 'Printer output (.txt)', run: () => savePrinterOutput() },
+  };
+  for (const id of m.descriptor.ui.saveMenu) {
+    const action = actions[id];
+    if (action) items.push({ id, label: action.label, run: action.run });
+  }
+  return items;
 }
 
 export interface LoadOptions {
@@ -299,40 +344,28 @@ async function handleZip(data: Uint8Array, filename: string, unit: number | unde
 
 // ── Download / save ────────────────────────────────────────────────────────
 
-/** Save the running CPC as a `.SNA` (v2 = flat, v3 = RLE-compressed). The
- *  Load/Save pane offers this only when the descriptor names the entry. */
-export function saveCpcSnapshot(version: 2 | 3): void {
+/**
+ * Save the running machine's snapshot in one of its formats.
+ *
+ * `format` is a token from one of the machine's `SnapshotService.formats()`
+ * entries: `save` if the entry names one (the CPC's '2'/'3'), else its `ext`.
+ * `ext` is the file extension to name the download with (the same format entry's
+ * `ext`), so the CPC's version tokens still download as `.sna`. The service owns
+ * how to serialise the format, so the shell needs no per-machine knowledge of
+ * which formats exist or what to call them.
+ */
+export async function saveSnapshot(format: string, ext: string = format): Promise<void> {
   const m = machine;
-  const cpcSnapshots = m?.descriptor.ui.saveMenu.includes('snapshot-sna-v2')
-    ? m.services.snapshots
-    : null;
-  if (!m || !cpcSnapshots) { setStatus('No CPC running'); return; }
+  const snapshots = m?.services.snapshots;
+  if (!m || !snapshots) { setStatus('No machine running'); return; }
 
   const wasPaused = emulationPaused();
   if (!wasPaused) m.stop();
-  try {
-    const data = (cpcSnapshots as unknown as { saveSna(v: 2 | 3): Uint8Array }).saveSna(version);
-    downloadFile(data, `zx84-${m.model}.sna`);
-  } finally {
-    if (!wasPaused) m.start();
-  }
-  setStatus(`Saved zx84-${m.model}.sna (v${version})`);
-}
-
-/** Save the running machine's snapshot in `format` (an extension its
- *  snapshot service saves: 'szx', 'z80', 'a8state', 'acestate', …). */
-export async function saveSnapshot(format: string = 'szx'): Promise<void> {
-  const snapshots = machine?.services.snapshots;
-  if (!machine || !snapshots) { setStatus('No machine running'); return; }
-
-  const wasPaused = emulationPaused();
-  if (!wasPaused) machine.stop();
-  const model = currentModel() as SpectrumModel;
-  const filename = `zx84-${model}.${format}`;
+  const filename = `zx84-${currentModel()}.${ext.replace(/^\./, '')}`;
   try {
     downloadFile(await snapshots.save(format), filename);
   } finally {
-    if (!wasPaused) machine.start();
+    if (!wasPaused) m.start();
   }
   setStatus(`Saved ${filename}`);
 }

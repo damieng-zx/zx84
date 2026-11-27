@@ -1,50 +1,12 @@
 import { onMount, onCleanup, For, Show } from 'solid-js';
 import { Pane } from '@/ui/components/Pane.tsx';
 import { HiOutlineFolderOpen, HiOutlineArrowDownTray, HiOutlineRectangleStack } from 'solid-icons/hi';
-import {
-  loadFile, loadableExtensions, saveSnapshot, saveCpcSnapshot, saveScreenshot,
-  saveRAM, saveRecordedTape, savePrinterOutput,
-} from '@/shell/media.ts';
-import type { SaveMenuItem } from '@/machines/machine.ts';
+import { loadFile, loadableExtensions, saveMenuItems } from '@/shell/media.ts';
 import { machineCaps, machineKind } from '@/state/machine-caps.ts';
 import { toggleLibrary, libraryVisible } from '@/ui/panes.ts';
 import { machineUi } from '@/ui/machine-ui.ts';
 import { openFile } from '@/ui/file-picker.ts';
 
-/** Label + action for each Save-menu entry a descriptor can name. */
-const SAVE_ITEMS: Record<SaveMenuItem, { label: string; run: () => void }> = {
-  'snapshot-szx': { label: 'Snapshot (.szx)', run: () => { void saveSnapshot('szx'); } },
-  'snapshot-z80': { label: 'Snapshot (.z80)', run: () => { void saveSnapshot('z80'); } },
-  'snapshot-a8state': { label: 'Snapshot (.a8state)', run: () => { void saveSnapshot('a8state'); } },
-  'snapshot-acestate': { label: 'Snapshot (.acestate)', run: () => { void saveSnapshot('acestate'); } },
-  'snapshot-zx8xstate': { label: 'Snapshot (.zx8xstate)', run: () => { void saveSnapshot('zx8xstate'); } },
-  'snapshot-lynxstate': { label: 'Snapshot (.lynxstate)', run: () => { void saveSnapshot('lynxstate'); } },
-  'snapshot-mtxstate': { label: 'Snapshot (.mtxstate)', run: () => { void saveSnapshot('mtxstate'); } },
-  'snapshot-msxstate': { label: 'Snapshot (.msxstate)', run: () => { void saveSnapshot('msxstate'); } },
-  'snapshot-einstate': { label: 'Snapshot (.einstate)', run: () => { void saveSnapshot('einstate'); } },
-  'snapshot-pcwstate': { label: 'Snapshot (.pcwstate)', run: () => { void saveSnapshot('pcwstate'); } },
-  'snapshot-epstate': { label: 'Snapshot (.epstate)', run: () => { void saveSnapshot('epstate'); } },
-  'snapshot-bbcstate': { label: 'Snapshot (.bbcstate)', run: () => { void saveSnapshot('bbcstate'); } },
-  'snapshot-elkstate': { label: 'Snapshot (.elkstate)', run: () => { void saveSnapshot('elkstate'); } },
-  'snapshot-c64state': { label: 'Snapshot (.c64state)', run: () => { void saveSnapshot('c64state'); } },
-  'snapshot-vic20state': { label: 'Snapshot (.vic20state)', run: () => { void saveSnapshot('vic20state'); } },
-  'snapshot-c128state': { label: 'Snapshot (.c128state)', run: () => { void saveSnapshot('c128state'); } },
-  'snapshot-atomstate': { label: 'Snapshot (.atmstate)', run: () => { void saveSnapshot('atmstate'); } },
-  'snapshot-oricstate': { label: 'Snapshot (.oricstate)', run: () => { void saveSnapshot('oricstate'); } },
-  'snapshot-plus4state': { label: 'Snapshot (.plus4state)', run: () => { void saveSnapshot('plus4state'); } },
-  'snapshot-a1state': { label: 'Snapshot (.a1state)', run: () => { void saveSnapshot('a1state'); } },
-  'snapshot-a2state': { label: 'Snapshot (.a2state)', run: () => { void saveSnapshot('a2state'); } },
-  'snapshot-sna-v2': { label: 'Snapshot v2 (.sna)', run: () => saveCpcSnapshot(2) },
-  'snapshot-sna-v3': { label: 'Snapshot v3 (.sna)', run: () => saveCpcSnapshot(3) },
-  'screenshot-png': { label: 'Screenshot (.png)', run: () => saveScreenshot('png') },
-  'screen-scr': { label: 'Screen (.scr)', run: () => saveScreenshot('scr') },
-  'screen-mlt': { label: 'Multicolour screen (.mlt)', run: () => saveScreenshot('mlt') },
-  'ram-bin': { label: 'RAM (.bin)', run: () => saveRAM() },
-  'tape-tap': { label: 'Saved tape', run: () => saveRecordedTape() },
-  'printer-txt': { label: 'Printer output (.txt)', run: () => savePrinterOutput() },
-};
-
-const saveMenu = () => machineCaps().saveMenu;
 const hasLibrary = () => machineCaps().library;
 
 export function LoadSavePane() {
@@ -124,10 +86,10 @@ export function LoadSavePane() {
           <HiOutlineArrowDownTray /> Save
         </button>
         <div ref={menuRef} class="save-menu" style="display:none">
-          <For each={saveMenu()}>
+          <For each={saveMenuItems()}>
             {(item) => (
-              <div class="save-menu-item" onClick={handleSave(SAVE_ITEMS[item].run)}>
-                {SAVE_ITEMS[item].label}
+              <div class="save-menu-item" onClick={handleSave(item.run)}>
+                {item.label}
               </div>
             )}
           </For>

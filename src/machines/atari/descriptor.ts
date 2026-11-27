@@ -45,7 +45,9 @@ const BASE_UI: MachineUiCapabilities = {
   memoryLayout: true,
   trace: true,
   traceModes: ['full', 'portio'],
-  colorMap: 'atari',
+  // The palette list is the region's (see palette.ts): `uiFor` supplies it per
+  // model below.
+  colorMapChoice: { setting: 'atari-color-map', options: () => atariPaletteOptions(false) },
   accuracy: false,
   builtinDisk: true,
   // Up to four drives on the SIO bus, each with its own model; the default
@@ -82,7 +84,7 @@ const BASE_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ['.cas', '.zip'],
   // 'tape-tap' downloads what the OS has saved to cassette (as .cas).
-  saveMenu: ['snapshot-a8state', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
@@ -104,7 +106,10 @@ function uiFor(model: AtariModel, pal: boolean): MachineUiCapabilities {
   const info = atariInfo(model);
   // The palettes are the region's: NTSC and PAL GTIAs encode colour
   // differently (see palette.ts).
-  const base = { ...BASE_UI, colorMapOptions: atariPaletteOptions(pal) };
+  const base: MachineUiCapabilities = {
+    ...BASE_UI,
+    colorMapChoice: { setting: 'atari-color-map', options: () => atariPaletteOptions(pal) },
+  };
   if (!info.xl) return base;
   return {
     ...base,
@@ -141,7 +146,7 @@ export function atariDescriptor(
   };
 }
 
-export const atariEntry: MachineEntry = {
+export const atariEntry = {
   kind: 'atari',
   models: ATARI_MODELS,
   descriptor: atariDescriptor,
@@ -173,4 +178,4 @@ export const atariEntry: MachineEntry = {
     if (data.length === ATARI_XL_OS_SIZE) return currentXl ? current : 'atari800xl';
     return null;
   },
-};
+} satisfies MachineEntry;

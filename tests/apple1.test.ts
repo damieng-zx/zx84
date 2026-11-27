@@ -112,8 +112,9 @@ describe('apple1 registration', () => {
   });
 
   it('claims a bare 256-byte ROM image and names its source', () => {
-    expect(apple1Entry.detectModelForRom?.(new Uint8Array(256), 'zx48k')).toBe('apple1');
-    expect(apple1Entry.detectModelForRom?.(new Uint8Array(0x3000), 'zx48k')).toBeNull();
+    // The entry keeps its literal shape, so `detectModelForRom` reads size alone.
+    expect(apple1Entry.detectModelForRom?.(new Uint8Array(256))).toBe('apple1');
+    expect(apple1Entry.detectModelForRom?.(new Uint8Array(0x3000))).toBeNull();
     expect(apple1Entry.romSources('apple1')).toEqual(['apple1/apple1.rom']);
   });
 

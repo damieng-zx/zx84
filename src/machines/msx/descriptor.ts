@@ -18,7 +18,13 @@ const MSX_UI: MachineUiCapabilities = {
   hiddenPanes: ['sysvar-panel'],
   memoryLayout: true,
   trace: true,
-  colorMap: 'msx',
+  colorMapChoice: {
+    setting: 'msx-color-map',
+    options: [
+      { value: 'pal', label: 'PAL' },
+      { value: 'ntsc', label: 'NTSC' },
+    ],
+  },
   accuracy: false,
   // The floppy interface is a Hardware-pane option: the Drives pane shows only
   // while it is fitted (see DrivePane's msxFloppy gate).
@@ -53,7 +59,7 @@ const MSX_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ['.cas', '.tsx', '.tzx', '.wav', '.zip'],
   // 'tape-tap' downloads what the BIOS has saved to cassette (as .cas).
-  saveMenu: ['snapshot-msxstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,
@@ -83,9 +89,9 @@ export function msxDescriptor(model: MachineModel, locale: MachineLocale = 'uk')
   };
 }
 
-export const msxEntry: MachineEntry = {
+export const msxEntry = {
   kind: 'msx',
-  models: ['hx-10', 'hb-55', 'hb-55p'],
+  models: ['hx-10', 'hb-55', 'hb-55p'] as const,
   descriptor: msxDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new MsxMachine(model as MsxModel, display);
@@ -93,4 +99,4 @@ export const msxEntry: MachineEntry = {
   romSources(model?: MachineModel, _locale?: MachineLocale) {
     return [createMsxConfig(model !== undefined && isMsxModel(model) ? model : 'hx-10').biosSource];
   },
-};
+} satisfies MachineEntry;

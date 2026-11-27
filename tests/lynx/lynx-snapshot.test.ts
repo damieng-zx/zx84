@@ -86,7 +86,8 @@ describe('Lynx .lynxstate', () => {
     try {
       expect(m.services.snapshots.formats()).toEqual([{ ext: '.lynxstate', canSave: true }]);
       expect(m.services.media.accepts().some(t => t.ext === '.lynxstate' && t.target === 'snapshot')).toBe(true);
-      expect(m.descriptor.ui.saveMenu).toContain('snapshot-lynxstate');
+      // Snapshots are offered from the service's formats(), not the menu.
+      expect(m.descriptor.ui.saveMenu.some(i => i.startsWith('snapshot-'))).toBe(false);
     } finally {
       m.destroy();
     }

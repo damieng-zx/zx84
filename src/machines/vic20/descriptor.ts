@@ -21,7 +21,6 @@ const VIC20_UI: MachineUiCapabilities = {
   trace: true,
   traceModes: ['full', 'portio'],
   // The VIC's sixteen colours are fixed (palette.ts).
-  colorMap: 'mono',
   accuracy: false,
   // The drives are on the serial bus, as on the C64; the Hardware pane plugs
   // them in or out and the Drives pane's "..." menu adds, removes and picks
@@ -62,7 +61,7 @@ const VIC20_UI: MachineUiCapabilities = {
   tapeSound: true,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
   // 'tape-tap' downloads what the KERNAL has SAVEd to tape (as a VIC-20 .tap).
-  saveMenu: ['snapshot-vic20state', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,
@@ -98,9 +97,9 @@ export function vic20Descriptor(model: MachineModel, locale: MachineLocale = 'uk
   };
 }
 
-export const vic20Entry: MachineEntry = {
+export const vic20Entry = {
   kind: 'vic20',
-  models: ['vic20'],
+  models: ['vic20'] as const,
   descriptor: vic20Descriptor,
   create(model: MachineModel, display: IScreenRenderer | null, locale?: MachineLocale) {
     return new Vic20Machine(model as Vic20Model, display, vic20IsNtsc(locale));
@@ -113,4 +112,4 @@ export const vic20Entry: MachineEntry = {
   detectModelForRom(data: Uint8Array, current: MachineModel): MachineModel | null {
     return data.length === VIC20_ROM_SIZE && current === 'vic20' ? 'vic20' : null;
   },
-};
+} satisfies MachineEntry;

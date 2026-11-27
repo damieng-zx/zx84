@@ -1,12 +1,23 @@
 # Adding a machine
 
 This is the definition-of-done checklist for the "machines as hardware" layout.
-Adding a machine — including a 6502-based one —
-touches **only** a new `src/machines/<name>/` folder, one line each in
-`registry.ts` and `models.ts`, optional `ui/` contributions, and an optional new
+Adding a machine — including a 6502-based one — touches **only** a new
+`src/machines/<name>/` folder, one line each in `registry.ts` and `models.ts`,
+optional `ui/` contributions, and an optional new
 `debug-<family>/` module. **Nothing else in the tree changes.** If you find
 yourself editing a shell file, a generic component, or a core to add a machine,
 stop — the seam you need already exists (or belongs in your machine folder).
+
+The two manifests are genuinely all there is to register, and drift between them
+is a **compile error, not a runtime surprise**. `registry.ts` derives the union of
+its entries' `kind`s and the union of their `models` and asserts each is *exactly*
+`MachineKind` / `MachineModel` (an `AssertEqual` that only accepts both
+directions). Add a model to `models.ts` without a registry entry, or register one
+the union does not name, and `tsc` fails — there is no machine that 404s only when
+a user selects it.
+
+`npm run depcheck` enforces a different boundary (a machine folder may not import
+UI/state/shell); it does **not** check the catalog. `tsc` owns the catalog.
 
 ## The mental model
 
@@ -63,8 +74,21 @@ reactive state — the MCP/Node/test builds import it). Provide:
 
 Fill in `descriptor.ui` (`MachineUiCapabilities`) honestly — those flags are how
 the generic panes adapt (`builtinDisk`, `cartridge`, `tape: 'deck' | 'instant'`,
-`colorMap`, `romPages`, `memoryRegions`, `hiddenPanes`, `mouseTypes`,
-`statusLeds`, …). No pane should ever need to learn your `kind`.
+`colorMapChoice`, `romPages`, `memoryRegions`, `hiddenPanes`,
+`mouseTypes`, `statusLeds`, …). No pane should ever need to learn your `kind`.
+
+Two of those flags are worth calling out because they are the pattern for
+everything that used to be a per-machine branch in a generic pane:
+
+- **A colour choice** is `colorMapChoice: { setting, options }` — the persisted
+  setting key and the drop-down's options, in display order. The Display pane
+  draws it generically; a mono machine omits it and the control is hidden. Never
+  add a `Switch` on a machine family back to the pane.
+- **Snapshot save formats** are not listed in `ui.saveMenu` at all. A machine
+  reports them through `SnapshotService.formats()` (each `canSave` entry becomes
+  a Save-menu item), so supporting a new snapshot format is a change to your
+  service, not to a shared menu or a UI table. `ui.saveMenu` names only the
+  non-snapshot exports (screens, RAM, recorded tape, printer).
 
 A capability is a promise the machine has to keep, and
 `tests/machine-capabilities.test.ts` holds you to the ones that can be checked
@@ -149,9 +173,16 @@ hardware forensics (per-instruction contention attribution) behind the
 
 ### 6. Register it (the only two manifests)
 
-- `src/machines/registry.ts` — one `import` + one array entry.
+- `src/machines/registry.ts` — one `import` + one array entry. Export the entry
+  as `export const <name>Entry = { … } satisfies MachineEntry` with a literal
+  `models: [...] as const`: the registry compares that list against the
+  `MachineModel` union at compile time (and the `kind` against `MachineKind`), so
+  `tsc` rejects a model that is registered but absent from the union, or in the
+  union but in no entry. `npm run depcheck` does not check this; `tsc` does.
 - `src/models.ts` — add your models to the `MachineModel` union (and any leaf
-  helper like an `isBbcModel` guard if the union needs one).
+  helper like an `isBbcModel` guard if the union needs one). The union is the
+  other half of that proof: extend it and forget the registry and the registry's
+  `RegistryCoversModels` check fails.
 
 ### 7. ROM sources
 

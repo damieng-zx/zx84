@@ -20,7 +20,6 @@ const ENTERPRISE_UI: MachineUiCapabilities = {
   memoryLayout: true,
   trace: true,
   // Nick's 256 colours are fixed by its DAC: there is no palette to choose.
-  colorMap: 'mono',
   accuracy: false,
   // The EXDOS card is optional (Hardware pane); the Drives pane shows while
   // it is fitted.
@@ -43,7 +42,7 @@ const ENTERPRISE_UI: MachineUiCapabilities = {
   typedCharacters: true,
   tapeSound: false,
   tapeExtensions: [],
-  saveMenu: ['snapshot-epstate', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
@@ -75,9 +74,9 @@ export function enterpriseDescriptor(
   };
 }
 
-export const enterpriseEntry: MachineEntry = {
+export const enterpriseEntry = {
   kind: 'enterprise',
-  models: ['ep64', 'ep128'],
+  models: ['ep64', 'ep128'] as const,
   descriptor: enterpriseDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new EnterpriseMachine(model as EnterpriseModel, display);
@@ -96,4 +95,4 @@ export const enterpriseEntry: MachineEntry = {
     if (current !== 'ep64' && current !== 'ep128') return null;
     return [0x8000, 0xC000, 0x10000, 0x14000].includes(data.length) ? current : null;
   },
-};
+} satisfies MachineEntry;

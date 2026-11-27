@@ -13,6 +13,7 @@ import {
   pcwDefaultPhosphor, pcwDriveType, pcwHasDoubleSidedDriveA,
 } from '@/machines/pcw/models.ts';
 import { entryForKind, entryForModel } from '@/machines/registry.ts';
+import type { MachineEntry } from '@/machines/machine.ts';
 import type { DskImage, DskSector, DskTrack } from '@/media/floppy/disk-image.ts';
 import {
   PCW_BOOT_ENTRY_ADDR, PCW_BOOT_LOAD_ADDR, PCW_FDC_INT_RESPONSE_LINES, PcwCommand,
@@ -45,7 +46,7 @@ describe('PCW registry entry', () => {
     expect(entryForKind('pcw')).toBe(pcwEntry);
     for (const model of pcwEntry.models) expect(entryForModel(model)).toBe(pcwEntry);
     // The PCW has no ROM at all — it boots from disc.
-    expect(pcwEntry.romSources('pcw8256')).toEqual([]);
+    expect((pcwEntry.romSources as MachineEntry['romSources'])('pcw8256')).toEqual([]);
   });
 
   it('fits memory, drives and a printer per model', () => {

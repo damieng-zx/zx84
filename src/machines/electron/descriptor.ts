@@ -31,7 +31,13 @@ const ELECTRON_UI: MachineUiCapabilities = {
   trace: true,
   traceModes: ['full', 'portio'],
   // The ULA's eight colours are the BBC's: share its PAL / Measured choice.
-  colorMap: 'bbc',
+  colorMapChoice: {
+    setting: 'bbc-color-map',
+    options: [
+      { value: 'pal', label: 'PAL' },
+      { value: 'measured', label: 'Measured' },
+    ],
+  },
   accuracy: 'raster',
   // The Plus 3's disc drives and the Plus 1's cartridge slot are Hardware-pane
   // peripherals: the capabilities are declared here and the panes show them only
@@ -58,7 +64,7 @@ const ELECTRON_UI: MachineUiCapabilities = {
   tapeExtensions: ACORN_TAPE_EXTENSIONS,
   // 'tape-tap' downloads whatever the OS has SAVEd to the cassette port (.uef);
   // 'printer-txt' what was sent to the Plus 1's printer port.
-  saveMenu: ['snapshot-elkstate', 'tape-tap', 'printer-txt', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['tape-tap', 'printer-txt', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
@@ -92,9 +98,9 @@ export function electronDescriptor(
   };
 }
 
-export const electronEntry: MachineEntry = {
+export const electronEntry = {
   kind: 'electron',
-  models: ['electron'],
+  models: ['electron'] as const,
   descriptor: electronDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new ElectronMachine(model as ElectronModel, display);
@@ -104,4 +110,4 @@ export const electronEntry: MachineEntry = {
   romSources() {
     return ['electron/basic.rom', 'electron/os.rom'];
   },
-};
+} satisfies MachineEntry;

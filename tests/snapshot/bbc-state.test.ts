@@ -161,7 +161,8 @@ describe('BBC snapshot container', () => {
       expect(sync.info.media).toBe(false);
       expect(m.services.snapshots.formats()).toEqual([{ ext: EXT, canSave: true }]);
       expect(m.services.media.accepts().some(t => t.ext === EXT)).toBe(true);
-      expect(m.descriptor.ui.saveMenu).toContain('snapshot-bbcstate');
+      // Snapshots are offered from the service's formats(), not the menu.
+      expect(m.descriptor.ui.saveMenu.some(i => i.startsWith('snapshot-'))).toBe(false);
     } finally {
       m.destroy();
     }

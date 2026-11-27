@@ -57,7 +57,8 @@ describe('Jupiter Ace .acestate', () => {
       const accepts = m.services.media.accepts().map(t => t.ext);
       expect(accepts).toContain('.acestate');
       expect(accepts).toContain('.ace');
-      expect(m.descriptor.ui.saveMenu).toContain('snapshot-acestate');
+      // Snapshots are offered from the service's formats(), not the menu.
+      expect(m.descriptor.ui.saveMenu.some(i => i.startsWith('snapshot-'))).toBe(false);
     } finally {
       m.destroy();
     }

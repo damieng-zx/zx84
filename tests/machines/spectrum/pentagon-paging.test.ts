@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { loadSZX, saveSZXSync, applySZXPaging } from '@/machines/spectrum/snapshots/szx.ts';
+import { SpectrumSnapshotService } from '@/machines/spectrum/services/snapshots.ts';
 import type { SpectrumModel } from '@/models.ts';
 
 function machine(model: SpectrumModel): Spectrum {
@@ -252,12 +253,16 @@ describe('Pentagon 512/1024 — snapshots (SZX)', () => {
     expect(szx.length).toBeGreaterThan(64 * 16384);
   });
 
-  it('rejects the .z80 export for the extended models via the save menu', () => {
-    const ui = (m: SpectrumModel) => machine(m).descriptor.ui.saveMenu;
-    expect(ui('pentagon512')).not.toContain('snapshot-z80');
-    expect(ui('pentagon1024')).not.toContain('snapshot-z80');
-    expect(ui('pentagon128')).toContain('snapshot-z80');
-    expect(ui('pentagon512')).toContain('snapshot-szx');
+  it('rejects the .z80 export for the extended models via the save service', () => {
+    const z80 = (m: SpectrumModel) =>
+      new SpectrumSnapshotService(machine(m), () => null).formats().find(f => f.ext === '.z80')?.canSave;
+    expect(z80('pentagon512')).toBe(false);
+    expect(z80('pentagon1024')).toBe(false);
+    expect(z80('pentagon128')).toBe(true);
+    // Every Spectrum saves .szx, including the extended ones.
+    const szx = (m: SpectrumModel) =>
+      new SpectrumSnapshotService(machine(m), () => null).formats().find(f => f.ext === '.szx')?.canSave;
+    expect(szx('pentagon512')).toBe(true);
   });
 });
 

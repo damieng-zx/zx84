@@ -14,7 +14,7 @@ import { atariEntry } from '@/machines/atari/descriptor.ts';
 import {
   ATARI_OS_SIZE, atariRegionForLocale, type AtariModel, type AtariRegion,
 } from '@/machines/atari/models.ts';
-import type { SettingsView } from '@/machines/machine.ts';
+import type { MachineEntry, SettingsView } from '@/machines/machine.ts';
 
 function makeOs(): Uint8Array {
   const rom = new Uint8Array(ATARI_OS_SIZE);
@@ -64,7 +64,10 @@ describe('atari registration', () => {
     expect(ui.tapeExtensions).toContain('.cas');
     expect(ui.fixedJoystick).toBe(true);
     expect(ui.joystickFireButtons).toBe(1);
-    expect(ui.colorMap).toBe('atari');
+    expect(ui.colorMapChoice?.setting).toBe('atari-color-map');
+    const options = typeof ui.colorMapChoice?.options === 'function'
+      ? ui.colorMapChoice.options() : ui.colorMapChoice?.options ?? [];
+    expect(options.length).toBeGreaterThan(0);
   });
 });
 
@@ -386,7 +389,8 @@ describe('atari ROM entry', () => {
     expect(atariEntry.romSources('atari400')).toEqual(['atari/altirraos-800.rom']);
     expect(atariEntry.romSources('atari800')).toEqual(['atari/altirraos-800.rom']);
     // Both regions share the OS image, so they share one ROM cache key.
-    expect(atariEntry.romSources('atari800', 'us')).toEqual(['atari/altirraos-800.rom']);
+    expect((atariEntry.romSources as MachineEntry['romSources'])('atari800', 'us'))
+      .toEqual(['atari/altirraos-800.rom']);
     expect(atariEntry.bootCartridgeSource?.('atari800')).toBe('atari/altirra-basic.rom');
   });
 

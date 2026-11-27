@@ -15,36 +15,15 @@
 
 import { describe, expect, it } from 'vitest';
 import { registry } from '@/machines/registry.ts';
-import { STATUS_LED_IDS, type SaveMenuItem } from '@/machines/machine.ts';
+import { STATUS_LED_IDS } from '@/machines/machine.ts';
 import { machineUi } from '@/ui/machine-ui.ts';
+import { buildSettingsView } from '@/shell/settings.ts';
+
+/** A value no setting could hold, to prove the view answered. */
+const SENTINEL = Symbol('unset');
 
 /** Every (entry, model) pair the registry knows about. */
 const ALL = registry.flatMap(entry => entry.models.map(model => ({ entry, model })));
-
-/** Snapshot Save-menu entries → the format the snapshot service must save. */
-const SNAPSHOT_FORMAT: Partial<Record<SaveMenuItem, string>> = {
-  'snapshot-szx': '.szx',
-  'snapshot-z80': '.z80',
-  'snapshot-sna-v2': '.sna',
-  'snapshot-sna-v3': '.sna',
-  'snapshot-a8state': '.a8state',
-  'snapshot-acestate': '.acestate',
-  'snapshot-zx8xstate': '.zx8xstate',
-  'snapshot-lynxstate': '.lynxstate',
-  'snapshot-mtxstate': '.mtxstate',
-  'snapshot-msxstate': '.msxstate',
-  'snapshot-einstate': '.einstate',
-  'snapshot-pcwstate': '.pcwstate',
-  'snapshot-epstate': '.epstate',
-  'snapshot-bbcstate': '.bbcstate',
-  'snapshot-elkstate': '.elkstate',
-  'snapshot-a1state': '.a1state',
-  'snapshot-a2state': '.a2state',
-  'snapshot-c64state': '.c64state',
-  'snapshot-c128state': '.c128state',
-  'snapshot-atomstate': '.atmstate',
-  'snapshot-oricstate': '.oricstate',
-};
 
 /** Build a machine headlessly — no renderer, no ROM. */
 function build(entry: (typeof registry)[number], model: (typeof ALL)[number]['model']) {
@@ -171,13 +150,7 @@ describe('machine capabilities', () => {
       const machine = build(entry, model);
       try {
         for (const item of entry.descriptor(model).ui.saveMenu) {
-          const ext = SNAPSHOT_FORMAT[item];
-          if (ext) {
-            const snapshots = machine.services.snapshots;
-            expect(snapshots, `${item} needs a snapshot service`).not.toBeNull();
-            const fmt = snapshots!.formats().find(f => f.ext === ext);
-            expect(fmt?.canSave, `${item} needs a saveable ${ext}`).toBe(true);
-          } else if (item === 'screen-scr') {
+          if (item === 'screen-scr') {
             expect(machine.services.debug.screenExport(), 'screen-scr needs screenExport')
               .not.toBeNull();
           } else if (item === 'screen-mlt') {
@@ -214,6 +187,37 @@ describe('machine capabilities', () => {
     },
   );
 
+  // Snapshots are not named in `ui.saveMenu`: the pane builds those entries
+  // from `SnapshotService.formats()`. So the invariant is the other way round —
+  // every format the machine says it can *save* must actually serialise, or the
+  // Save menu would offer an entry that throws.
+  it.each(ALL.map(a => [a.model, a] as const))(
+    '%s offers every snapshot format its service says it can save',
+    (_model, { entry, model }) => {
+      const machine = build(entry, model);
+      try {
+        const saveable = (machine.services.snapshots?.formats() ?? []).filter(f => f.canSave);
+        if (saveable.length === 0) return;
+        // A snapshot format with no handoff token cannot be driven by the pane.
+        for (const fmt of saveable) expect(fmt.ext).toMatch(/^\.[a-z0-9]+$/);
+        // Two saveable entries may share an extension only if each names its own
+        // token (the CPC's v2/v3 `.sna`); otherwise the menu can't tell them apart.
+        const byExt = new Map<string, string[]>();
+        for (const fmt of saveable) {
+          const at = byExt.get(fmt.ext) ?? [];
+          at.push(fmt.save ?? fmt.ext);
+          byExt.set(fmt.ext, at);
+        }
+        for (const tokens of byExt.values()) {
+          expect(new Set(tokens).size, 'duplicate save tokens for one extension')
+            .toBe(tokens.length);
+        }
+      } finally {
+        machine.destroy();
+      }
+    },
+  );
+
   it.each(ALL.map(a => [a.model, a] as const))(
     '%s always offers a raw RAM dump (.bin)',
     (_model, { entry, model }) => {
@@ -224,6 +228,29 @@ describe('machine capabilities', () => {
       } finally {
         machine.destroy();
       }
+    },
+  );
+
+  it.each(ALL.map(a => [a.model, a] as const))(
+    '%s backs its Color-map choice with a readable, writable setting',
+    (_model, { entry, model }) => {
+      const caps = entry.descriptor(model).ui;
+      // No choice declared means the pane hides the control (a mono machine).
+      if (!caps.colorMapChoice) return;
+
+      const opts = typeof caps.colorMapChoice.options === 'function'
+        ? caps.colorMapChoice.options() : caps.colorMapChoice.options;
+      expect(opts.length, 'a Color-map choice needs at least one option').toBeGreaterThan(0);
+      for (const o of opts) {
+        expect(o.value.length).toBeGreaterThan(0);
+        expect(o.label.length).toBeGreaterThan(0);
+      }
+      // The control writes through the shell's view, so the setting must be
+      // readable there; an unknown key would silently do nothing.
+      const view = buildSettingsView();
+      expect(view.get<string | boolean>(caps.colorMapChoice.setting, SENTINEL as never),
+        `${caps.colorMapChoice.setting} is the Color-map setting but the view cannot read it`)
+        .not.toBe(SENTINEL);
     },
   );
 

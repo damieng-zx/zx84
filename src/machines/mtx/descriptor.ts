@@ -14,7 +14,13 @@ const MTX_UI: MachineUiCapabilities = {
   hiddenPanes: ['microdrive-panel', 'mouse-panel', 'sysvar-panel'],
   memoryLayout: true,
   trace: true,
-  colorMap: 'msx',
+  colorMapChoice: {
+    setting: 'msx-color-map',
+    options: [
+      { value: 'pal', label: 'PAL' },
+      { value: 'ntsc', label: 'NTSC' },
+    ],
+  },
   // VDP-based scanline rendering — no per-t-state Accuracy dropdown (as MSX).
   accuracy: false,
   builtinDisk: true,
@@ -38,7 +44,7 @@ const MTX_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ['.mtx', '.zip'],
   // 'tape-tap' downloads the program the ROM last SAVEd to cassette (as .mtx).
-  saveMenu: ['snapshot-mtxstate', 'tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'screen-scr', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: true,
@@ -75,9 +81,9 @@ export function mtxDescriptor(
   };
 }
 
-export const mtxEntry: MachineEntry = {
+export const mtxEntry = {
   kind: 'mtx',
-  models: ['mtx500', 'mtx512', 'rs128'],
+  models: ['mtx500', 'mtx512', 'rs128'] as const,
   descriptor: mtxDescriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new MtxMachine(model as MtxModel, display);
@@ -97,4 +103,4 @@ export const mtxEntry: MachineEntry = {
     if (data.length !== 0x6000 && data.length !== 0x8000 && data.length !== 0xA000) return null;
     return isMtxModel(current) ? current : 'mtx512';
   },
-};
+} satisfies MachineEntry;

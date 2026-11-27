@@ -59,7 +59,8 @@ describe('C128 registry entry and descriptor', () => {
     const ui = entryForModel('c128').descriptor('c128').ui;
     expect(ui.defaultDriveModels).toEqual(['1571']);
     expect(ui.driveModels?.map(m => m.value)).toEqual(['1541', '1571', '1581']);
-    expect(ui.saveMenu).toContain('snapshot-c128state');
+    // The snapshot moves with the service, not the descriptor.
+    expect(ui.saveMenu).not.toContain('snapshot-c128state');
   });
 });
 

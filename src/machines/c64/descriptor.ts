@@ -24,7 +24,6 @@ const C64_UI: MachineUiCapabilities = {
   trace: true,
   traceModes: ['full', 'portio'],
   // The VIC-II's sixteen colours are fixed (palette.ts).
-  colorMap: 'mono',
   accuracy: false,
   // The drive is on the serial bus; the Hardware pane plugs it in or out.
   builtinDisk: true,
@@ -71,7 +70,7 @@ const C64_UI: MachineUiCapabilities = {
   tapeSound: true,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
   // 'tape-tap' downloads what the KERNAL has SAVEd to tape (as a C64 .tap).
-  saveMenu: ['snapshot-c64state', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
@@ -115,9 +114,9 @@ export function c64Descriptor(model: MachineModel, locale: MachineLocale = 'uk')
   };
 }
 
-export const c64Entry: MachineEntry = {
+export const c64Entry = {
   kind: 'c64',
-  models: ['c64'],
+  models: ['c64'] as const,
   descriptor: c64Descriptor,
   create(model: MachineModel, display: IScreenRenderer | null, locale?: MachineLocale) {
     return new C64Machine(model as C64Model, display, c64IsNtsc(locale));
@@ -132,4 +131,4 @@ export const c64Entry: MachineEntry = {
     if (data.length === C64_KERNAL_SIZE && current === 'c64') return 'c64';
     return null;
   },
-};
+} satisfies MachineEntry;

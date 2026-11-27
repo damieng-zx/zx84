@@ -22,7 +22,6 @@ const PLUS4_UI: MachineUiCapabilities = {
   trace: true,
   traceModes: ['full', 'portio'],
   // The TED's 128 colours are fixed (palette.ts).
-  colorMap: 'mono',
   accuracy: false,
   // The drive is on the serial bus; the Hardware pane plugs it in or out.
   builtinDisk: true,
@@ -58,7 +57,7 @@ const PLUS4_UI: MachineUiCapabilities = {
   tape: 'deck',
   tapeSound: true,
   tapeExtensions: ['.tap', '.t64', '.prg', '.zip'],
-  saveMenu: ['snapshot-plus4state', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: false,
   bootDisk: false,
@@ -96,9 +95,9 @@ export function plus4Descriptor(model: MachineModel, locale: MachineLocale = 'uk
   };
 }
 
-export const plus4Entry: MachineEntry = {
+export const plus4Entry = {
   kind: 'plus4',
-  models: ['plus4', 'c16'],
+  models: ['plus4', 'c16'] as const,
   descriptor: plus4Descriptor,
   create(model: MachineModel, display: IScreenRenderer | null, locale?: MachineLocale) {
     return new Plus4Machine(model as Plus4Model, display, plus4IsNtsc(locale));
@@ -113,4 +112,4 @@ export const plus4Entry: MachineEntry = {
     if (data.length === plus4RomSize('plus4')) return 'plus4';
     return null;
   },
-};
+} satisfies MachineEntry;

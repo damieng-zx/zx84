@@ -26,7 +26,14 @@ const APPLE2_UI: MachineUiCapabilities = {
   memoryLayout: false,
   trace: true,
   traceModes: ['full', 'portio'],
-  colorMap: 'apple2',
+  colorMapChoice: {
+    setting: 'apple2-video',
+    options: [
+      { value: 'mono', label: 'Mono' },
+      { value: 'ntsc', label: 'Composite NTSC' },
+      { value: 'pal', label: 'Composite PAL' },
+    ],
+  },
   accuracy: 'raster',
   builtinDisk: true,
   builtinDrives: 2,
@@ -48,7 +55,7 @@ const APPLE2_UI: MachineUiCapabilities = {
   tapeSound: false,
   tapeExtensions: ['.wav'],
   // 'tape-tap' downloads what the machine has written to its cassette output (.wav).
-  saveMenu: ['snapshot-a2state', 'tape-tap', 'screenshot-png', 'ram-bin'],
+  saveMenu: ['tape-tap', 'screenshot-png', 'ram-bin'],
   zipPolicy: 'media',
   persistMedia: true,
   bootDisk: false,
@@ -92,9 +99,9 @@ export function apple2Descriptor(
   };
 }
 
-export const apple2Entry: MachineEntry = {
+export const apple2Entry = {
   kind: 'apple2',
-  models: ['apple2', 'apple2-plus', 'apple2e', 'apple2e-enhanced', 'apple2c'],
+  models: ['apple2', 'apple2-plus', 'apple2e', 'apple2e-enhanced', 'apple2c'] as const,
   descriptor: apple2Descriptor,
   create(model: MachineModel, display: IScreenRenderer | null) {
     return new Apple2Machine(model as Apple2Model, display);
@@ -102,4 +109,4 @@ export const apple2Entry: MachineEntry = {
   romSources(model: MachineModel) {
     return [apple2ModelInfo(model).romSource];
   },
-};
+} satisfies MachineEntry;
