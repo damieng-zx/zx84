@@ -18,10 +18,9 @@ import { WD179x } from '@/cores/wd179x.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { resolveDriveCount } from '@/machines/shared/drive-count.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
@@ -88,7 +87,7 @@ const DAC_LEVELS: Float64Array = (() => {
  *  does not drop the machine back to 1x and then straight up again. */
 const TAPE_TURBO_COOLDOWN = 25;
 
-export class LynxMachine extends BaseMachine implements Machine {
+export class LynxMachine extends Z80MachineBase implements Machine {
   readonly kind: MachineKind = 'lynx';
   readonly model: LynxModel;
   /** Z80 clock: 4MHz on the 48K/96K, 6MHz on the 128K. */
@@ -302,12 +301,6 @@ export class LynxMachine extends BaseMachine implements Machine {
    *  for the snapshot header. */
   stateRomCrcs(): number[] { return [crc32(this.memory.rom)]; }
 
-  /** Run the rest of a frame a stop left open, so the machine is between
-   *  frames (where a snapshot is taken). */
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
-  }
-
   /**
    * Write the machine's sections of a `.lynxstate` (see
    * snapshots/lynx-state.ts): the disk-interface configuration first, so a
@@ -517,12 +510,6 @@ ${text}`;
       note: 'line 0 is the first line of the 6845\'s character row 0, restarted each frame, which is the first displayed line; VSYNC, wired straight to /INT, interrupts at the end of the line before row R7\'s first. The 50Hz frame is split evenly over the lines R4/R5/R9 program (312 by default), so a line follows the frame, not R0, and its length may be fractional. Each line is drawn whole when the CPU reaches its end',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   // ── Frame ──────────────────────────────────────────────────────────────
 

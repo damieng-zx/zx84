@@ -36,10 +36,9 @@ import { M6502 } from '@/cores/m6502.ts';
 import { M6522 } from '@/cores/m6522.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
@@ -106,7 +105,7 @@ function cb2High(via: M6522): boolean { return ((via.pcr >> 5) & 7) === 7; }
 function drivenA(via: M6522): number { return ((via.ora & via.ddra) | (~via.ddra & 0xFF)) & 0xFF; }
 function drivenB(via: M6522): number { return ((via.orb & via.ddrb) | (~via.ddrb & 0xFF)) & 0xFF; }
 
-export class Vic20Machine extends BaseMachine implements Machine {
+export class Vic20Machine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'vic20';
   readonly model: Vic20Model;
   host: MachineHost | null = null;
@@ -203,7 +202,6 @@ export class Vic20Machine extends BaseMachine implements Machine {
     this.tape = new TapeDeck(this.timing.clockHz);
     this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
-    this.deferAccessStamps = true;
 
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
     this.cpu.read = (addr) => {
@@ -673,7 +671,6 @@ export class Vic20Machine extends BaseMachine implements Machine {
 
   protected framePixels(): Uint8Array { return this._pixels; }
   protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
@@ -742,12 +739,6 @@ export class Vic20Machine extends BaseMachine implements Machine {
       note: `line 0 is raster line 0 and cycle 0 of a line is where the ${this.timing.ntsc ? '6560' : '6561'}'s raster counter moves on; the text area starts at the vertical origin ($9001, in pairs of lines) and the horizontal origin ($9000, in cycles). The picture is drawn as the beam goes, caught up before every VIC write`,
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
   /** No opcode is fetched from I/O, where a read has side effects. */
   protected override peekOpcode(addr: number): number {
     return (addr & 0xFC00) === 0x9000 ? -1 : this.memory.peekByte(addr);
@@ -825,10 +816,6 @@ export class Vic20Machine extends BaseMachine implements Machine {
   /** CRC-32s of BASIC, the KERNAL and the character ROM. */
   stateRomCrcs(): number[] {
     return [crc32(this.memory.basic), crc32(this.memory.kernal), crc32(this.memory.chargen)];
-  }
-
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
   }
 
   /** The fitted expansion, as text for a refusal. */

@@ -27,9 +27,8 @@ import {
 } from '@/cores/vic-ii.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { m6502ReturnAddress, z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
 import { accessTime, baseCycles, instructionLength, isReadModifyWrite } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
@@ -125,7 +124,7 @@ const BASIC2: BasicLayout = {
   txttab: 0x2B, vartab: 0x2D, arytab: 0x2F, strend: 0x31, keyBuf: 0x0277, keyCount: 0xC6, start: 0x0801,
 };
 
-export class C128Machine extends BaseMachine implements Machine {
+export class C128Machine extends M6502MachineBase implements Machine {
   readonly kind = 'c128' as const;
   readonly model: C128Model = 'c128';
   host: MachineHost | null = null;
@@ -291,7 +290,6 @@ export class C128Machine extends BaseMachine implements Machine {
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
     this.mixer.beeperGain = 1;
     this.mixer.psgGain = 1;
-    this.deferAccessStamps = true;
 
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
     // The Z80's interrupts (it has the IRQ only) go in the same log.
@@ -813,7 +811,6 @@ export class C128Machine extends BaseMachine implements Machine {
     if (this.running8502) return this.cpu.interruptPending();
     return this.irqLine && this.z80.iff1 && !this.z80.eiDelay;
   }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
   protected override stackPointer(): number { return this.running8502 ? this.cpu.sp : this.z80.sp; }
   protected override cpuPc(): number { return this.running8502 ? this.cpu.pc : this.z80.pc; }
 
@@ -1225,8 +1222,6 @@ export class C128Machine extends BaseMachine implements Machine {
       note: `line 0 is raster line 0 and cycle 0 of a line is the ${this.timing.ntsc ? '8564' : '8566'}'s cycle 1, where the raster counter moves on and the raster interrupt is raised; bad lines hold the CPU from cycle 11 to 54 and sprite DMA from cycle 54 on. The display window is lines 51-250. The picture is drawn as the beam goes, caught up before every VIC-IIe and CIA 2 write. The 8502 runs at 1 MHz, or at 2 MHz with the VIC-IIe blank, against the same master clock the beam counts in. The Z80 is stepped at two T-states to a cycle; its accesses are stamped when its instruction runs, and its interrupts are not in the interrupt log`,
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
   protected override interruptedPc(): number {
     return this.running8502
       ? m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a))
@@ -1387,10 +1382,6 @@ export class C128Machine extends BaseMachine implements Machine {
   stateRomCrcs(): number[] {
     const m = this.memory;
     return [m.basicLo, m.basicHi, m.kernal, m.chargen, m.basic64, m.kernal64].map(rom => crc32(rom));
-  }
-
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
   }
 
   /** The machine between frames. The tape is not part of it. */

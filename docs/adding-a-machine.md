@@ -23,12 +23,20 @@ machine-blind.
 
 Populate it as a motherboard (omit what your hardware lacks):
 
-- `<name>-machine.ts` — the machine class. Extend `BaseMachine` (frame loop,
-  pacing, turbo, audio back-pressure, debug-field storage) and implement the
-  `Machine` SPI from `machines/machine.ts`. Own your `runFrame()`: poll chip
+- `<name>-machine.ts` — the machine class. Extend the base for its CPU family —
+  `M6502MachineBase` or `Z80MachineBase` (`src/machines/shared/`), which extends
+  `BaseMachine` (frame loop, pacing, turbo, audio back-pressure, debug-field
+  storage) — and implement the `Machine` SPI from `machines/machine.ts`. The
+  family base answers the CPU-facing debug seams (`cpuCycles`, `stackPointer`,
+  `cpuPc`, `interruptedPc`) from your `cpu` and `memory` fields, so the machine
+  declares those two and supplies what differs. Own your `runFrame()`: poll chip
   interrupt flags and call `cpu.interrupt()` yourself (the audited model — cores
   never call back into the machine). Keep `cpu.portInHandler`/`portOutHandler`
-  as direct closures — they are tier-1 hot paths.
+  and the `cpu.read`/`cpu.write` bus hooks as direct closures — they are tier-1
+  hot paths. Override `peekOpcode()` when an opcode could be fetched from a page
+  whose reads have side effects (the BBC, C64, Plus/4 and VIC-20 machines do),
+  and call `completeFrame()` at the top of a native `saveState`, so a state is
+  always taken between frames.
 - Custom silicon and support files as needed: `ula.ts`/`gate-array.ts`/`vdp`
   wiring, `contention.ts`, `variants/`, `memory.ts`, `io.ts` (the port-decode
   if-chain), `keyboard.ts`, `peripherals/`, `snapshots/`, `tape-loader.ts`.

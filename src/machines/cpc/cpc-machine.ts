@@ -23,7 +23,7 @@ import { isCpr, parseCpr } from '@/media/cartridge/cpr.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import { disasmOne, type DisasmLine } from '@/debug/z80/disasm.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type { Machine, MachineHost, MachineKind, MachineDescriptor, BorderMode, SettingsView, AuxRomRequest } from '@/machines/machine.ts';
@@ -52,7 +52,7 @@ import {
   CPC_DEFAULT_OPTIONS, cpcTakesClassicOptions, cpcTakesDdi1, readCpcOptions, type CpcOptions,
 } from '@/machines/cpc/options.ts';
 import { cpcAcknowledgeInterrupt } from '@/machines/cpc/wait-states.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import {
   CPC_AY_CLOCK, CPC_CPU_CLOCK, CPC_T_PER_CHAR,
   CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT, CPC_BORDER_TOP, CPC_BORDER_LEFT,
@@ -69,7 +69,7 @@ const TAPE_LOAD_EXIT_GAP = 5000;
 /** The CPC's disk controller (built in, or the DDI-1) takes two drives. */
 export const CPC_MAX_DRIVES = 2;
 
-export class CpcMachine extends BaseMachine implements Machine {
+export class CpcMachine extends Z80MachineBase implements Machine {
   protected get audioChip(): AY3891x { return this.ay; }
   readonly kind: MachineKind = 'cpc';
   readonly model: CpcModel;
@@ -509,12 +509,6 @@ export class CpcMachine extends BaseMachine implements Machine {
         + 'at the end of its HSYNC, so a palette or mode change before then shows on that line',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   /** Forget a frame a stop left part-way: a loaded snapshot replaces the state
    *  it stopped in, so the next frame starts over at line 0. */

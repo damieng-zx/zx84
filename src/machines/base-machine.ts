@@ -20,6 +20,12 @@
  *                        it isn't capped at the vsync rate.
  *   - exitTurbo()      — restore per-frame state when leaving turbo. No-op by
  *                        default; the Spectrum restores timing accuracy.
+ *
+ * A machine does not extend this class directly. It extends the base for its
+ * CPU family (machines/shared/z80-machine-base.ts, m6502-machine-base.ts),
+ * which answers the seams that read the CPU (cpuCycles, stackPointer, cpuPc,
+ * interruptedPc) once for the family. What is left to the machine is in
+ * docs/adding-a-machine.md.
  */
 
 import type { Audio } from '@/audio.ts';
@@ -27,7 +33,6 @@ import type { AudioMixer } from '@/machines/shared/audio-mixer.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import { BEAM_IO, BEAM_IRQ, type BeamInfo, type BeamLog, type BeamPos } from '@/debug/beam-log.ts';
 import type { StopKind, StopReason } from '@/debug/stop-reason.ts';
-import { accessCycle } from '@/debug/m6502/bus-cycles.ts';
 import { IDLE_TRACER, type MachineTracer } from '@/debug/trace.ts';
 import type { MachineTraceMode } from '@/machines/machine.ts';
 
@@ -222,7 +227,8 @@ export abstract class BaseMachine {
     }
     return false;
   }
-  /** The CPU's next step enters an interrupt (6502 machines override this). */
+  /** The CPU's next step enters an interrupt instead of running the
+   *  instruction at pc (the 6502 family base answers this; the others do not). */
   protected interruptEntryPending(): boolean { return false; }
 
   // ── Interrupt log (docs/beam-debug-mcp-spec.md 2a) ────────────────────────
@@ -382,8 +388,8 @@ export abstract class BaseMachine {
   }
 
   // ── Watched accesses on a CPU that counts cycles after its bus accesses ──
-  /** Set by a machine whose CPU core makes an instruction's bus accesses
-   *  before it counts the instruction's cycles (the 6502 core): a logged
+  /** Set by the base for a CPU whose core makes an instruction's bus accesses
+   *  before it counts the instruction's cycles (the 6502 family base): a logged
    *  access is queued while {@link insnActive} and stamped with its own cycle
    *  of the instruction by {@link flushAccesses} after the step. */
   protected deferAccessStamps = false;
@@ -396,8 +402,16 @@ export abstract class BaseMachine {
   /** The step in progress enters an interrupt (and so runs no instruction). */
   private insnEntersInterrupt = false;
   /** The byte at `addr` without side effects, for reading the opcode of a
-   *  queued access's instruction. A machine that defers stamps overrides it. */
+   *  queued access's instruction. A CPU family base whose memory has a
+   *  side-effect-free read answers with it; -1 says the opcode is not known. */
   protected peekOpcode(_addr: number): number { return -1; }
+  /** The cycle (1 = the first) of an instruction of `cycles` cycles, starting
+   *  at `pc` with this `opcode`, on which a bus access to `addr` falls, for
+   *  {@link flushAccesses}. A family base works it out from the opcode; with
+   *  nothing to go on here, the access takes the instruction's last cycle. */
+  protected busAccessCycle(_opcode: number, _pc: number, _addr: number, _write: boolean, cycles: number): number {
+    return cycles;
+  }
 
   // ── Execution trace ───────────────────────────────────────────────────────
   /** The machine's trace engine (its CPU family's `debug/<family>/trace.ts`).
@@ -461,7 +475,7 @@ export abstract class BaseMachine {
       const opcode = interruptEntry ? -1 : this.peekOpcode(this.insnPc);
       for (let i = 0; i < q.length; i += 3) {
         const flags = q[i + 2];
-        const cycle = opcode < 0 ? cycles : accessCycle(opcode, this.insnPc, q[i], (flags & 1) !== 0, cycles);
+        const cycle = opcode < 0 ? cycles : this.busAccessCycle(opcode, this.insnPc, q[i], (flags & 1) !== 0, cycles);
         log.push(BEAM_IO, pos.frame, startT + cycle - 1, this.insnPc, q[i], q[i + 1], flags);
       }
     }
@@ -481,6 +495,38 @@ export abstract class BaseMachine {
     // A watchpoint the loop stopped on (see afterInsn), where it stopped.
     if (this.stopReason === null && (this.memWatchHit !== null || this.portWatchHit !== null)) {
       this.markStop(this.portWatchHit !== null ? 'port' : 'watch', this.cpuPc());
+    }
+  }
+
+  /**
+   * Run the rest of a frame a stop left part-way, with every breakpoint, trap,
+   * watchpoint and beam target set aside, so the machine is between frames
+   * afterwards: a snapshot is taken there, and its restore carries on from the
+   * next frame. The skip a breakpoint or trap stop owes is given back first,
+   * so none is left pending when the run resumes. No-op between frames.
+   */
+  protected completeFrame(): void {
+    if (!this.midFrame) return;
+    const { breakpoints, onTrap, beamTarget, memWatchpoints, portWatchpoints } = this;
+    this.breakpoints = new Set();
+    this.onTrap = null;
+    this.beamTarget = null;
+    this.memWatchpoints = [];
+    this.portWatchpoints = new Set();
+    this.memWatchHit = null;
+    this.portWatchHit = null;
+    this.resumeSkipPc = -1;
+    try {
+      this.stepFrame();
+    } finally {
+      this.breakpoints = breakpoints;
+      this.onTrap = onTrap;
+      this.beamTarget = beamTarget;
+      this.memWatchpoints = memWatchpoints;
+      this.portWatchpoints = portWatchpoints;
+      // Nothing the completed frame saw is a stop the user asked for.
+      this.memWatchHit = null;
+      this.portWatchHit = null;
     }
   }
 

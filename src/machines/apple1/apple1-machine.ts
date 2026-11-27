@@ -12,8 +12,8 @@ import { M6502 } from '@/cores/m6502.ts';
 import { M6820 } from '@/cores/m6820.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
-import { m6502ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import { M6502MachineBase } from '@/machines/shared/m6502-machine-base.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -38,7 +38,6 @@ import { Apple1Charset } from './apple1-charset.ts';
 import { Apple1Video } from './apple1-video.ts';
 import { apple1Descriptor } from './descriptor.ts';
 import { createApple1Services, type Apple1Services } from './services/index.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 
 /** Frames the cursor spends on, then off (about 1.9 blinks a second). */
@@ -52,7 +51,7 @@ class NoSound {
   setSampleRate(_rate: number): void {}
 }
 
-export class Apple1Machine extends BaseMachine implements Machine {
+export class Apple1Machine extends M6502MachineBase implements Machine {
   readonly kind: MachineKind = 'apple1';
   readonly model: Apple1Model;
   host: MachineHost | null = null;
@@ -112,8 +111,6 @@ export class Apple1Machine extends BaseMachine implements Machine {
     // Nothing on the board drives IRQ or NMI; the hook is there for the
     // interrupt log all the same.
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
-    // The 6502 core makes its bus accesses before it counts the cycles.
-    this.deferAccessStamps = true;
     this.cpu.read = (addr) => {
       const value = this.memory.readByte(addr);
       if (this.memWatchpoints.length > 0 && this.memWatchHit === null) this.recordMemWatch(addr & 0xFFFF, value, 'read');
@@ -341,13 +338,6 @@ export class Apple1Machine extends BaseMachine implements Machine {
       note: 'nominal: the frame is a 60 Hz NTSC field of 262 lines of 65 cycles, the slice of time the frame loop runs, but the terminal keeps its own timing that the CPU cannot see (it only polls the busy bit), so a line here is not tied to the picture; the terminal is drawn whole at the end of each frame',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return m6502ReturnAddress(this.cpu.sp, a => this.memory.peekByte(a)); }
-  protected override peekOpcode(addr: number): number { return this.memory.peekByte(addr); }
 
   /** Forget a frame a stop left open: a reset restarts the CPU's clock, so
    *  there is nothing to carry on. The frame count keeps going. */
@@ -355,8 +345,6 @@ export class Apple1Machine extends BaseMachine implements Machine {
     this.midFrame = false;
     this.clearInterrupts();
   }
-
-  protected override interruptEntryPending(): boolean { return this.cpu.interruptPending(); }
 
   protected runFrame(): void {
     const skipAudio = this.speedMultiplier !== 1;
@@ -441,16 +429,6 @@ export class Apple1Machine extends BaseMachine implements Machine {
   /** The fitted memory, as the Hardware pane names it. */
   private static fittedName(ramKb: number, basicRam: boolean, aci: boolean): string {
     return `${ramKb}K${basicRam ? ' with the BASIC RAM card' : ''}${aci ? ' and the Cassette Interface' : ''}`;
-  }
-
-  /** Run the rest of a frame a stop left part-way, with every stop set aside,
-   *  so the machine is between frames (a snapshot is taken there). */
-  private completeFrame(): void {
-    if (!this.midFrame) return;
-    withStopsDisarmed(this, () => {
-      this.resumeSkipPc = -1;
-      this.stepFrame();
-    });
   }
 
   /**

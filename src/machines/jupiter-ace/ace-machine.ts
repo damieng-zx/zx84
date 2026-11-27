@@ -35,11 +35,10 @@ import { AceUla } from './ula.ts';
 import { installAceMemoryHooks, wireAcePortIO } from './io.ts';
 import type { OcrGridName, OcrResult } from '@/ocr/ocr.ts';
 import { aceOcrResult, aceScreenCells, aceScreenText } from '@/ocr/jupiter-ace.ts';
-import { BaseMachine } from '@/machines/base-machine.ts';
+import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
-import { withStopsDisarmed } from '@/machines/shared/native-state.ts';
 import type { AceSnapshot } from './snapshots/ace-snapshot.ts';
-import { z80ReturnAddress, type BeamInfo, type BeamPos } from '@/debug/beam-log.ts';
+import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import {
   ACE_CPU_CLOCK, ACE_T_PER_FRAME, ACE_T_PER_LINE, ACE_LINES_PER_FRAME, ACE_ACTIVE_LINES,
@@ -64,7 +63,7 @@ function parseAceRamPack(value: string): AceRamPackKB {
   return 48;
 }
 
-export class JupiterAceMachine extends BaseMachine implements Machine {
+export class JupiterAceMachine extends Z80MachineBase implements Machine {
   /** The Ace has no PSG; this dormant AY exists only to satisfy the shared
    *  `audioChip` requirement — it is never wired to anything (see zx8x). */
   protected get audioChip(): AY3891x { return this.ay; }
@@ -291,12 +290,6 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
       note: 'line 0 is the first of the 192 active lines and /INT is held low for the 8 lines from line 192; each line is drawn whole when the CPU reaches its end, so the position of the picture within a line is not modelled and a video RAM write shows from the line it is made in',
     };
   }
-  override supportsBeamStops(): boolean { return true; }
-  override supportsInterruptLog(): boolean { return true; }
-  protected override cpuCycles(): number { return this.cpu.tStates; }
-  protected override stackPointer(): number { return this.cpu.sp; }
-  protected override cpuPc(): number { return this.cpu.pc; }
-  protected override interruptedPc(): number { return z80ReturnAddress(this.cpu.sp, a => this.memory.readByte(a)); }
 
   /**
    * Execute one PAL field. Runs the CPU scanline by scanline from the first
@@ -467,12 +460,6 @@ export class JupiterAceMachine extends BaseMachine implements Machine {
 
   /** CRC-32 of the system ROM, for the snapshot header. */
   stateRomCrcs(): number[] { return [crc32(this.memory.getRom())]; }
-
-  /** Run the rest of a frame a stop left open, so the machine is between
-   *  frames (where a snapshot is taken). */
-  private completeFrame(): void {
-    if (this.midFrame) withStopsDisarmed(this, () => this.stepFrame());
-  }
 
   /**
    * Write the machine's sections of a `.acestate` (see snapshots/ace-state.ts):
