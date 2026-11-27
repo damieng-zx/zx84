@@ -204,11 +204,11 @@ describe('atari boot and frame loop', () => {
     try {
       m.pressJoystick('up', true, 0);
       m.pressJoystick('fire', true, 0);
-      m.pia.writeControl(0, 0x00); // DDR access
-      m.pia.writeData(0, 0x00);    // all inputs
-      m.pia.writeControl(0, 0x04); // peripheral register
-      m.pia.inputA = 0xff & ~m.joyDir[0];
-      expect(m.pia.readData(0) & 0x01).toBe(0);
+      m.pia.write(1, 0x00); // DDR access
+      m.pia.write(0, 0x00); // all inputs
+      m.pia.write(1, 0x04); // peripheral register
+      m.pia.portAInput = 0xff & ~m.joyDir[0];
+      expect(m.pia.read(0) & 0x01).toBe(0);
       expect(m.gtia.readReg(0x10) & 0x01).toBe(0);
     } finally {
       m.destroy();

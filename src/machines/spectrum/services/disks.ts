@@ -30,7 +30,7 @@ export class SpectrumDiskService implements DiskService {
   get drives(): readonly DriveDescriptor[] {
     const s = this.s;
     const out: DriveDescriptor[] = [];
-    const motorUnit = s.fdc.motorOn ? s.fdc.currentUnit & 1 : -1;
+    const motorUnit = s.fdc.motorOn ? s.fdc.currentDrive & 1 : -1;
     if (s.variant.hasFDC) {
       for (let u = 0; u < s.driveCount; u++) {
         out.push({

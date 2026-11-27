@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { Z80DebugService, type Z80DebugTarget } from '@/debug/z80/service.ts';
-import { Z80 } from '@/cores/z80/core.ts';
+import { Z80 } from '@/cores/z80.ts';
 
 function make(): { dbg: Z80DebugService; cpu: Z80 } {
   const cpu = new Z80();

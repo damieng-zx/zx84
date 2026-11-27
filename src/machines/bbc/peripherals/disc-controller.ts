@@ -7,10 +7,10 @@
  * decode, the disk service and the frame probe stay controller-agnostic.
  */
 
-import type { DskImage } from '@/media/floppy/disk-image.ts';
+import type { FloppyController } from '@/cores/floppy-controller.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
 
-export interface BbcDiscController {
+export interface BbcDiscController extends FloppyController {
   /** Read a register in the floppy window (0xFE80-0xFE87). */
   read(addr: number): number;
   /** Write a register in the floppy window. */
@@ -19,28 +19,13 @@ export interface BbcDiscController {
   reset(): void;
   /** Advance by `cycles` at the 1 MHz disc clock (command-completion timers). */
   tick(cycles: number): void;
-  /** Per-frame pump (motor timers, index pulses). */
-  tickFrame(): void;
 
-  insertDisk(image: DskImage, unit: number): void;
-  ejectDisk(unit: number): void;
-  getDiskImage(unit: number): DskImage | null;
-  isDirty(unit: number): boolean;
-  clearDirty(unit: number): void;
-  readonly writeProtect: boolean[];
   /** Fit the first `count` drives; the rest have no drive wired to their select
    *  line (the controller reports them not-ready / not at track 0). */
   setDriveCount(count: number): void;
 
-  /** Frame-probe indicators. */
-  readonly motorOn: boolean;
-  readonly isExecuting: boolean;
-  readonly isWriting: boolean;
+  /** Last drive addressed — the drive-panel LED's active unit. */
   readonly currentDrive: number;
-  readonly currentSector: number;
-  getUnitTrack(unit: number): number;
-  /** Unit a FORMAT just completed on, or -1 (cleared by the probe). */
-  formattedUnit: number;
 
   /** Snapshot: the controller's state, taken after the discs are restored. */
   saveState(w: StateWriter): void;

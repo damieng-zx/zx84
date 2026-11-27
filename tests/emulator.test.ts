@@ -169,7 +169,7 @@ function makeCpcStub() {
     multiface: { enabled: false },
     config: { hasFDC: false },
     keyboard: { handleKeyEvent: vi.fn(() => true), reset: vi.fn() },
-    fdc: { motorOn: false, currentUnit: 0, getDiskImage: vi.fn(() => null),
+    fdc: { motorOn: false, currentDrive: 0, getDiskImage: vi.fn(() => null),
            writeProtect: [false, false], ejectDisk: vi.fn(), insertDisk: vi.fn(),
            clearDirty: vi.fn() },
     amxMouse: { enabled: false, active: false },

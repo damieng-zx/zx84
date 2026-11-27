@@ -21,23 +21,19 @@ function boot(): AtariMachine {
 
 /** Port A's data register selected, with its C1 interrupt flag set. */
 function setPiaFlag(m: AtariMachine): void {
-  m.pia.cr[0] = 0x04;
-  const s = m.pia.exportState();
-  s[4] = 0x04;   // cr[0]
-  s[6] = 1;      // C1 flag, port A
-  m.pia.importState(s);
+  m.pia.cr[0] = 0x04 | 0x80;
 }
 
-const c1Flag = (m: AtariMachine): number => m.pia.exportState()[6];
+const c1Flag = (m: AtariMachine): number => m.pia.cr[0] & 0x80;
 
 describe('Atari peekByte', () => {
   it('reads the PIA data register without clearing its interrupt flags; a real read does', () => {
     const m = boot();
     try {
       setPiaFlag(m);
-      expect(c1Flag(m)).toBe(1);
+      expect(c1Flag(m)).toBe(0x80);
       const peeked = m.memory.peekByte(0xD300);
-      expect(c1Flag(m)).toBe(1);
+      expect(c1Flag(m)).toBe(0x80);
       // It is the value a read returns.
       expect(m.memory.readByte(0xD300)).toBe(peeked);
       expect(c1Flag(m)).toBe(0);
@@ -95,7 +91,7 @@ describe('Atari peekByte', () => {
     try {
       setPiaFlag(m);
       m.memory.readBlock(0xD300, 4);
-      expect(c1Flag(m)).toBe(1);
+      expect(c1Flag(m)).toBe(0x80);
     } finally { m.destroy(); }
   });
 });
@@ -111,10 +107,10 @@ describe('MCP read_memory on the Atari', () => {
       setPiaFlag(m);
       const out = (await handlers.get('read_memory')!({ address: 'D300', length: 16 })).content[0].text;
       expect(out).toMatch(/^D300 /);
-      expect(c1Flag(m)).toBe(1);
+      expect(c1Flag(m)).toBe(0x80);
       // find reads the same way.
       await handlers.get('find')!({ hex_bytes: 'AA' });
-      expect(c1Flag(m)).toBe(1);
+      expect(c1Flag(m)).toBe(0x80);
     } finally { m.destroy(); }
   });
 });

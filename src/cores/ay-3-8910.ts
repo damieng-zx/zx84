@@ -6,6 +6,8 @@
 */
 
 import type { StateSink, StateSource } from '@/utils/state-stream.ts';
+import { PsgOutputStage } from '@/cores/psg-output.ts';
+import type { PsgAntialiasMode } from '@/cores/psg-output.ts';
 
 // AY-3-8910 DAC voltage levels (5-bit register, 32 entries) — measured
 // values (the "Hacker Kay" AY-3-8910 levels). Despite the register being 5
@@ -34,21 +36,8 @@ const REG_READ_MASK: readonly number[] = [
 
 export type AYStereoMode = 'MONO' | 'ABC' | 'ACB' | 'BAC' | 'BCA' | 'CAB' | 'CBA';
 
-// Resampler anti-aliasing strategy for the AY output stage. The chip can emit
-// ultrasonic tones (e.g. a channel parked at period 1 ≈ 110 kHz) that are
-// inaudible on real hardware but alias down into the audible band as a whine
-// when the output is naively point-sampled.
-//   none    — legacy point-sampling (no anti-aliasing; aliases)
-//   box     — average the chip output across the clocks in each output sample
-//   mute    — treat a tone at or above Nyquist for the current sample rate as
-//             silent (see AY3891x._muteThresholdPeriod — sample-rate
-//             dependent, not just period 1: at 48kHz output periods up to
-//             ~4 are still ultrasonic on hardware but would alias if sampled)
-//   lowpass — low-pass the mixed output, modelling the Spectrum's audio bandwidth
-export type AYAntialiasMode = 'none' | 'box' | 'mute' | 'lowpass';
-
-// Cutoff for the 'lowpass' anti-alias mode (one-pole), ~ Spectrum audio bandwidth.
-const LP_CUTOFF_HZ = 14000;
+/** The chip's anti-aliasing strategy — see {@link PsgOutputStage.antialias}. */
+export type AYAntialiasMode = PsgAntialiasMode;
 
 export class AY3891x {
   chipFreq: number;
@@ -95,41 +84,31 @@ export class AY3891x {
   // Stereo panning mode
   stereoMode: AYStereoMode;
 
-  // DC-blocking filter. Core default is on (matches the real chip's coupling); the
-  // mixer blocks every source itself and switches this off, and conformance tests
-  // disable it to match raw VGMPlay output.
-  dcBlocking = true;
+  /** The shared AC-coupling / anti-alias output stage (see psg-output.ts). */
+  private readonly out: PsgOutputStage;
 
-  // Resampler anti-aliasing mode. Core default is 'none' (deterministic
-  // point-sampling for conformance tests); the app sets it from the user's
-  // Sound-panel choice via emulator.ts.
-  antialias: AYAntialiasMode = 'none';
+  /** DC-blocking filter. Core default is on (matches the real chip's coupling);
+   *  the mixer blocks every source itself and switches this off, and
+   *  conformance tests disable it to match raw VGMPlay output. */
+  get dcBlocking(): boolean { return this.out.dcBlocking; }
+  set dcBlocking(on: boolean) { this.out.dcBlocking = on; }
 
-  // One-pole low-pass state for the 'lowpass' anti-alias mode.
-  private _lpAlpha: number;
-  private _lpOutL = 0;
-  private _lpOutR = 0;
+  /** Resampler anti-aliasing mode. Core default is 'none' (deterministic
+   *  point-sampling for conformance tests); the app sets it from the user's
+   *  Sound-panel choice via emulator.ts. */
+  get antialias(): AYAntialiasMode { return this.out.antialias; }
+  set antialias(mode: AYAntialiasMode) { this.out.antialias = mode; }
 
-  // 'mute' anti-alias threshold: any tone period at or above this value
-  // produces a frequency at or above Nyquist for the current sample rate —
-  // still ultrasonic on real hardware, but aliasing down into the audible
-  // band if naively point-sampled. Recomputed whenever chipFreq/sampleRate
-  // change (see _recomputeMuteThreshold). Sample-rate dependent: a fixed
-  // "period <= 1" threshold only covers ~110kHz, but e.g. at 48kHz output
-  // (Nyquist 24kHz) periods up to ~4 (≈27-55kHz) also alias.
-  private _muteThresholdPeriod = 1;
-
-  // DC-blocking filter state (AC coupling, like real hardware's coupling capacitor)
-  // y[n] = α * (y[n-1] + x[n] - x[n-1]), α ≈ 0.997 for ~20 Hz cutoff at 44.1 kHz
-  private _dcAlpha: number;
-  private _dcPrevL: number;
-  private _dcPrevR: number;
-  private _dcOutL: number;
-  private _dcOutR: number;
-
-  /** Same as assigning `dcBlocking`, for the mixer's `StereoAudioSource` contract. */
+  /** Same as assigning `dcBlocking`, for the mixer's `StereoAudioSource`
+   *  contract. */
   setDcBlocking(enabled: boolean): void {
-    this.dcBlocking = enabled;
+    this.out.dcBlocking = enabled;
+  }
+
+  /** Recompute the 'mute' anti-alias period threshold for the current
+   *  chipFreq/sampleRate — see PsgOutputStage.muteThresholdPeriod. */
+  private _recomputeMuteThreshold(): void {
+    this.out.muteThresholdPeriod = Math.floor(this.chipFreq / (16 * (this.sampleRate / 2)));
   }
 
   constructor(chipFreq: number, sampleRate: number, stereoMode: AYStereoMode = 'ABC') {
@@ -167,23 +146,8 @@ export class AY3891x {
 
     this.selectedReg = 0;
 
-    // DC-blocking filter: cutoff ~20 Hz, adapts to any sample rate
-    this._dcAlpha = 1 - (2 * Math.PI * 20 / sampleRate);
-    this._dcPrevL = 0;
-    this._dcPrevR = 0;
-    this._dcOutL = 0;
-    this._dcOutR = 0;
-
-    // Low-pass coefficient for 'lowpass' anti-alias mode
-    this._lpAlpha = 1 - Math.exp(-2 * Math.PI * LP_CUTOFF_HZ / sampleRate);
-
+    this.out = new PsgOutputStage(sampleRate);
     this._recomputeMuteThreshold();
-  }
-
-  /** Recompute the 'mute' anti-alias period threshold for the current
-   *  chipFreq/sampleRate — see _muteThresholdPeriod. */
-  private _recomputeMuteThreshold(): void {
-    this._muteThresholdPeriod = Math.floor(this.chipFreq / (16 * (this.sampleRate / 2)));
   }
 
   /** Update the sample rate after construction (e.g. once the AudioContext
@@ -194,8 +158,7 @@ export class AY3891x {
     if (!Number.isFinite(sampleRate) || sampleRate <= 0) return;
     this.sampleRate = sampleRate;
     this.cyclesPerSample = this.chipFreq / (sampleRate * 8);
-    this._dcAlpha = 1 - (2 * Math.PI * 20 / sampleRate);
-    this._lpAlpha = 1 - Math.exp(-2 * Math.PI * LP_CUTOFF_HZ / sampleRate);
+    this.out.setSampleRate(sampleRate);
     this._recomputeMuteThreshold();
   }
 
@@ -223,12 +186,7 @@ export class AY3891x {
     this.amplitude.fill(0);
     this.regs.fill(0);
     this.selectedReg = 0;
-    this._dcPrevL = 0;
-    this._dcPrevR = 0;
-    this._dcOutL = 0;
-    this._dcOutR = 0;
-    this._lpOutL = 0;
-    this._lpOutR = 0;
+    this.out.reset();
   }
 
   writeRegister(reg: number, value: number): void {
@@ -386,15 +344,10 @@ export class AY3891x {
     const noiseEnable = !((this.mixer >> (ch + 3)) & 1);
 
     // 'mute' anti-alias: a tone at or above Nyquist for the current sample
-    // rate (see _muteThresholdPeriod) is ultrasonic and inaudible on real
-    // hardware. Force the tone gate high so the channel emits a steady
-    // level (DC, removed by AC coupling) instead of a tone that would
-    // alias down into an audible whine. A fixed "period <= 1" threshold
-    // only covers ~110kHz; at 48kHz output (Nyquist 24kHz) periods up to
-    // ~4 (≈27-55kHz) also fold into the audible band.
-    const ultrasonic = this.antialias === 'mute' && toneEnable
-      && this.tonePeriod[ch] <= this._muteThresholdPeriod;
-    const toneOut = (toneEnable && !ultrasonic) ? this.toneOutput[ch] : 1;
+    // rate is ultrasonic and inaudible on real hardware. Force the tone gate
+    // high so the channel emits a steady level (DC, removed by AC coupling)
+    // instead of a tone that would alias into an audible whine.
+    const toneOut = (toneEnable && !this.out.isUltrasonic(this.tonePeriod[ch])) ? this.toneOutput[ch] : 1;
     const noiseOut = noiseEnable ? this.noiseOutput : 1;
 
     if (toneOut & noiseOut) {
@@ -469,7 +422,7 @@ export class AY3891x {
       // so ultrasonic tones collapse to ~DC instead of aliasing to a whine.
       let acc = 0, n = 0;
       this.cycleFrac += this.cyclesPerSample;
-      while (this.cycleFrac >= 1) {
+      for (let ticks = Math.floor(this.cycleFrac); ticks > 0; ticks--) {
         this.cycleFrac--;
         this.clock();
         acc += this.output();
@@ -478,23 +431,13 @@ export class AY3891x {
       raw = n > 0 ? acc / n : this.output();
     } else {
       this.cycleFrac += this.cyclesPerSample;
-      while (this.cycleFrac >= 1) {
+      for (let ticks = Math.floor(this.cycleFrac); ticks > 0; ticks--) {
         this.cycleFrac--;
         this.clock();
       }
       raw = this.output();
     }
-    if (this.dcBlocking) {
-      // DC-blocking filter (AC coupling) — removes DC bias dynamically
-      this._dcOutL = this._dcAlpha * (this._dcOutL + raw - this._dcPrevL);
-      this._dcPrevL = raw;
-      raw = this._dcOutL;
-    }
-    if (this.antialias === 'lowpass') {
-      this._lpOutL += this._lpAlpha * (raw - this._lpOutL);
-      raw = this._lpOutL;
-    }
-    return raw;
+    return this.out.processMono(raw);
   }
 
   generateSampleStereo(): { left: number; right: number } {
@@ -503,7 +446,7 @@ export class AY3891x {
       // Box-filter decimation per channel (see generateSample)
       let accL = 0, accR = 0, n = 0;
       this.cycleFrac += this.cyclesPerSample;
-      while (this.cycleFrac >= 1) {
+      for (let ticks = Math.floor(this.cycleFrac); ticks > 0; ticks--) {
         this.cycleFrac--;
         this.clock();
         const o = this.outputStereo();
@@ -521,7 +464,7 @@ export class AY3891x {
       }
     } else {
       this.cycleFrac += this.cyclesPerSample;
-      while (this.cycleFrac >= 1) {
+      for (let ticks = Math.floor(this.cycleFrac); ticks > 0; ticks--) {
         this.cycleFrac--;
         this.clock();
       }
@@ -529,27 +472,7 @@ export class AY3891x {
       l = o.left;
       r = o.right;
     }
-    if (this.dcBlocking) {
-      // DC-blocking filter (AC coupling) — removes DC bias dynamically
-      const outL = this._dcAlpha * (this._dcOutL + l - this._dcPrevL);
-      const outR = this._dcAlpha * (this._dcOutR + r - this._dcPrevR);
-      this._dcPrevL = l;
-      this._dcPrevR = r;
-      this._dcOutL = outL;
-      this._dcOutR = outR;
-      l = outL;
-      r = outR;
-    }
-    if (this.antialias === 'lowpass') {
-      this._lpOutL += this._lpAlpha * (l - this._lpOutL);
-      this._lpOutR += this._lpAlpha * (r - this._lpOutR);
-      l = this._lpOutL;
-      r = this._lpOutR;
-    }
-    const out = this._stereoOut;
-    out.left = l;
-    out.right = r;
-    return out;
+    return this.out.processStereo(l, r);
   }
 
   setStereoMode(mode: AYStereoMode): void {
@@ -590,7 +513,6 @@ export class AY3891x {
     this.envHolding = r.bool(); this.envVolume = r.u8(); this.envAttack = r.u8();
     this.envContinue = r.bool(); this.envAlternate = r.bool(); this.envHold = r.bool();
     this.mixer = r.u8();
-    this._dcPrevL = 0; this._dcPrevR = 0; this._dcOutL = 0; this._dcOutR = 0;
-    this._lpOutL = 0; this._lpOutR = 0;
+    this.out.reset();
   }
 }

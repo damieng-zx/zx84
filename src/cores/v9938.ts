@@ -151,8 +151,6 @@ interface V9938Command {
   dstExpansion: boolean;
   x: number;
   y: number;
-  remainingX: number;
-  remainingY: number;
   lineError: number;
   lineCount: number;
   cpuWaiting: boolean;
@@ -935,8 +933,6 @@ export class V9938 {
       dstExpansion: (this.regs[45] & 0x20) !== 0,
       x: 0,
       y: 0,
-      remainingX: nx,
-      remainingY: ny,
       lineError: Math.max(0, (nx - 1) >> 1),
       lineCount: 0,
       cpuWaiting: code === 0x0A || code === 0x0B || code === 0x0F,
@@ -1210,7 +1206,7 @@ export class V9938 {
     if (c) {
       w.u8(c.code); w.u8(c.op); w.u8(c.mode);
       for (const v of [c.sx, c.sy, c.dx, c.dy, c.nx, c.ny, c.tx, c.ty, c.x, c.y,
-        c.remainingX, c.remainingY, c.lineError, c.lineCount]) w.f64(v);
+        c.lineError, c.lineCount]) w.f64(v);
       w.bool(c.srcExpansion); w.bool(c.dstExpansion); w.bool(c.cpuWaiting);
     }
   }
@@ -1233,10 +1229,10 @@ export class V9938 {
       const code = r.u8(), op = r.u8(), mode = (r.u8() & 3) as CommandMode;
       const n = (): number => r.f64();
       const sx = n(), sy = n(), dx = n(), dy = n(), nx = n(), ny = n(), tx = n(), ty = n();
-      const x = n(), y = n(), remainingX = n(), remainingY = n(), lineError = n(), lineCount = n();
+      const x = n(), y = n(), lineError = n(), lineCount = n();
       this.command = {
         code, op, mode, sx, sy, dx, dy, nx, ny, tx, ty, x, y,
-        remainingX, remainingY, lineError, lineCount,
+        lineError, lineCount,
         srcExpansion: r.bool(), dstExpansion: r.bool(), cpuWaiting: r.bool(),
       };
     } else {

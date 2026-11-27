@@ -16,6 +16,7 @@
  */
 
 import { WD179x } from '@/cores/wd179x.ts';
+import type { FloppyController } from '@/cores/floppy-controller.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { ADFS_SECTORS_PER_TRACK } from '@/media/floppy/adfs.ts';
 import type { StateReader, StateWriter } from '@/machines/shared/state-io.ts';
@@ -42,7 +43,7 @@ export const PLUS3_ROM_PAGE = 4;
  *  which is not available, so the board is not modelled. */
 export const DFS_ROM_PAGE = 0;
 
-export class ElectronPlus3 {
+export class ElectronPlus3 implements FloppyController {
   readonly fdc: WD179x;
   control = 0;
   /** True while the latch is holding the controller in reset. */
@@ -114,6 +115,7 @@ export class ElectronPlus3 {
   get isExecuting(): boolean { return this.fdc.isExecuting; }
   get isWriting(): boolean { return this.fdc.isWriting; }
   get currentDrive(): number { return this.fdc.currentDrive; }
+  get currentTrack(): number { return this.fdc.currentTrack; }
   get currentSector(): number { return this.fdc.currentSector; }
   getUnitTrack(unit: number): number { return this.fdc.getUnitTrack(unit); }
   get formattedUnit(): number { return this.fdc.formattedUnit; }
@@ -128,6 +130,7 @@ export class ElectronPlus3 {
   isDirty(unit: number): boolean { return this.fdc.isDirty(unit); }
   clearDirty(unit: number): void { this.fdc.clearDirty(unit); }
   get writeProtect(): boolean[] { return this.fdc.writeProtect; }
+  get connected(): boolean[] { return this.fdc.connected; }
 
   /** Fit the first `count` drives; the other select lines have nothing on them. */
   setDriveCount(count: number): void {

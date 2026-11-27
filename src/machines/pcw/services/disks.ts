@@ -23,7 +23,7 @@ export class PcwDiskService implements DiskService {
 
   get drives(): readonly DriveDescriptor[] {
     const m = this.m;
-    const motorUnit = m.fdc.motorOn ? m.fdc.currentUnit & 1 : -1;
+    const motorUnit = m.fdc.motorOn ? m.fdc.currentDrive & 1 : -1;
     const out: DriveDescriptor[] = [];
     for (let u = 0; u < m.driveCount; u++) {
       const id = u === 0 ? 'a' : 'b';

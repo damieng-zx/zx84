@@ -29,6 +29,7 @@
  */
 
 import type { DskImage, DskTrack, DskSector } from '@/media/floppy/disk-image.ts';
+import type { FloppyController } from '@/cores/floppy-controller.ts';
 import {
   locateTrack, readDskSector, trackAt, writeDskSector,
 } from '@/media/floppy/disk-state.ts';
@@ -131,7 +132,7 @@ const BUSY_PULSE_READS = 4;
  */
 const BYTE_CYCLES = 80;
 
-export class WD179x {
+export class WD179x implements FloppyController {
   private readonly statusBit7Mode: WD179xOptions['statusBit7'];
   private formatSectorsPerTrack: number;
   private readonly hasSideCompare: boolean;
