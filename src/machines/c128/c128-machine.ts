@@ -35,8 +35,9 @@ import { M6502Trace } from '@/debug/m6502/trace.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
 import { C128Trace } from './trace.ts';
 import { busByte, layOut } from './fast-clock.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
-import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
+import { CbmDatasette } from '@/machines/shared/cbm/datasette.ts';
+import type { TapeDeck } from '@/media/tape/tap.ts';
+import type { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { C64Program } from '@/media/tape/t64.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
 import { VIC_PALETTE } from '@/machines/shared/cbm/vic-ii-board.ts';
@@ -95,15 +96,6 @@ const BOOT_FRAMES = 260;
 const C64_KEY_HOLD_FRAMES = 30;
 /** Serial bus writes in a frame that mean a file is moving (a byte is dozens). */
 const IEC_BUSY_WRITES = 8;
-/** Frames of quiet before tape turbo lets go. */
-const TAPE_TURBO_COOLDOWN = 25;
-/** Reads of the 8502 port in a frame that mean a program is polling the
- *  cassette sense line (the KERNAL's IRQ reads it about once a frame). */
-const AUTO_PLAY_POLLS = 100;
-/** Reads of CIA 1's interrupt flags in a frame that mean the tape is being
- *  read: every pulse is an interrupt (or a poll), where the KERNAL's jiffy
- *  IRQ alone reads it about once a frame. */
-const TURBO_ICR_READS = 10;
 
 /** Where BASIC keeps its pointers and its keyboard queue, and where a program
  *  starts, in C128 mode (BASIC 7.0, program text at $1C01 in RAM block 0) and
@@ -144,9 +136,9 @@ export class C128Machine extends M6502MachineBase implements Machine {
   /** The character ROM's 128-mode glyph set (the VDC's font comes from it), for reading text off the VDC by shape. */
   private readonly vdcGlyphs = this.memory.chargen.subarray(C128_CHARGEN_128_OFFSET, C128_CHARGEN_128_OFFSET + 0x1000);
   /** The Datasette's tape, played through the shared pulse deck. */
-  readonly tape: TapeDeck;
+  get tape(): TapeDeck { return this.datasette.tape; }
   /** Edges of the cassette write line since the last reset (what SAVE wrote). */
-  readonly tapeRecorder = new PulseRecorder();
+  get tapeRecorder(): PulseRecorder { return this.datasette.recorder; }
   /** The serial bus and the disk drives on it. CIA 2 port A drives the bus as
    *  on the 64 (ATN, CLK and DATA out on bits 3-5), and CIA 1's shift register
    *  is the fast serial port, which the MMU's mode register bit 3 points out
@@ -163,6 +155,10 @@ export class C128Machine extends M6502MachineBase implements Machine {
   get driveModels(): readonly CbmDriveModel[] { return this.iec.driveModels; }
   /** The model of the first drive in that setup. */
   get driveModel(): CbmDriveModel { return this.iec.driveModel; }
+
+  /** The shared Commodore Datasette: the deck and the whole transport state
+   *  machine. This board supplies the cassette lines and the counters. */
+  readonly datasette: CbmDatasette;
 
   readonly mixer: AudioMixer;
   readonly audio = new Audio();
@@ -189,20 +185,13 @@ export class C128Machine extends M6502MachineBase implements Machine {
   private mouseY = 0;
   private mouseButtons = 0;
 
-  // Tape transport.
-  tapeTurbo = true;
-  private _tapeTurboActive = false;
-  private tapeTurboCooldown = 0;
-  private tapeLastT = 0;
-  private prevEar = 0;
-  private motorWasOn = false;
-  private autoPlayArmed = false;
-  /** CIA 1 interrupt-flag reads this frame, and the recorder's length at
-   *  the last frame's end (for the turbo). */
+  // Tape transport: the shared Commodore Datasette (above) owns the deck and
+  // the transport state machine; this board supplies the lines and counters.
+  /** CIA 1 interrupt-flag reads this frame (the tape-turbo signal), taken
+   *  by the datasette at each frame's end. */
   private icrReads = 0;
   /** Writes to the serial bus this frame: a drive sending or taking a file. */
   private iecWrites = 0;
-  private recordedAtFrame = 0;
 
   /** A program waiting for BASIC to be ready before it is put in memory. */
   private pendingProgram: { prog: C64Program; run: boolean } | null = null;
@@ -215,16 +204,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
    *  change to the drive. Cleared by any reset. */
   refreshResumed = false;
 
-  get tapeTurboActive(): boolean { return this._tapeTurboActive; }
-
-  /** Whether the Datasette's EAR line is mixed into the audio (the tape-sound
-   *  setting), as the loading sound. */
-  tapeSoundEnabled = true;
-
-  /** The EAR line as loading sound, only while the tape is actually running. */
-  private tapeAudioLevel(): number {
-    return this.tapeSoundEnabled && this.tape.playing && !this.tape.paused ? this.tape.earBit : 0;
-  }
+  get tapeTurboActive(): boolean { return this.datasette.turboActive; }
 
   /** VIC-IIe registers $D02F (the keyboard lines it selects, bits 0-2) and
    *  $D030 (bit 0 is the 2 MHz mode). */
@@ -283,8 +263,29 @@ export class C128Machine extends M6502MachineBase implements Machine {
     this.timing = c128Timing(ntsc);
     this.sid = new Mos6581(this.timing.clockHz);
     this.mixer = new AudioMixer(this.timing.clockHz);
-    this.tape = new TapeDeck(this.timing.clockHz);
-    this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
+    this.datasette = new CbmDatasette({
+      motor: () => this.memory.motorOn,
+      cassetteWrite: () => this.memory.cassetteWrite,
+      read: (level) => {
+        if (level === 0) { this.cia1.flag(); this.activity.tapeEdges++; }
+      },
+      takePolls: () => {
+        const polls = this.memory.portReads;
+        this.memory.portReads = 0;
+        return polls;
+      },
+      takeFlagReads: () => {
+        const reads = this.icrReads;
+        this.icrReads = 0;
+        return reads;
+      },
+      transportChanged: () => {
+        this.memory.cassetteSense = this.tapeSense;
+        this.memory.pinsChanged();
+      },
+      releaseTurbo: () => { this.sid.flush(); this.mixer.reset(); },
+      pressedPlay: () => this.setStatus('PLAY pressed on the Datasette'),
+    }, this.timing.clockHz);
     this.lineEvents = [EV_VC, EV_SPRITE_MCB, EV_SPRITE_DMA, this.timing.lineEndCycle, this.timing.cyclesPerLine];
     this.vic = new VicII(this.memory, this.timing, VIC_PALETTE);
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
@@ -543,15 +544,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
 
   /** The 8502 port changed: follow the motor and the write line. */
   private portChanged(): void {
-    const motor = this.memory.motorOn;
-    if (motor !== this.motorWasOn) {
-      this.motorWasOn = motor;
-      if (this.tape.loaded && this.tape.playing) {
-        if (motor) this.tapeLastT = this.cpu.tStates;
-        this.tape.paused = !motor;
-      }
-    }
-    if (motor) this.tapeRecorder.observe(this.memory.cassetteWrite ? 1 : 0, this.cpu.tStates);
+    this.datasette.portsChanged(this.cpu.tStates);
   }
 
   // ── Reset ────────────────────────────────────────────────────────────────
@@ -666,12 +659,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
     // The cartridge starts over with the clock it keeps time by.
     this.memory.resetCartridge();
     this.iec.reset();
-    this.tapeRecorder.reset();
-    this.recordedAtFrame = 0;
-    this.motorWasOn = false;
-    if (this.tape.loaded) this.tape.paused = true;
-    this._tapeTurboActive = false;
-    this.tapeTurboCooldown = 0;
+    this.datasette.reset(this.cpu.tStates);
     this.framesSinceReset = 0;
     this.pendingProgram = null;
     this.c64KeyFrames = 0;
@@ -698,7 +686,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
     this.cia2.now = t;
     this.sid.now = t;
     this.sid.flush();
-    this.tapeLastT = t;
+    this.datasette.syncClock(t);
     this.audioLastT = t;
   }
 
@@ -715,38 +703,18 @@ export class C128Machine extends M6502MachineBase implements Machine {
   tapeTransportChanged(): void {
     this.memory.cassetteSense = this.tapeSense;
     this.memory.pinsChanged();
-    this.motorWasOn = this.memory.motorOn;
-    this.tapeLastT = this.cpu.tStates;
-    this.prevEar = this.tape.earBit;
-    if (this.tape.loaded && this.tape.playing) this.tape.paused = !this.motorWasOn;
+    this.datasette.transportChanged(this.cpu.tStates);
   }
 
   /** Mounting a tape leaves PLAY up (with it down the KERNAL would run the
    *  motor at the READY prompt and wind the tape on); PLAY goes down by
    *  itself the first time software sits waiting for it. */
-  armAutoPlay(): void { this.autoPlayArmed = true; }
-
-  /** PLAY, pressed for a program polling the sense line (the KERNAL's PRESS
-   *  PLAY ON TAPE loop, or a loader's own). */
-  private checkAutoPlay(): void {
-    const polls = this.memory.portReads;
-    this.memory.portReads = 0;
-    if (!this.autoPlayArmed || !this.tape.loaded || this.tape.playing) return;
-    if (polls < AUTO_PLAY_POLLS) return;
-    this.autoPlayArmed = false;
-    this.tape.startPlayback();
-    this.tapeTransportChanged();
-    this.setStatus('PLAY pressed on the Datasette');
-  }
+  armAutoPlay(): void { this.datasette.armAutoPlay(); }
 
   /** Turbo while the KERNAL (or a loader) is reading the tape — the motor
    *  is on and the deck is moving — or saving to the empty deck, or a disk is
    *  busy. */
   private updateTapeTurbo(): void {
-    const reading = this.tape.playing && !this.tape.paused && this.icrReads >= TURBO_ICR_READS;
-    const writing = this.tapeRecorder.count !== this.recordedAtFrame;
-    this.icrReads = 0;
-    this.recordedAtFrame = this.tapeRecorder.count;
     // A disk is busy while a motor runs and either the controller moves bytes
     // or the serial bus is carrying them (a 1581 reads a sector in a blink and
     // then spends the best part of a second sending it).
@@ -754,22 +722,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
     const busy = this.iecWrites >= IEC_BUSY_WRITES;
     this.iecWrites = 0;
     for (const d of this.drives) if ((d.takeActivity() > 0 || busy) && d.motorOn) diskBusy = true;
-    const loading = (this.memory.motorOn && (reading || writing)) || diskBusy;
-    if (loading) {
-      this._tapeTurboActive = this.tapeTurbo;
-      this.tapeTurboCooldown = TAPE_TURBO_COOLDOWN;
-    } else if (this.tapeTurboCooldown > 0) {
-      if (--this.tapeTurboCooldown === 0) this.releaseTapeTurbo();
-    } else if (this._tapeTurboActive) {
-      this.releaseTapeTurbo();
-    }
-  }
-
-  private releaseTapeTurbo(): void {
-    if (!this._tapeTurboActive) return;
-    this._tapeTurboActive = false;
-    this.sid.flush();
-    this.mixer.reset();
+    this.datasette.updateTurbo(diskBusy);
   }
 
   /** The MMU's mode register handed the bus to the other CPU. Each carries on
@@ -806,7 +759,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
 
   protected get audioChip(): Mos6581 { return this.sid; }
   protected framePixels(): Uint8Array { return this.pixels; }
-  protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
+  protected inTurbo(): boolean { return this.turbo || this.datasette.turboActive; }
   protected override interruptEntryPending(): boolean {
     if (this.running8502) return this.cpu.interruptPending();
     return this.irqLine && this.z80.iff1 && !this.z80.eiDelay;
@@ -818,7 +771,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
   get cpuIs8502(): boolean { return this.running8502; }
 
   protected runFrame(): void {
-    const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
+    const skipAudio = this.speedMultiplier !== 1 || this.datasette.turboActive;
     this.sid.audible = !skipAudio;
     if (!this.openFrame(this.timing.cyclesPerFrame)) {
       this.activity.kbdReads = 0;
@@ -874,7 +827,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
     this.syncDrive(this.cpu.tStates);
     this.vdc.tickFrame();
     this.drawVdc();
-    this.checkAutoPlay();
+    this.datasette.checkAutoPlay(this.cpu.tStates);
     this.updateTapeTurbo();
     this.needsDisplay = true;
   }
@@ -899,7 +852,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
     const elapsed = now - this.audioLastT;
     this.audioLastT = now;
     if (elapsed <= 0) return;
-    this.mixer.accumulateLevel(this.tapeAudioLevel(), elapsed);
+    this.mixer.accumulateLevel(this.datasette.audioLevel(), elapsed);
     this.mixer.generateSamples(this.audio, this.sid, true);
   }
 
@@ -1008,17 +961,7 @@ export class C128Machine extends M6502MachineBase implements Machine {
   /** After each instruction: the tape, the CIAs and the interrupt lines. */
   private afterStep(): void {
     const now = this.cpu.tStates;
-    const tape = this.tape;
-    if (tape.playing && !tape.paused) {
-      const gap = now - this.tapeLastT;
-      this.tapeLastT = now;
-      if (gap > 0) tape.advance(gap);
-      const ear = tape.earBit;
-      if (ear !== this.prevEar) {
-        this.prevEar = ear;
-        if (ear === 0) { this.cia1.flag(); this.activity.tapeEdges++; }
-      }
-    }
+    this.datasette.step(now);
     this.cia1.advanceTo(now);
     this.cia2.advanceTo(now);
     this.updateInterrupts();
@@ -1168,8 +1111,8 @@ export class C128Machine extends M6502MachineBase implements Machine {
 
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
-    this.tapeTurbo = view.get('tape-turbo-load', true);
-    this.tapeSoundEnabled = view.get('tape-sound', true);
+    this.datasette.tapeTurbo = view.get('tape-turbo-load', true);
+    this.datasette.tapeSoundEnabled = view.get('tape-sound', true);
     this.sid.setModel(view.get<string>('c64-sid', '6581') === '8580' ? '8580' : '6581');
     this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
     const mode = view.get<string>('c128-display', 'auto');
@@ -1473,7 +1416,6 @@ export class C128Machine extends M6502MachineBase implements Machine {
     this.fastCarry = 0;
     this.memory.cassetteSense = this.tapeSense;
     this.memory.pinsChanged();
-    this.motorWasOn = this.memory.motorOn;
     this.memory.setVicBank((~this.cia2.drivenA) & 3);
     this.midFrame = false;
     this.fLine = 0;
@@ -1484,12 +1426,10 @@ export class C128Machine extends M6502MachineBase implements Machine {
     this.keyboard.reset();
     this.keyboard.capsLock = this.memory.capsLockDown;
     this.joy1 = this.joy2 = 0;
-    this._tapeTurboActive = false;
-    this.tapeTurboCooldown = 0;
     this.framesSinceReset = BOOT_FRAMES;
     this.pendingProgram = null;
     this.c64KeyFrames = 0;
-    this.tapeLastT = this.cpu.tStates;
+    this.datasette.resync(this.cpu.tStates);
     this.audioLastT = this.cpu.tStates;
     this.audio.reset();
     this.mixer.reset();

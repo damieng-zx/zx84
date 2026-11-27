@@ -4,34 +4,18 @@
  */
 
 import type {
-  FrameIndicators, FrameProbe, TranscribeDriver,
+  FrameIndicators, FrameProbe,
 } from '@/machines/machine.ts';
-import type { OcrGridName } from '@/ocr/ocr.ts';
 import type { C128Machine } from '../c128-machine.ts';
 import { sampleCbmDrives } from '@/machines/shared/cbm/drive-services.ts';
+import { CbmTranscribeDriver } from '@/machines/shared/cbm/frame-probe.ts';
 
 
 /** TEXT overlay: read the text screen — whichever of the two the canvas is
  *  showing — then blank what it read. Both chips keep character codes in
  *  their screen RAM, so a match is a cell whose glyph is a font character. */
-class C128TranscribeDriver implements TranscribeDriver {
-  private _active = false;
-  constructor(private readonly m: C128Machine) {}
-  get active(): boolean { return this._active; }
-  activate(): void { this._active = true; }
-  deactivate(): void { this._active = false; }
-  run(): {
-    text: string; html: string; grid: OcrGridName;
-    field: { x: number; y: number; width: number; height: number };
-  } {
-    const m = this.m;
-    const result = m.ocrScreenStyled();
-    if (result.mask.some(Boolean)) {
-      m.blankCells(result.mask, result.paper);
-      m.display?.updateTexture(m.pixels);
-    }
-    return { text: result.text, html: result.html, grid: result.grid, field: m.textField };
-  }
+class C128TranscribeDriver extends CbmTranscribeDriver {
+  constructor(m: C128Machine) { super(m); }
 }
 
 export class C128FrameProbe implements FrameProbe {

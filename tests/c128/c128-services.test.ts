@@ -137,7 +137,7 @@ describe('C128 settings', () => {
     const m = new C128Machine(null);
     m.applySettings(view({ 'c64-sid': '8580', 'tape-turbo-load': false, 'c128-display': '80' }));
     expect(m.sid.model).toBe('8580');
-    expect(m.tapeTurbo).toBe(false);
+    expect(m.datasette.tapeTurbo).toBe(false);
     expect(m.showing80).toBe(true);
     m.applySettings(view({}));
     expect(m.showing80).toBe(false);

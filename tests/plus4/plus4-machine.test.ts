@@ -423,7 +423,7 @@ describe('Datasette loading sound', () => {
     expect(levels).toContain(1);
     // With loading sounds off the same tape contributes silence.
     levels.length = 0;
-    m.tapeSoundEnabled = false;
+    m.datasette.tapeSoundEnabled = false;
     m.tick();
     expect(levels.length).toBeGreaterThan(0);
     expect(levels.every(l => l === 0)).toBe(true);

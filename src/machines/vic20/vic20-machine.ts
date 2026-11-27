@@ -43,8 +43,9 @@ import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
 import type { C64Program } from '@/media/tape/t64.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
-import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
+import { CbmDatasette } from '@/machines/shared/cbm/datasette.ts';
+import type { TapeDeck } from '@/media/tape/tap.ts';
+import type { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import { normalizeDriveModels, type CbmDriveUnit } from '@/machines/shared/cbm/drive/drive-unit.ts';
 import { CbmSerialBus } from '@/machines/shared/cbm/serial-bus.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
@@ -86,15 +87,6 @@ const KEYBUF_COUNT = 0xC6;
 /** Frames after a reset by which BASIC is ready whatever the ROMs (the real
  *  KERNAL gets there in under two seconds). */
 const BOOT_FRAMES = 300;
-/** Frames of quiet before tape turbo lets go. */
-const TAPE_TURBO_COOLDOWN = 25;
-/** Reads of the PLAY sense line (VIA 1 port A) in a frame that mean a program
- *  is waiting for PLAY (the KERNAL's IRQ and the joystick read it a few times
- *  a frame; PRESS PLAY ON TAPE reads it in a tight loop). */
-const AUTO_PLAY_POLLS = 100;
-/** Reads of VIA 2's interrupt flags in a frame that mean the tape is being
- *  read: every pulse is an interrupt, where the jiffy alone reads it once. */
-const TURBO_IFR_READS = 10;
 
 /** The VIA's CA2/CB2 is an output held high (PCR mode 7) — through the
  *  inverter, its serial line is pulled low. */
@@ -130,9 +122,13 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
    *  change to the drive. Cleared by any reset. */
   refreshResumed = false;
   /** The Datasette's tape, played through the shared pulse deck. */
-  readonly tape: TapeDeck;
+  get tape(): TapeDeck { return this.datasette.tape; }
   /** Edges of the cassette write line since the last reset (what SAVE wrote). */
-  readonly tapeRecorder = new PulseRecorder();
+  get tapeRecorder(): PulseRecorder { return this.datasette.recorder; }
+
+  /** The shared Commodore Datasette: the deck and the whole transport state
+   *  machine. This board supplies the cassette lines and the counters. */
+  readonly datasette: CbmDatasette;
 
   readonly mixer: AudioMixer;
   readonly audio = new Audio();
@@ -142,30 +138,14 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
 
   readonly activity = { kbdReads: 0, joyReads: 0, soundWrites: 0, tapeEdges: 0 };
 
-  // Tape transport.
-  tapeTurbo = true;
-  private _tapeTurboActive = false;
-  private tapeTurboCooldown = 0;
-  private tapeLastT = 0;
-  private prevEar = 0;
-  private motorWasOn = false;
-  private autoPlayArmed = false;
-  /** This frame's reads of the PLAY sense line and of VIA 2's flags, and the
-   *  recorder's length at the last frame's end (for auto-play and turbo). */
+  // Tape transport: the shared Commodore Datasette (above) owns the deck and
+  // the transport state machine; this board supplies the lines and counters.
+  /** This frame's reads of the PLAY sense line and of VIA 2's flags, taken
+   *  by the datasette at each frame's end (for auto-play and turbo). */
   private senseReads = 0;
   private ifrReads = 0;
-  private recordedAtFrame = 0;
 
-  get tapeTurboActive(): boolean { return this._tapeTurboActive; }
-
-  /** Whether the Datasette's EAR line is mixed into the audio (the tape-sound
-   *  setting), as the loading sound. */
-  tapeSoundEnabled = true;
-
-  /** The EAR line as loading sound, only while the tape is actually running. */
-  private tapeAudioLevel(): number {
-    return this.tapeSoundEnabled && this.tape.playing && !this.tape.paused ? this.tape.earBit : 0;
-  }
+  get tapeTurboActive(): boolean { return this.datasette.turboActive; }
 
   /** Joystick directions held: `up`/`down`/`left`/`fire` bits for VIA 1 and
    *  the right bit for VIA 2, active high here. */
@@ -199,8 +179,27 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
     this.mixer.psgGain = 1;
     this.vic = new Vic(this.memory, this.timing);
     this.sound = new VicSound(this.vic.regs, this.timing.clockHz);
-    this.tape = new TapeDeck(this.timing.clockHz);
-    this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
+    this.datasette = new CbmDatasette({
+      motor: () => this.motorOn,
+      cassetteWrite: () => this.cassetteWrite,
+      read: (level) => {
+        this.via2.setCA1(level !== 0);
+        if (level === 0) this.activity.tapeEdges++;
+      },
+      takePolls: () => {
+        const polls = this.senseReads;
+        this.senseReads = 0;
+        return polls;
+      },
+      takeFlagReads: () => {
+        const reads = this.ifrReads;
+        this.ifrReads = 0;
+        return reads;
+      },
+      transportChanged: () => {},
+      releaseTurbo: () => { this.sound.flush(); this.mixer.reset(); },
+      pressedPlay: () => this.setStatus('PLAY pressed on the Datasette'),
+    }, this.timing.clockHz);
     this._pixels = new Uint8Array(this.vic.pixels.buffer);
 
     this.cpu.onInterrupt = (vector) => this.noteInterrupt(this.cpu.pc, vector === 0xFFFA);
@@ -347,80 +346,18 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
 
   /** A VIA was written at cycle `t`: follow the motor and the write line. */
   private cassettePortsChanged(t: number): void {
-    const motor = this.motorOn;
-    if (motor !== this.motorWasOn) {
-      this.motorWasOn = motor;
-      if (this.tape.loaded && this.tape.playing) {
-        if (motor) this.tapeLastT = this.cpu.tStates;
-        this.tape.paused = !motor;
-      }
-    }
-    if (motor) this.tapeRecorder.observe(this.cassetteWrite ? 1 : 0, t);
+    this.datasette.portsChanged(t);
   }
 
   /** The tape was mounted, ejected, played or stopped: PLAY follows it, and
    *  the deck runs only while the motor is on. */
   tapeTransportChanged(): void {
-    this.motorWasOn = this.motorOn;
-    this.tapeLastT = this.cpu.tStates;
-    this.prevEar = this.tape.earBit;
-    if (this.tape.loaded && this.tape.playing) this.tape.paused = !this.motorWasOn;
+    this.datasette.transportChanged(this.cpu.tStates);
   }
 
   /** Mounting a tape leaves PLAY up; it goes down by itself the first time
    *  software sits waiting for it (PRESS PLAY ON TAPE). */
-  armAutoPlay(): void { this.autoPlayArmed = true; }
-
-  private checkAutoPlay(): void {
-    const polls = this.senseReads;
-    this.senseReads = 0;
-    if (!this.autoPlayArmed || !this.tape.loaded || this.tape.playing) return;
-    if (polls < AUTO_PLAY_POLLS) return;
-    this.autoPlayArmed = false;
-    this.tape.startPlayback();
-    this.tapeTransportChanged();
-    this.setStatus('PLAY pressed on the Datasette');
-  }
-
-  /** Move the tape to now, and give its read line's level to VIA 2's CA1. */
-  private stepTape(): void {
-    const tape = this.tape;
-    if (!tape.playing || tape.paused) return;
-    const now = this.cpu.tStates;
-    const gap = now - this.tapeLastT;
-    this.tapeLastT = now;
-    if (gap > 0) tape.advance(gap);
-    const ear = tape.earBit;
-    if (ear !== this.prevEar) {
-      this.prevEar = ear;
-      this.via2.setCA1(ear !== 0);
-      if (ear === 0) this.activity.tapeEdges++;
-    }
-  }
-
-  /** Turbo while the KERNAL (or a loader) reads the tape with the motor on,
-   *  or saves to the empty deck. */
-  private updateTapeTurbo(): void {
-    const reading = this.tape.playing && !this.tape.paused && this.ifrReads >= TURBO_IFR_READS;
-    const writing = this.tapeRecorder.count !== this.recordedAtFrame;
-    this.ifrReads = 0;
-    this.recordedAtFrame = this.tapeRecorder.count;
-    if (this.motorOn && (reading || writing)) {
-      this._tapeTurboActive = this.tapeTurbo;
-      this.tapeTurboCooldown = TAPE_TURBO_COOLDOWN;
-    } else if (this.tapeTurboCooldown > 0) {
-      if (--this.tapeTurboCooldown === 0) this.releaseTapeTurbo();
-    } else if (this._tapeTurboActive) {
-      this.releaseTapeTurbo();
-    }
-  }
-
-  private releaseTapeTurbo(): void {
-    if (!this._tapeTurboActive) return;
-    this._tapeTurboActive = false;
-    this.sound.flush();
-    this.mixer.reset();
-  }
+  armAutoPlay(): void { this.datasette.armAutoPlay(); }
 
   /** Raise or drop the interrupt lines from the VIAs. */
   private updateInterrupts(): void {
@@ -445,8 +382,8 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
 
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
-    this.tapeTurbo = view.get('tape-turbo-load', true);
-    this.tapeSoundEnabled = view.get('tape-sound', true);
+    this.datasette.tapeTurbo = view.get('tape-turbo-load', true);
+    this.datasette.tapeSoundEnabled = view.get('tape-sound', true);
     this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
   }
 
@@ -559,13 +496,7 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
     this.midFrame = false;
     this.framesSinceReset = 0;
     this.pendingProgram = null;
-    this.tapeRecorder.reset();
-    this.recordedAtFrame = 0;
-    this.motorWasOn = false;
-    if (this.tape.loaded) this.tape.paused = true;
-    this._tapeTurboActive = false;
-    this.tapeTurboCooldown = 0;
-    this.tapeLastT = this.cpu.tStates;
+    this.datasette.reset(this.cpu.tStates);
     this.senseReads = this.ifrReads = 0;
     this.iec.reset();
     this.refreshResumed = false;
@@ -670,10 +601,10 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
   // ── Frame ────────────────────────────────────────────────────────────────
 
   protected framePixels(): Uint8Array { return this._pixels; }
-  protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
+  protected inTurbo(): boolean { return this.turbo || this.datasette.turboActive; }
 
   protected runFrame(): void {
-    const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
+    const skipAudio = this.speedMultiplier !== 1 || this.datasette.turboActive;
     if (this.sound.audible === skipAudio) {
       // Turbo on or off: what was queued no longer lines up with the mixer.
       this.sound.audible = !skipAudio;
@@ -705,11 +636,11 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
       cpu.step();
       const stopped = this.afterInsn();
       this.syncVias(cpu.tStates);
-      this.stepTape();
+      this.datasette.step(cpu.tStates);
       this.updateInterrupts();
       this.sound.advanceTo(cpu.tStates);
       if (!skipAudio) {
-        this.mixer.accumulateLevel(this.tapeAudioLevel(), cpu.tStates - before);
+        this.mixer.accumulateLevel(this.datasette.audioLevel(), cpu.tStates - before);
         this.mixer.generateSamples(this.audio, this.sound, true);
       }
       if (stopped) {
@@ -723,8 +654,8 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
     this.syncDrives(cpu.tStates);
     this.framesSinceReset++;
     if (this.pendingProgram && this.basicReady()) this.applyPendingProgram();
-    this.checkAutoPlay();
-    this.updateTapeTurbo();
+    this.datasette.checkAutoPlay(cpu.tStates);
+    this.datasette.updateTurbo(false);
     this.needsDisplay = true;
   }
 
@@ -891,10 +822,7 @@ export class Vic20Machine extends M6502MachineBase implements Machine {
     this.pendingProgram = null;
     this.framesSinceReset = BOOT_FRAMES;
     this.refreshResumed = !withMedia;
-    this.motorWasOn = this.motorOn;
-    this.tapeLastT = this.cpu.tStates;
-    this._tapeTurboActive = false;
-    this.tapeTurboCooldown = 0;
+    this.datasette.resync(this.cpu.tStates);
     this.clearInterrupts();
     this.keyboard.reset();
     this.joyVia1 = 0;

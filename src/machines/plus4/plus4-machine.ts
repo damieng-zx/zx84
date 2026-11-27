@@ -37,8 +37,9 @@ import { accessTime } from '@/debug/m6502/bus-cycles.ts';
 import { M6502Trace } from '@/debug/m6502/trace.ts';
 import type { ChipSection } from '@/debug/chip-state.ts';
 import type { C64Program } from '@/media/tape/t64.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
-import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
+import { CbmDatasette } from '@/machines/shared/cbm/datasette.ts';
+import type { TapeDeck } from '@/media/tape/tap.ts';
+import type { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import {
   normalizeDriveModels, type CbmDriveModel, type CbmDriveUnit,
 } from '@/machines/shared/cbm/drive/drive-unit.ts';
@@ -83,14 +84,6 @@ const BASIC_GRAPHICS_START = 0x4001;
 
 /** Frames after a reset by which BASIC is ready whatever the ROM says. */
 const BOOT_FRAMES = 250;
-/** Frames of quiet before tape turbo lets go. */
-const TAPE_TURBO_COOLDOWN = 25;
-/** Reads of PIO 1 port A in a frame that mean a program is polling the PLAY
- *  sense line (the KERNAL's IRQ reads it about once a frame). */
-const AUTO_PLAY_POLLS = 100;
-/** Reads of the TED's interrupt status in a frame that mean the tape is being
- *  read: every pulse is an interrupt. */
-const TURBO_IRQ_READS = 10;
 /** Serial bus writes in a frame that mean a file is moving. */
 const IEC_BUSY_WRITES = 8;
 
@@ -121,9 +114,13 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
   get driveModel(): CbmDriveModel { return this.iec.driveModel; }
 
   /** The Datasette's tape, played through the shared pulse deck. */
-  readonly tape: TapeDeck;
+  get tape(): TapeDeck { return this.datasette.tape; }
   /** Edges of the cassette write line since the last reset (what SAVE wrote). */
-  readonly tapeRecorder = new PulseRecorder();
+  get tapeRecorder(): PulseRecorder { return this.datasette.recorder; }
+
+  /** The shared Commodore Datasette: the deck and the whole transport state
+   *  machine. This board supplies the cassette lines and the counters. */
+  readonly datasette: CbmDatasette;
 
   readonly mixer: AudioMixer;
   readonly audio = new Audio();
@@ -139,19 +136,12 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
   private joy1 = 0;
   private joy2 = 0;
 
-  // Tape transport.
-  tapeTurbo = true;
-  private _tapeTurboActive = false;
-  private tapeTurboCooldown = 0;
-  private tapeLastT = 0;
-  private prevEar = 0;
-  private motorWasOn = false;
-  private autoPlayArmed = false;
-  /** This frame's reads of the PLAY sense line and of the TED's IRQ flags, and
-   *  the recorder's length at the last frame's end (for auto-play and turbo). */
+  // Tape transport: the shared Commodore Datasette (above) owns the deck and
+  // the transport state machine; this board supplies the lines and counters.
+  /** This frame's reads of the PLAY sense line and of the TED's IRQ flags,
+   *  taken by the datasette at each frame's end (for auto-play and turbo). */
   private senseReads = 0;
   private irqReads = 0;
-  private recordedAtFrame = 0;
   /** Writes to the serial bus this frame: a drive sending or taking a file. */
   private iecWrites = 0;
 
@@ -172,8 +162,6 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
   /** Whether the instruction in progress runs on the halted clock ($FF13 bit 1). */
   private slowNow = false;
 
-  get tapeTurboActive(): boolean { return this._tapeTurboActive; }
-
   /** The 256K expansion fitted, from the Hardware pane. */
   private expansion: Plus4Expansion = 'none';
 
@@ -185,14 +173,7 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
 
   get memoryExpansion(): Plus4Expansion { return this.expansion; }
 
-  /** Whether the Datasette's EAR line is mixed into the audio (the tape-sound
-   *  setting), as the loading sound. */
-  tapeSoundEnabled = true;
-
-  /** The EAR line as loading sound, only while the tape is actually running. */
-  private tapeAudioLevel(): number {
-    return this.tapeSoundEnabled && this.tape.playing && !this.tape.paused ? this.tape.earBit : 0;
-  }
+  get tapeTurboActive(): boolean { return this.datasette.turboActive; }
 
   constructor(model: Plus4Model, display: IScreenRenderer | null = null, ntsc = false) {
     super();
@@ -202,10 +183,28 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
     this.memory = new Plus4Memory(model);
     this.ted = new Ted(this.tedBus(), ntsc);
     this.sound = new TedSound(this.ted.regs, this.timing.clockHz);
-    this.tape = new TapeDeck(this.timing.clockHz);
+    this.datasette = new CbmDatasette({
+      motor: () => this.motorOn,
+      cassetteWrite: () => this.cassetteWrite,
+      read: (level) => {
+        if (level === 0) this.activity.tapeEdges++;
+      },
+      takePolls: () => {
+        const polls = this.senseReads;
+        this.senseReads = 0;
+        return polls;
+      },
+      takeFlagReads: () => {
+        const reads = this.irqReads;
+        this.irqReads = 0;
+        return reads;
+      },
+      transportChanged: () => this.refreshTapePins(),
+      releaseTurbo: () => { this.sound.flush(); this.mixer.reset(); },
+      pressedPlay: () => this.setStatus('PLAY pressed on the Datasette'),
+    }, this.timing.clockHz);
     this.mixer = new AudioMixer(this.timing.clockHz);
     this._pixels = new Uint8Array(this.ted.pixels.buffer);
-    this.tape.pulseScale = this.timing.clockHz / TAPE_REF_HZ;
     this.mixer.beeperGain = 1;
     this.mixer.psgGain = 1;
 
@@ -426,91 +425,34 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
   /** The 7501 port or a PIO was written at cycle `t`: follow the motor and the
    *  write line. */
   private cassettePortsChanged(t: number): void {
-    const motor = this.motorOn;
-    if (motor !== this.motorWasOn) {
-      this.motorWasOn = motor;
-      if (this.tape.loaded && this.tape.playing) {
-        if (motor) this.tapeLastT = this.cpu.tStates;
-        this.tape.paused = !motor;
-      }
-    }
-    if (motor) this.tapeRecorder.observe(this.cassetteWrite ? 1 : 0, t);
+    this.datasette.portsChanged(t);
   }
 
   /** The tape was mounted, ejected, played or stopped: PLAY follows it, and the
    *  deck runs only while the motor is on. */
   tapeTransportChanged(): void {
-    this.motorWasOn = this.motorOn;
-    this.tapeLastT = this.cpu.tStates;
-    this.prevEar = this.tape.earBit;
-    if (this.tape.loaded && this.tape.playing) this.tape.paused = !this.motorWasOn;
-    // PIO 1's PLAY sense follows the deck's buttons.
-    this.refreshTapePins();
+    this.datasette.transportChanged(this.cpu.tStates);
   }
 
   /** Mounting a tape leaves PLAY up; it goes down by itself the first time
    *  software sits waiting for it (PRESS PLAY ON TAPE). */
-  armAutoPlay(): void { this.autoPlayArmed = true; }
-
-  private checkAutoPlay(): void {
-    const polls = this.senseReads;
-    this.senseReads = 0;
-    if (!this.autoPlayArmed || !this.tape.loaded || this.tape.playing) return;
-    if (polls < AUTO_PLAY_POLLS) return;
-    this.autoPlayArmed = false;
-    this.tape.startPlayback();
-    this.tapeTransportChanged();
-    this.setStatus('PLAY pressed on the Datasette');
-  }
-
-  /** Move the tape to now, and give its read line's level to the port's bit 4. */
-  private stepTape(): void {
-    const tape = this.tape;
-    if (!tape.playing || tape.paused) return;
-    const now = this.cpu.tStates;
-    const gap = now - this.tapeLastT;
-    this.tapeLastT = now;
-    if (gap > 0) tape.advance(gap);
-    const ear = tape.earBit;
-    if (ear !== this.prevEar) {
-      this.prevEar = ear;
-      if (ear === 0) this.activity.tapeEdges++;
-    }
-  }
-
-  /** Turbo while the KERNAL (or a loader) reads the tape with the motor on, or
-   *  saves to the empty deck, or the drive's bus is busy. */
-  private updateTapeTurbo(): void {
-    const reading = this.tape.playing && !this.tape.paused && this.irqReads >= TURBO_IRQ_READS;
-    const writing = this.tapeRecorder.count !== this.recordedAtFrame;
-    this.irqReads = 0;
-    this.recordedAtFrame = this.tapeRecorder.count;
-    let diskBusy = false;
-    const busy = this.iecWrites >= IEC_BUSY_WRITES;
-    this.iecWrites = 0;
-    for (const d of this.drives) if ((d.takeActivity() > 0 || busy) && d.motorOn) diskBusy = true;
-    const loading = (this.motorOn && (reading || writing)) || diskBusy;
-    if (loading) {
-      this._tapeTurboActive = this.tapeTurbo;
-      this.tapeTurboCooldown = TAPE_TURBO_COOLDOWN;
-    } else if (this.tapeTurboCooldown > 0) {
-      if (--this.tapeTurboCooldown === 0) this.releaseTapeTurbo();
-    } else if (this._tapeTurboActive) {
-      this.releaseTapeTurbo();
-    }
-  }
-
-  private releaseTapeTurbo(): void {
-    if (!this._tapeTurboActive) return;
-    this._tapeTurboActive = false;
-    this.sound.flush();
-    this.mixer.reset();
-  }
+  armAutoPlay(): void { this.datasette.armAutoPlay(); }
 
   /** Raise or drop the TED's interrupt line. */
   private updateInterrupts(t: number): void {
     this.syncChips(t);
     this.cpu.setIRQ(this.ted.irq);
+  }
+
+  /** Turbo while the KERNAL (or a loader) reads the tape with the motor on, or
+   *  saves to the empty deck, or the drive's bus is busy. */
+  private updateTapeTurbo(): void {
+    // The drive is busy while its motor runs and bytes move under the head.
+    let diskBusy = false;
+    const busy = this.iecWrites >= IEC_BUSY_WRITES;
+    this.iecWrites = 0;
+    for (const d of this.drives) if ((d.takeActivity() > 0 || busy) && d.motorOn) diskBusy = true;
+    this.datasette.updateTurbo(diskBusy);
   }
 
   // ── Machine SPI ──────────────────────────────────────────────────────────
@@ -530,8 +472,8 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
 
   applySettings(view: SettingsView): void {
     this.audio.setVolume(view.get('volume', 70) / 100);
-    this.tapeTurbo = view.get('tape-turbo-load', true);
-    this.tapeSoundEnabled = view.get('tape-sound', true);
+    this.datasette.tapeTurbo = view.get('tape-turbo-load', true);
+    this.datasette.tapeSoundEnabled = view.get('tape-sound', true);
     const expansion = view.get<string>('plus4-expansion', 'none');
     this.setMemoryExpansion(expansion === 'hannes' || expansion === 'csory' ? expansion : 'none');
     this.drives.forEach((d, i) => { d.writeProtected = view.get('write-protect-' + 'abcd'[i], false); });
@@ -617,26 +559,19 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
     this.midFrame = false;
 
     this.clearInterrupts();
-    this.tapeRecorder.reset();
-    this.recordedAtFrame = 0;
-    this.motorWasOn = false;
-    this.ifTapeLoadedPause();
-    this._tapeTurboActive = false;
-    this.tapeTurboCooldown = 0;
+    this.datasette.reset(this.cpu.tStates);
     this.framesSinceReset = 0;
     this.pendingProgram = null;
     this.refreshResumed = false;
     this.chipT = this.cpu.tStates;
     this.ted.syncClocks(this.cpu.tStates);
     this.sound.reset();
-    this.tapeLastT = this.cpu.tStates;
+    this.datasette.syncClock(this.cpu.tStates);
     this.updatePins(this.cpu.tStates);
     this.mixer.reset();
     this.audio.reset();
     this.needsDisplay = true;
   }
-
-  private ifTapeLoadedPause(): void { if (this.tape.loaded) this.tape.paused = true; }
 
   // ── Cartridge ────────────────────────────────────────────────────────────
 
@@ -742,10 +677,10 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
   // ── Frame ────────────────────────────────────────────────────────────────
 
   protected framePixels(): Uint8Array { return this._pixels; }
-  protected inTurbo(): boolean { return this.turbo || this._tapeTurboActive; }
+  protected inTurbo(): boolean { return this.turbo || this.datasette.turboActive; }
 
   protected runFrame(): void {
-    const skipAudio = this.speedMultiplier !== 1 || this._tapeTurboActive;
+    const skipAudio = this.speedMultiplier !== 1 || this.datasette.turboActive;
     this.sound.audible = !skipAudio;
     if (!this.openFrame(this.timing.cyclesPerFrame)) {
       this.activity.kbdReads = 0;
@@ -782,10 +717,10 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
       // half as long, so charge each one twice on the master clock.
       if (this.slowNow) cpu.tStates = before + (cpu.tStates - before) * 2;
       const stopped = this.afterInsn();
-      this.stepTape();
+      this.datasette.step(cpu.tStates);
       this.updateInterrupts(cpu.tStates);
       if (!skipAudio) {
-        this.mixer.accumulateLevel(this.tapeAudioLevel(), cpu.tStates - before);
+        this.mixer.accumulateLevel(this.datasette.audioLevel(), cpu.tStates - before);
         this.mixer.generateSamples(this.audio, this.sound, true);
       }
       if (stopped) {
@@ -802,7 +737,7 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
     this.framesSinceReset++;
     if (this.pendingProgram && this.basicReady()) this.applyPendingProgram();
     if (skipAudio) this.sound.advanceTo(cpu.tStates);
-    this.checkAutoPlay();
+    this.datasette.checkAutoPlay(cpu.tStates);
     this.updateTapeTurbo();
     this.needsDisplay = true;
   }
@@ -951,13 +886,11 @@ export class Plus4Machine extends M6502MachineBase implements Machine {
     this.clearInterrupts();
     this.keyboard.reset();
     this.joy1 = this.joy2 = 0;
-    this._tapeTurboActive = false;
-    this.tapeTurboCooldown = 0;
     this.framesSinceReset = BOOT_FRAMES;
+    this.datasette.resync(this.cpu.tStates);
     this.chipT = this.cpu.tStates;
     this.ted.syncClocks(this.cpu.tStates);
     this.sound.syncClocks(this.cpu.tStates);
-    this.tapeLastT = this.cpu.tStates;
     this.audio.reset();
     this.mixer.reset();
     this.refreshResumed = !withMedia;
