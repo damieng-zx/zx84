@@ -1,22 +1,25 @@
 /**
- * zx84's native machine snapshots, for the machines with no community
- * snapshot format worth the name (the Jupiter Ace, ZX80/81, Lynx, MTX, MSX,
- * Einstein, PCW and Enterprise). The same container as the Atari's `.a8state`
- * (`machines/atari/snapshots/atari-state.ts`), shared here so each machine
- * supplies only its sections:
+ * zx84's native machine snapshots, for every machine with no community
+ * snapshot format worth the name (the Atari, Jupiter Ace, ZX80/81, Lynx, MTX,
+ * MSX, Einstein, PCW, Enterprise and the 8/16-bit Commodore and Acorn
+ * families). A machine supplies only its metadata and its sections:
  *
  *   magic (4 chars, one per machine)  u8 version  u8 flags (bit 0: deflated)
  *   u32 CRC-32 of the (inflated) body   u32 length of the (inflated) body
- *   body:   'HEAD' section: str model, bool media, u8 n, n × u32 ROM CRC-32
+ *   body:   'HEAD' section: str model, [machine-specific fields], bool media,
+ *           then the ROM CRC-32s (a count byte and that many u32s by default)
  *           then the machine's own sections (its `saveState`)
  *
- * The CRC and length are checked before anything touches the machine, so a
- * truncated or corrupted file is refused and leaves the running machine alone.
- * The ROMs are not in the file, only their CRCs, so a restore can say when the
- * state was saved under different firmware. A saved file is deflated and
- * carries the mounted disks ("media"); the browser-refresh copy (`saveSync`)
- * is neither, since a `beforeunload` handler cannot await a compressor and the
- * shell persists and remounts the disks itself.
+ * The optional machine-specific fields sit between the model and the media
+ * flag, so a machine that predates this shared container (the Atari's `region`
+ * in `.a8state` v1) keeps reading its old files unchanged. The CRC and length
+ * are checked before anything touches the machine, so a truncated or corrupted
+ * file is refused and leaves the running machine alone. The ROMs are not in
+ * the file, only their CRCs, so a restore can say when the state was saved
+ * under different firmware. A saved file is deflated and carries the mounted
+ * disks ("media"); the browser-refresh copy (`saveSync`) is neither, since a
+ * `beforeunload` handler cannot await a compressor and the shell persists and
+ * remounts the disks itself.
  *
  * Each machine's `saveState` brings the machine to the end of the frame in
  * progress first (a debugger stop can leave one open), with
@@ -26,6 +29,7 @@
 
 import type { MachineHost, SnapshotApplyResult, SnapshotService } from '@/machines/machine.ts';
 import type { MachineModel } from '@/models.ts';
+import { deflate, inflate } from '@/utils/compress.ts';
 import { StateReader, StateWriter, crc32 } from './state-io.ts';
 
 const FLAG_DEFLATE = 0x01;
@@ -46,6 +50,26 @@ export interface NativeStateSpec {
   /** Display name of a model of this machine, or null for one this build does
    *  not have (or that belongs to another machine). */
   modelName(model: string): string | null;
+  /** Write machine-specific HEAD fields after the model string (the Atari's
+   *  TV standard, say). The reader must read the same fields in the same
+   *  order. Absent for machines whose identity is the model alone. */
+  writeHead?(w: StateWriter, m: NativeStateMachine): void;
+  /** Read the fields `writeHead` wrote; returns what the service needs from
+   *  them, handed back as `info.head`. Throws, with a message fit to show, for
+   *  a value this build does not have. */
+  readHead?(r: StateReader): unknown;
+  /** Write the ROM CRCs after the media flag. Defaults to a count byte and
+   *  that many u32s; a machine whose older files wrote them differently (the
+   *  Atari's two, with no count) supplies both halves of the pair. */
+  writeRomCrcs?(w: StateWriter, crcs: readonly number[], m: NativeStateMachine): void;
+  /** Read them back; must return the same list `stateRomCrcs` gave. */
+  readRomCrcs?(r: StateReader): number[];
+  /** A message refusing this state before it is applied, or '' to accept it.
+   *  The machine has not been stopped yet, so it stays exactly as it was. */
+  refuse?(m: NativeStateMachine, info: NativeStateInfo, filename: string): string;
+  /** A status-line note when the state's ROMs differ from the live ones, or
+   *  ''. Defaults to `nativeRomMismatch`. */
+  romMismatch?(m: NativeStateMachine, info: NativeStateInfo): string;
 }
 
 /** The machine side of a native snapshot. */
@@ -70,6 +94,8 @@ export interface NativeStateInfo {
   /** The file carries the disks, not just the machine. */
   readonly media: boolean;
   readonly romCrcs: readonly number[];
+  /** Whatever `spec.readHead` returned, for the machine's own checks. */
+  readonly head: unknown;
 }
 
 export interface DecodedNativeState {
@@ -78,21 +104,19 @@ export interface DecodedNativeState {
   readonly body: StateReader;
 }
 
-async function stream(data: Uint8Array, transform: CompressionStream | DecompressionStream): Promise<Uint8Array> {
-  const writer = transform.writable.getWriter();
-  writer.write(data as unknown as BufferSource).catch(() => {});
-  writer.close().catch(() => {});
-  return new Uint8Array(await new Response(transform.readable).arrayBuffer());
-}
-
-function buildBody(m: NativeStateMachine, media: boolean): Uint8Array {
+function buildBody(spec: NativeStateSpec, m: NativeStateMachine, media: boolean): Uint8Array {
   const w = new StateWriter();
   const crcs = m.stateRomCrcs();
   w.section('HEAD', () => {
     w.str(m.model);
+    spec.writeHead?.(w, m);
     w.bool(media);
-    w.u8(crcs.length);
-    for (const c of crcs) w.u32(c);
+    if (spec.writeRomCrcs) {
+      spec.writeRomCrcs(w, crcs, m);
+    } else {
+      w.u8(crcs.length);
+      for (const c of crcs) w.u32(c);
+    }
   });
   m.saveState(w, media);
   return w.finish();
@@ -112,14 +136,14 @@ function wrap(spec: NativeStateSpec, body: Uint8Array, payload: Uint8Array, flag
 
 /** The machine's state as a file: deflated, and with the disks. */
 export async function saveNativeState(spec: NativeStateSpec, m: NativeStateMachine): Promise<Uint8Array> {
-  const body = buildBody(m, true);
-  return wrap(spec, body, await stream(body, new CompressionStream('deflate')), FLAG_DEFLATE);
+  const body = buildBody(spec, m, true);
+  return wrap(spec, body, await deflate(body), FLAG_DEFLATE);
 }
 
 /** The machine's state for the browser-refresh path: synchronous, stored as
  *  it is, and without the disks. */
 export function saveNativeStateSync(spec: NativeStateSpec, m: NativeStateMachine): Uint8Array {
-  const body = buildBody(m, false);
+  const body = buildBody(spec, m, false);
   return wrap(spec, body, body, 0);
 }
 
@@ -142,7 +166,7 @@ export async function decodeNativeState(spec: NativeStateSpec, data: Uint8Array)
   let body: Uint8Array;
   if ((flags & FLAG_DEFLATE) !== 0) {
     try {
-      body = await stream(payload, new DecompressionStream('deflate'));
+      body = await inflate(payload, 'deflate', spec.maxBody);
     } catch {
       throw new Error(`${name} snapshot is corrupt (it will not decompress)`);
     }
@@ -155,10 +179,16 @@ export async function decodeNativeState(spec: NativeStateSpec, data: Uint8Array)
   const head = r.section('HEAD');
   const model = head.str();
   if (spec.modelName(model) === null) throw new Error(`${name} snapshot names a machine this build does not have`);
+  const extra = spec.readHead ? spec.readHead(head) : undefined;
   const media = head.bool();
-  const romCrcs: number[] = [];
-  for (let n = head.u8(); n > 0; n--) romCrcs.push(head.u32());
-  return { info: { model, media, romCrcs }, body: r };
+  const romCrcs = spec.readRomCrcs ? spec.readRomCrcs(head) : readRomCrcs(head);
+  return { info: { model, media, romCrcs, head: extra }, body: r };
+}
+
+function readRomCrcs(r: StateReader): number[] {
+  const crcs: number[] = [];
+  for (let n = r.u8(); n > 0; n--) crcs.push(r.u32());
+  return crcs;
 }
 
 /** A note for the status line when the live ROMs are not the ones the state
@@ -174,8 +204,8 @@ export function nativeRomMismatch(m: NativeStateMachine, info: NativeStateInfo):
  * refuses it part-way (a configuration it does not have), put back the state
  * it had: a refused snapshot leaves the machine as it was.
  */
-function loadWithRollback(m: NativeStateMachine, body: StateReader): void {
-  const backup = buildBody(m, true);
+function loadWithRollback(spec: NativeStateSpec, m: NativeStateMachine, body: StateReader): void {
+  const backup = buildBody(spec, m, true);
   try {
     m.loadState(body);
   } catch (e) {
@@ -211,6 +241,8 @@ export class NativeSnapshotService implements SnapshotService {
     const { m, spec } = this;
     try {
       const { info, body } = await decodeNativeState(spec, data);
+      const refused = spec.refuse?.(m, info, filename) ?? '';
+      if (refused !== '') return { ok: false, message: refused };
       if (info.model !== m.model) {
         const host = this.host();
         if (host && await host.requestModel(info.model as MachineModel, `${spec.machineName} snapshot: ${filename}`)) {
@@ -220,13 +252,14 @@ export class NativeSnapshotService implements SnapshotService {
       }
       m.stop();
       try {
-        loadWithRollback(m, body);
+        loadWithRollback(spec, m, body);
       } catch (e) {
         void m.start();
         return { ok: false, message: `Error: ${(e as Error).message}` };
       }
       void m.start();
-      return { ok: true, message: `Loaded ${spec.machineName} snapshot: ${filename}${nativeRomMismatch(m, info)}` };
+      const note = spec.romMismatch ? spec.romMismatch(m, info) : nativeRomMismatch(m, info);
+      return { ok: true, message: `Loaded ${spec.machineName} snapshot: ${filename}${note}` };
     } catch (e) {
       return { ok: false, message: `Error: ${(e as Error).message}` };
     }
@@ -249,8 +282,9 @@ export class NativeSnapshotService implements SnapshotService {
     try {
       const { info, body } = await decodeNativeState(this.spec, data);
       if (info.model !== m.model) return false;
+      if ((this.spec.refuse?.(m, info, 'refresh') ?? '') !== '') return false;
       m.stop();
-      loadWithRollback(m, body);
+      loadWithRollback(this.spec, m, body);
     } catch {
       return false;
     }

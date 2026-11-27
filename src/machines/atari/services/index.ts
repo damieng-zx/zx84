@@ -9,14 +9,15 @@
 
 import { M6502DebugService } from '@/debug/m6502/service.ts';
 import type { MachineServices } from '@/machines/machine.ts';
+import { NativeSnapshotService } from '@/machines/shared/native-state.ts';
 import type { AtariMachine } from '../atari-machine.ts';
+import { ATARI_STATE } from '../snapshots/atari-state.ts';
 import { AtariDiskService } from './disks.ts';
 import { AtariFrameProbe } from './frame-probe.ts';
 import { AtariInspection } from './inspect.ts';
 import { AtariInputService } from './input.ts';
 import { AtariMediaService } from './media.ts';
 import { AtariRomService } from './roms.ts';
-import { AtariSnapshotService } from './snapshots.ts';
 import { AtariTapeService } from './tape.ts';
 
 export interface AtariServices extends MachineServices {
@@ -24,7 +25,7 @@ export interface AtariServices extends MachineServices {
   readonly roms: AtariRomService;
   readonly tape: AtariTapeService;
   readonly disks: AtariDiskService;
-  readonly snapshots: AtariSnapshotService;
+  readonly snapshots: NativeSnapshotService;
   readonly input: AtariInputService;
   readonly probe: AtariFrameProbe;
   readonly inspect: AtariInspection;
@@ -39,7 +40,7 @@ export function createAtariServices(machine: AtariMachine): AtariServices {
     roms,
     disks,
     tape,
-    snapshots: new AtariSnapshotService(machine, () => machine.host),
+    snapshots: new NativeSnapshotService(ATARI_STATE, machine, () => machine.host),
     input: new AtariInputService(machine),
     probe: new AtariFrameProbe(machine),
     inspect: new AtariInspection(machine),

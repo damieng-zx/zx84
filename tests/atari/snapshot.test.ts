@@ -18,10 +18,11 @@ import {
   ALTIRRA_BASIC_SOURCE, ALTIRRA_OS_SOURCE, ALTIRRA_XL_OS_SOURCE, ATARI_OS_SIZE,
   atariInfo, type AtariModel, type AtariRegion,
 } from '@/machines/atari/models.ts';
+import { ATARI_STATE } from '@/machines/atari/snapshots/atari-state.ts';
 import {
-  decodeAtariState, saveAtariState, saveAtariStateSync,
-} from '@/machines/atari/snapshots/atari-state.ts';
-import { crc32 } from '@/machines/shared/state-io.ts';
+  decodeNativeState, saveNativeState, saveNativeStateSync, type NativeStateInfo,
+} from '@/machines/shared/native-state.ts';
+import { crc32 } from '@/utils/crc32.ts';
 import type { HostKeyEvent } from '@/machines/machine.ts';
 
 const DIRS = [process.env.ATARI_ROM_DIR, resolve(__dirname, '../../mcp/.cache')]
@@ -96,20 +97,47 @@ function type(m: AtariMachine, text: string): void {
 /** Everything observable about a machine at a frame boundary: its state as a
  *  snapshot would record it, and the picture. */
 function fingerprint(m: AtariMachine): { state: number; picture: number } {
-  return { state: crc32(saveAtariStateSync(m)), picture: crc32(m.pixels) };
+  return { state: crc32(saveNativeStateSync(ATARI_STATE, m)), picture: crc32(m.pixels) };
+}
+
+/** The machine-specific HEAD field the Atari adds (its TV standard). */
+function regionOf(info: NativeStateInfo): AtariRegion {
+  return (info.head as { region: AtariRegion }).region;
 }
 
 describe('Atari snapshot container', () => {
+  it('loads an .a8state written before the machine moved onto the shared container', async () => {
+    // Captured from the previous implementation: model, region, media flag and
+    // the two ROM CRCs in the HEAD, which the shared container must keep
+    // reading byte for byte.
+    const data = new Uint8Array(readFileSync(resolve(__dirname, 'fixtures/legacy-v1.a8state')));
+    const { info } = await decodeNativeState(ATARI_STATE, data);
+    expect(info.model).toBe('atari800');
+    expect(regionOf(info)).toBe('ntsc');
+    expect(info.media).toBe(true);
+
+    const dst = plain('atari800', 'ntsc');
+    try {
+      const result = await dst.services.snapshots.apply(data, 'legacy-v1.a8state');
+      expect(result.ok, result.message).toBe(true);
+      expect(dst.memory.readByte(0x1234)).toBe(0xab);
+      expect(dst.memory.readByte(0x2345)).toBe(0xcd);
+      expect(dst.cpu.tStates).toBe(89604); // three frames after reset
+    } finally {
+      dst.destroy();
+    }
+  });
+
   it('records the machine it came from and round-trips through the decoder', async () => {
     const m = plain('atari800xl', 'pal');
     try {
       for (let f = 0; f < 5; f++) m.tick();
-      const file = await saveAtariState(m);
-      const { info } = await decodeAtariState(file);
+      const file = await saveNativeState(ATARI_STATE, m);
+      const { info } = await decodeNativeState(ATARI_STATE, file);
       expect(info.model).toBe('atari800xl');
-      expect(info.region).toBe('pal');
+      expect(regionOf(info)).toBe('pal');
       expect(info.media).toBe(true);
-      const sync = await decodeAtariState(saveAtariStateSync(m));
+      const sync = await decodeNativeState(ATARI_STATE, saveNativeStateSync(ATARI_STATE, m));
       expect(sync.info.media).toBe(false);
     } finally {
       m.destroy();
@@ -120,19 +148,19 @@ describe('Atari snapshot container', () => {
     const m = plain();
     try {
       m.tick();
-      const sync = saveAtariStateSync(m);
-      const file = await saveAtariState(m);
-      await expect(decodeAtariState(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]))).rejects.toThrow(/Not a zx84 Atari snapshot/);
-      await expect(decodeAtariState(sync.subarray(0, sync.length - 10))).rejects.toThrow(/corrupt or truncated/);
-      await expect(decodeAtariState(file.subarray(0, file.length - 10))).rejects.toThrow(/corrupt/);
+      const sync = saveNativeStateSync(ATARI_STATE, m);
+      const file = await saveNativeState(ATARI_STATE, m);
+      await expect(decodeNativeState(ATARI_STATE, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]))).rejects.toThrow(/Not a zx84 Atari snapshot/);
+      await expect(decodeNativeState(ATARI_STATE, sync.subarray(0, sync.length - 10))).rejects.toThrow(/corrupt or truncated/);
+      await expect(decodeNativeState(ATARI_STATE, file.subarray(0, file.length - 10))).rejects.toThrow(/corrupt/);
 
       const altered = sync.slice();
       altered[altered.length >> 1] ^= 0x40;
-      await expect(decodeAtariState(altered)).rejects.toThrow(/corrupt or truncated/);
+      await expect(decodeNativeState(ATARI_STATE, altered)).rejects.toThrow(/corrupt or truncated/);
 
       const future = sync.slice();
       future[4] = 99;
-      await expect(decodeAtariState(future)).rejects.toThrow(/Unsupported Atari snapshot version 99/);
+      await expect(decodeNativeState(ATARI_STATE, future)).rejects.toThrow(/Unsupported Atari snapshot version 99/);
     } finally {
       m.destroy();
     }
@@ -185,6 +213,43 @@ describe('Atari snapshot service', () => {
     }
   });
 
+  it('rolls back a state the machine refuses part-way instead of resetting', async () => {
+    const src = plain();
+    const dst = plain();
+    try {
+      for (let f = 0; f < 5; f++) src.tick();
+      dst.cpu.a = 0x5a;
+      dst.memory.writeByte(0x2000, 0x77);
+      for (let f = 0; f < 7; f++) dst.tick();
+      const before = fingerprint(dst);
+
+      // A valid file whose MEM section names a RAM size this machine lacks.
+      // CPU and MACH are applied before MEM is refused, so a reset would lose
+      // the machine's state; a rollback puts every section back.
+      const file = saveNativeStateSync(ATARI_STATE, src);
+      const body = file.subarray(14);
+      let mem = -1;
+      for (let i = 0; i + 4 <= body.length; i++) {
+        if (String.fromCharCode(body[i], body[i + 1], body[i + 2], body[i + 3]) === 'MEM ') {
+          mem = i;
+          break;
+        }
+      }
+      expect(mem).toBeGreaterThan(0);
+      const view = new DataView(file.buffer, file.byteOffset, file.byteLength);
+      view.setUint32(14 + mem + 8 + 1, 0xFFFF, true); // tag + length + portB
+      view.setUint32(6, crc32(body), true);
+
+      const result = await dst.services.snapshots.apply(file, 'bad.a8state');
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/RAM size/);
+      expect(fingerprint(dst)).toEqual(before);
+    } finally {
+      src.destroy();
+      dst.destroy();
+    }
+  });
+
   it('carries disks (writes included) and the tape, and leaves them alone when the file has none', async () => {
     const src = plain();
     const dst = plain();
@@ -223,7 +288,7 @@ describe('Atari snapshot service', () => {
       try {
         other.services.disks.insert('a', xfd, 'other.xfd');
         other.cassette.mount(cas, 'other.cas');
-        const sync = saveAtariStateSync(src);
+        const sync = saveNativeStateSync(ATARI_STATE, src);
         expect(await other.services.snapshots.restoreSync(sync)).toBe(true);
         expect(other.services.disks.drives[0].mediaName).toBe('other.xfd');
         expect(other.cassette.name).toBe('other.cas');
@@ -250,7 +315,7 @@ describe('Atari snapshot service', () => {
       const model = await xl.services.snapshots.apply(ntscFile, 'n.a8state');
       expect(model.ok).toBe(false);
       expect(model.message).toMatch(/Atari 800.*switch to it first/);
-      expect(await xl.services.snapshots.restoreSync(saveAtariStateSync(ntsc))).toBe(false);
+      expect(await xl.services.snapshots.restoreSync(saveNativeStateSync(ATARI_STATE, ntsc))).toBe(false);
     } finally {
       pal.destroy();
       ntsc.destroy();

@@ -1,13 +1,15 @@
 /**
  * ZIP archive parser.
  * Extracts snapshot, tape, disk, and cartridge entries from ZIP files.
- * Uses browser DecompressionStream('deflate-raw') for inflate — no runtime deps.
+ * Uses the shared raw-DEFLATE inflate (`utils/compress.ts`) — no runtime deps.
  *
  * Callers that know their machine pass its MediaService's declared extensions
  * to unzip() so a new machine format can never drift from this parser; the
  * default catalog below only serves machine-agnostic callers (ROM archives,
  * generic MCP listing).
  */
+
+import { inflateRaw } from '@/utils/compress.ts';
 
 export interface ZipEntry {
   name: string;
@@ -154,7 +156,7 @@ export async function unzip(data: Uint8Array, exts: readonly string[] = LOADABLE
     if (entry.method === 0) {
       fileData = compressed;
     } else {
-      fileData = await inflate(compressed, entry.uncompressedSize);
+      fileData = await inflateEntry(compressed, entry.uncompressedSize);
     }
 
     results.push({ name: entry.name, data: fileData });
@@ -189,43 +191,13 @@ function decodeCp437(bytes: Uint8Array): string {
  *  close; anything larger is a corrupt or hostile (zip-bomb) archive. */
 const MAX_INFLATED_SIZE = 64 * 1024 * 1024;
 
-/** Decompress deflate-raw data via browser DecompressionStream API.
- *  The declared central-directory size is only a pre-flight hint — the
- *  result is sized from the bytes the stream actually produces, so a
- *  lying directory entry cannot overflow the assembly buffer. */
-async function inflate(compressed: Uint8Array, declaredSize: number): Promise<Uint8Array> {
+/** Decompress one deflate-raw entry, capped. The declared central-directory
+ *  size is only a pre-flight hint — the result is sized from the bytes the
+ *  stream actually produces, so a lying directory entry cannot overflow the
+ *  assembly buffer. */
+async function inflateEntry(compressed: Uint8Array, declaredSize: number): Promise<Uint8Array> {
   if (declaredSize > MAX_INFLATED_SIZE) {
     throw new Error(`Inflated entry exceeds ${MAX_INFLATED_SIZE} bytes (declared ${declaredSize})`);
   }
-
-  const ds = new DecompressionStream('deflate-raw');
-  const writer = ds.writable.getWriter();
-  const reader = ds.readable.getReader();
-
-  writer.write(compressed as unknown as BufferSource);
-  writer.close();
-
-  const chunks: Uint8Array[] = [];
-  let totalLen = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalLen += value.byteLength;
-    if (totalLen > MAX_INFLATED_SIZE) {
-      // Abandon the stream (cancelling fires an extra internal AbortError
-      // rejection in Node's webstreams) and refuse the entry.
-      throw new Error(`Inflated entry exceeds ${MAX_INFLATED_SIZE} bytes (possible zip bomb)`);
-    }
-    chunks.push(value);
-  }
-
-  if (chunks.length === 1) return chunks[0];
-
-  const result = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
+  return inflateRaw(compressed, MAX_INFLATED_SIZE);
 }

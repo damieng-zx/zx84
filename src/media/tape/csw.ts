@@ -18,12 +18,13 @@
  * every other block uses — so `TapeDeck.pulseScale` handles the CPC's 4MHz
  * clock transparently. A leading `set-level` block seeds the initial polarity.
  *
- * Parsing is async because Z-RLE inflate goes through the browser
- * DecompressionStream (the codebase's standard, dependency-free inflate).
+ * Parsing is async because Z-RLE inflate goes through the shared
+ * `DecompressionStream` path (`utils/compress.ts`).
  */
 
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { inflate } from '@/utils/compress.ts';
 
 // "Compressed Square Wave\x1A" — 22 ASCII chars + 0x1A terminator (23 bytes).
 const CSW_MAGIC = 'Compressed Square Wave\x1A';
@@ -34,35 +35,6 @@ function read16(d: Uint8Array, o: number): number {
 
 function read32(d: Uint8Array, o: number): number {
   return (d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | (d[o + 3] << 24)) >>> 0;
-}
-
-/** Inflate zlib (deflate) data using the browser DecompressionStream — the same
- *  dependency-free path SZX/ZIP use. Z-RLE wraps the RLE stream in zlib. */
-async function inflate(compressed: Uint8Array): Promise<Uint8Array> {
-  const ds = new DecompressionStream('deflate');
-  const writer = ds.writable.getWriter();
-  const reader = ds.readable.getReader();
-
-  writer.write(compressed as unknown as BufferSource);
-  writer.close();
-
-  const chunks: Uint8Array[] = [];
-  let totalLen = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    totalLen += value.byteLength;
-  }
-
-  if (chunks.length === 1) return chunks[0];
-  const result = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
 }
 
 /**

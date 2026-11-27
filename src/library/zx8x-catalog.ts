@@ -1,4 +1,5 @@
 import { dbLoad, dbSave, getSaved, setSaved } from '@/store/persistence.ts';
+import { gunzip } from '@/utils/compress.ts';
 import { zx8xHardwareOverride, type Zx81HiResMode } from './zx8x-hardware.ts';
 
 export interface RawZx8xGame {
@@ -100,12 +101,6 @@ const VERSION_URL = `${BASE}/zx8x-catalog-version.json`;
 const CACHE_KEY = 'zx8x-game-catalog';
 const VERSION_KEY = 'zx8x-catalog-version';
 
-async function gunzip(data: Uint8Array): Promise<Uint8Array> {
-  if (data[0] !== 0x1f || data[1] !== 0x8b) return data;
-  const stream = new Blob([data as unknown as BlobPart]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
 async function remoteVersion(): Promise<string> {
   try {
     const response = await fetch(`${VERSION_URL}?_=${Date.now()}`, { cache: 'no-store' });
@@ -131,5 +126,6 @@ export async function fetchZx8xCatalog(): Promise<RawZx8xCatalog> {
     }
   }
   if (!bytes?.length) throw new Error('No ZX80/ZX81 catalog data');
-  return JSON.parse(new TextDecoder().decode(await gunzip(bytes))) as RawZx8xCatalog;
+  const decoded = bytes[0] === 0x1f && bytes[1] === 0x8b ? await gunzip(bytes) : bytes;
+  return JSON.parse(new TextDecoder().decode(decoded)) as RawZx8xCatalog;
 }
