@@ -49,7 +49,6 @@ function aceHeaderBytes(name: string, length: number, start: number, type = 0): 
 
 function deckAt(tap: Uint8Array, position = 0): TapeDeck {
   const deck = new TapeDeck(ACE_CPU_CLOCK);
-  deck.pulseScale = ACE_CPU_CLOCK / 3_500_000;
   deck.blocks = parseAceTap(tap);
   deck.position = position;
   deck.startPlayback();

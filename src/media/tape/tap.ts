@@ -138,18 +138,27 @@ export class TapeDeck {
   /** CPU clock speed in Hz (affects pause/timing calculations) */
   cpuClock: number;
 
-  /** Scale applied to every (3.5MHz-referenced) pulse length to convert it to
-   *  this machine's CPU T-states. Defaults to 1 — correct for the Spectrum,
-   *  whose CPU clock IS the 3.5MHz reference, so playback there is byte-identical
-   *  to before. The CPC sets this to 4MHz/3.5MHz so CDT pulses play at the right
-   *  speed. Pauses are NOT scaled by this (they are real-time ms converted via
-   *  cpuClock); only pulse lengths carry the 3.5MHz reference unit. */
-  pulseScale = 1;
+  /**
+   * Scale applied to every (3.5MHz-referenced) pulse length to convert it to
+   * this machine's CPU T-states — `cpuClock / TAPE_REF_HZ`.
+   *
+   * Derived, not assigned: every machine with a tape deck (Spectrum, CPC,
+   * Einstein, MSX, Atom, Ace, Lynx, the ZX8x and the Commodore datasettes)
+   * wants exactly this ratio of its own clock, so it is a property of the deck,
+   * not a setting. It is precisely 1 for the Spectrum, whose CPU clock *is* the
+   * 3.5MHz reference, so playback there stays byte-identical. Pauses are NOT
+   * scaled by this (they are real-time ms converted via `cpuClock`); only pulse
+   * lengths carry the 3.5MHz reference unit.
+   */
+  get pulseScale(): number {
+    return this.cpuClock === TAPE_REF_HZ ? 1 : this.cpuClock / TAPE_REF_HZ;
+  }
 
   /** Scale a 3.5MHz-referenced pulse length to CPU T-states. Exact pass-through
    *  when pulseScale is 1 (Spectrum), so existing timings are unchanged. */
   private scale(t: number): number {
-    return this.pulseScale === 1 ? t : Math.round(t * this.pulseScale);
+    const scale = this.pulseScale;
+    return scale === 1 ? t : Math.round(t * scale);
   }
 
   constructor(cpuClock: number) {

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Assembles the Spectrum's service surface.
  * Constructed once per machine; the shell/MCP reach machine internals only
  * through these.
@@ -8,7 +8,8 @@ import type { MachineServices } from '@/machines/machine.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import { Z80DebugService } from '@/debug/z80/service.ts';
 import { SpectrumInputService } from './input.ts';
-import { SpectrumTapeService } from './tape.ts';
+import { spectrumTapeService } from './tape.ts';
+import type { DeckTapeService } from '@/machines/shared/deck-tape-service.ts';
 import { SpectrumDiskService } from './disks.ts';
 import { SpectrumRomService } from './roms.ts';
 import { SpectrumSnapshotService } from './snapshots.ts';
@@ -19,7 +20,7 @@ import { SpectrumInspection } from './inspect.ts';
 export interface SpectrumServices extends MachineServices {
   readonly media: SpectrumMediaService;
   readonly roms: SpectrumRomService;
-  readonly tape: SpectrumTapeService;
+  readonly tape: DeckTapeService;
   readonly disks: SpectrumDiskService;
   readonly snapshots: SpectrumSnapshotService;
   readonly input: SpectrumInputService;
@@ -29,7 +30,7 @@ export interface SpectrumServices extends MachineServices {
 
 export function createSpectrumServices(s: Spectrum): SpectrumServices {
   const host = () => s.host;
-  const tape = new SpectrumTapeService(s);
+  const tape = spectrumTapeService(s);
   const disks = new SpectrumDiskService(s);
   const roms = new SpectrumRomService(s, host);
   const snapshots = new SpectrumSnapshotService(s, host);

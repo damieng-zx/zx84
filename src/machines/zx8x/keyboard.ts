@@ -1,82 +1,44 @@
-/** ZX80/ZX81 8x5 active-low keyboard matrix. */
-type Cell = readonly [number, number];
+/**
+ * ZX80/ZX81 keyboard matrix.
+ *
+ * The scan hardware and the host-key handling are the ZX machines' common ones
+ * (`MatrixKeyKeyboard`); this file is the ZX8x's key map. Eight half-rows of five
+ * bits, selected by the high byte of a port 0xFE read, keys active-low.
+ *
+ * The ZX8x has no symbol shift (its SHIFT is applied differently), so it has no
+ * CHAR_MAP: every host key maps to a cell or a bare chord. It also mirrors both
+ * physical shifts onto the one SHIFT cell, and lacks a CAPS LOCK key.
+ */
 
-const KEY_MAP: Record<string, Cell | readonly Cell[]> = {
-  ShiftLeft: [0, 0], ShiftRight: [0, 0],
-  KeyZ: [0, 1], KeyX: [0, 2], KeyC: [0, 3], KeyV: [0, 4],
-  KeyA: [1, 0], KeyS: [1, 1], KeyD: [1, 2], KeyF: [1, 3], KeyG: [1, 4],
-  KeyQ: [2, 0], KeyW: [2, 1], KeyE: [2, 2], KeyR: [2, 3], KeyT: [2, 4],
-  Digit1: [3, 0], Digit2: [3, 1], Digit3: [3, 2], Digit4: [3, 3], Digit5: [3, 4],
-  Digit0: [4, 0], Digit9: [4, 1], Digit8: [4, 2], Digit7: [4, 3], Digit6: [4, 4],
-  KeyP: [5, 0], KeyO: [5, 1], KeyI: [5, 2], KeyU: [5, 3], KeyY: [5, 4],
-  Enter: [6, 0], KeyL: [6, 1], KeyK: [6, 2], KeyJ: [6, 3], KeyH: [6, 4],
-  Space: [7, 0], Period: [7, 1], KeyM: [7, 2], KeyN: [7, 3], KeyB: [7, 4],
-  Backspace: [[0, 0], [4, 0]],
-  Delete: [[0, 0], [4, 0]],
-  ArrowLeft: [[0, 0], [3, 4]],
-  ArrowDown: [[0, 0], [4, 4]],
-  ArrowUp: [[0, 0], [4, 3]],
-  ArrowRight: [[0, 0], [4, 2]],
-  Escape: [[0, 0], [7, 0]],
+import { MatrixKeyKeyboard, type ComboMapping, type KeyMapping } from '@/machines/shared/matrix-key-keyboard.ts';
+
+const KEY_MAP: Record<string, KeyMapping | ComboMapping> = {
+  ShiftLeft: { row: 0, bit: 0 }, ShiftRight: { row: 0, bit: 0 },
+  KeyZ: { row: 0, bit: 1 }, KeyX: { row: 0, bit: 2 }, KeyC: { row: 0, bit: 3 }, KeyV: { row: 0, bit: 4 },
+  KeyA: { row: 1, bit: 0 }, KeyS: { row: 1, bit: 1 }, KeyD: { row: 1, bit: 2 }, KeyF: { row: 1, bit: 3 }, KeyG: { row: 1, bit: 4 },
+  KeyQ: { row: 2, bit: 0 }, KeyW: { row: 2, bit: 1 }, KeyE: { row: 2, bit: 2 }, KeyR: { row: 2, bit: 3 }, KeyT: { row: 2, bit: 4 },
+  Digit1: { row: 3, bit: 0 }, Digit2: { row: 3, bit: 1 }, Digit3: { row: 3, bit: 2 }, Digit4: { row: 3, bit: 3 }, Digit5: { row: 3, bit: 4 },
+  Digit0: { row: 4, bit: 0 }, Digit9: { row: 4, bit: 1 }, Digit8: { row: 4, bit: 2 }, Digit7: { row: 4, bit: 3 }, Digit6: { row: 4, bit: 4 },
+  KeyP: { row: 5, bit: 0 }, KeyO: { row: 5, bit: 1 }, KeyI: { row: 5, bit: 2 }, KeyU: { row: 5, bit: 3 }, KeyY: { row: 5, bit: 4 },
+  Enter: { row: 6, bit: 0 }, KeyL: { row: 6, bit: 1 }, KeyK: { row: 6, bit: 2 }, KeyJ: { row: 6, bit: 3 }, KeyH: { row: 6, bit: 4 },
+  Space: { row: 7, bit: 0 }, Period: { row: 7, bit: 1 }, KeyM: { row: 7, bit: 2 }, KeyN: { row: 7, bit: 3 }, KeyB: { row: 7, bit: 4 },
+  Backspace: [{ row: 0, bit: 0 }, { row: 4, bit: 0 }],
+  Delete: [{ row: 0, bit: 0 }, { row: 4, bit: 0 }],
+  ArrowLeft: [{ row: 0, bit: 0 }, { row: 3, bit: 4 }],
+  ArrowDown: [{ row: 0, bit: 0 }, { row: 4, bit: 4 }],
+  ArrowUp: [{ row: 0, bit: 0 }, { row: 4, bit: 3 }],
+  ArrowRight: [{ row: 0, bit: 0 }, { row: 4, bit: 2 }],
+  Escape: [{ row: 0, bit: 0 }, { row: 7, bit: 0 }],
 };
 
-function isCell(value: Cell | readonly Cell[]): value is Cell {
-  return typeof value[0] === 'number';
-}
+export class Zx8xKeyboard extends MatrixKeyKeyboard {
+  constructor() {
+    // No CHAR_MAP: the ZX8x has no symbol shift.
+    super({ keyMap: KEY_MAP });
+  }
 
-export class Zx8xKeyboard {
-  /** 8 half-rows, bits 0-4, active-low (0 = pressed). Read by the on-screen
-   *  keyboard to mirror the live matrix for highlighting. */
-  readonly rows = new Uint8Array(8).fill(0xff);
-  private readonly held = new Map<string, readonly Cell[]>();
-
-  /**
-   * Reference count per [row][bit]. Several sources can hold the same bit at
-   * once — e.g. the on-screen SHIFT and a physical Shift both press [0,0]. A
-   * bit only releases when its count drops back to zero.
-   */
-  private readonly pressCount = Array.from({ length: 8 }, () => new Array<number>(5).fill(0));
-
+  /** The port 0xFE half-row read (the shared matrix's name for it). */
   read(highByte: number): number {
-    let value = 0x1f;
-    for (let row = 0; row < 8; row++) {
-      if ((highByte & (1 << row)) === 0) value &= this.rows[row];
-    }
-    return value;
-  }
-
-  /** Press or release one matrix bit by position, reference-counted so
-   *  overlapping presses of the same bit coexist. */
-  setKey(row: number, bit: number, pressed: boolean): void {
-    if (pressed) {
-      this.pressCount[row][bit]++;
-      this.rows[row] &= ~(1 << bit);
-    } else {
-      this.pressCount[row][bit] = Math.max(0, this.pressCount[row][bit] - 1);
-      if (this.pressCount[row][bit] === 0) this.rows[row] |= 1 << bit;
-    }
-  }
-
-  handleKeyEvent(code: string, pressed: boolean): boolean {
-    const mapped = KEY_MAP[code];
-    if (!mapped) return false;
-    const cells: readonly Cell[] = isCell(mapped) ? [mapped] : mapped;
-    if (pressed) {
-      if (this.held.has(code)) return true;
-      this.held.set(code, cells);
-      for (const [row, bit] of cells) this.setKey(row, bit, true);
-    } else {
-      const active = this.held.get(code);
-      if (!active) return true;
-      this.held.delete(code);
-      for (const [row, bit] of active) this.setKey(row, bit, false);
-    }
-    return true;
-  }
-
-  reset(): void {
-    this.rows.fill(0xff);
-    this.held.clear();
-    for (const row of this.pressCount) row.fill(0);
+    return this.readHalfRows(highByte);
   }
 }

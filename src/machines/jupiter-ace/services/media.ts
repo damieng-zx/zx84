@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Ace MediaService — the machine's own file routing: TAP/TZX/CSW/WAV cassettes
  * played back through the pulse deck, and `.acestate` / `.ace` snapshots.
  * ZIP unwrapping stays a shell concern.
@@ -13,7 +13,7 @@ import { parseTZX } from '@/media/tape/tzx.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
 import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import { parseAceTap } from '../ace-tape.ts';
-import type { AceTapeService } from './tape.ts';
+import type { DeckTapeService } from '@/machines/shared/deck-tape-service.ts';
 import type { AceSnapshotService } from './snapshots.ts';
 
 function fail(message: string): MountResult { return { ok: false, message }; }
@@ -21,7 +21,7 @@ function fail(message: string): MountResult { return { ok: false, message }; }
 export class AceMediaService implements MediaService {
   // The deck is the only thing this service touches; starting and stopping the
   // machine belongs to the shell (see mount).
-  constructor(private readonly tape: AceTapeService, private readonly snapshots: AceSnapshotService) {}
+  constructor(private readonly tape: DeckTapeService, private readonly snapshots: AceSnapshotService) {}
 
   accepts(): MediaTypeDescriptor[] {
     return [

@@ -26,7 +26,7 @@ import { WD179x } from '@/cores/wd179x.ts';
 import { Tms9918a, EINSTEIN_PALETTES } from '@/cores/tms9918a.ts';
 import { V9938 } from '@/cores/v9938.ts';
 import { Z80Ctc } from '@/cores/z80-ctc.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { TapeDeck } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
@@ -174,7 +174,6 @@ export class EinsteinMachine extends Z80MachineBase implements Machine {
     this.keyboard = new EinsteinKeyboard(model);
     // CDT/TZX pulse timings are 3.5MHz-referenced; scale to the 4MHz Z80.
     this.tape = new TapeDeck(EINSTEIN_CPU_CLOCK);
-    this.tape.pulseScale = EINSTEIN_CPU_CLOCK / TAPE_REF_HZ;
     this.audio = new Audio();
     this.mixer = new AudioMixer(EINSTEIN_CPU_CLOCK);
     this.mixer.beeperGain = 0;   // AY only, no beeper

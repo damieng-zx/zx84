@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { LynxMachine } from '@/machines/lynx/lynx-machine.ts';
 import type { LynxModel } from '@/machines/lynx/models.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { TapeDeck } from '@/media/tape/tap.ts';
 import {
   decodeLynxSavePulses, encodeLynxTap, parseLynxTap, LYNX_TAPE_HZ_48,
 } from '@/media/tape/lynx-tap.ts';
@@ -162,7 +162,6 @@ describe('Lynx SAVE recording against zx84\'s own tape playback', () => {
     const tap = Uint8Array.from([...file('XY', codeEntry([9, 8, 7, 6])).flat()]);
     const clock = 4_000_000;
     const deck = new TapeDeck(clock);
-    deck.pulseScale = clock / TAPE_REF_HZ;
     deck.blocks = parseLynxTap(tap, LYNX_TAPE_HZ_48).blocks;
     deck.position = 0;
     deck.paused = false;

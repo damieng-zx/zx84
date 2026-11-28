@@ -12,7 +12,7 @@
  * count; the data line and carrier flag are then read from `fsk`.
  */
 
-import { TapeDeck, TAPE_REF_HZ, type TapeBlock } from '@/media/tape/tap.ts';
+import { TapeDeck, type TapeBlock } from '@/media/tape/tap.ts';
 import { UefRecorder } from '@/media/tape/uef.ts';
 import { CassetteFsk } from './cassette-fsk.ts';
 import { readTapeBlocks, writeTapeBlocks } from '@/media/tape/tape-block-state.ts';
@@ -42,7 +42,6 @@ export class CassetteDrive {
   /** @param cpuClock CPU cycles per second */
   constructor(readonly cpuClock: number) {
     this.deck = new TapeDeck(cpuClock);
-    this.deck.pulseScale = cpuClock / TAPE_REF_HZ;
     this.fsk = new CassetteFsk(cpuClock);
     this.recorder = new UefRecorder(cpuClock);
   }

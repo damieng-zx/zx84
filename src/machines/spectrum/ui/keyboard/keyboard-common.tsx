@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Shared plumbing for the on-screen keyboards (rubber 48K and the Spectrum +
  * / 128K layout).
  *
@@ -9,9 +9,11 @@
  * matrix for highlighting.
  */
 
-import { For, createSignal, onCleanup } from 'solid-js';
-import { createMatrixKeyboard } from '@/ui/components/matrix-keyboard.ts';
+import { For } from 'solid-js';
+import { useLatchKeyboard } from '@/ui/keyboard/latch-keyboard.ts';
+import type { LatchMode } from '@/ui/keyboard/latch-keyboard.ts';
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
+import type { SpectrumKeyboard } from '@/machines/spectrum/keyboard.ts';
 
 /** ZX keyboard-matrix [row, bit] for each key glyph. */
 export const POS: Record<string, [number, number]> = {
@@ -84,15 +86,6 @@ export function Block(props: { n: number; class?: string }) {
   );
 }
 
-/**
- * How a sticky key latches:
- *   • 'oneshot' — held until the next ordinary key is pressed, then released
- *     (CAPS SHIFT, SYMBOL SHIFT). Click again to unlatch.
- *   • 'hold'    — stays latched until clicked again; an ordinary key press does
- *     not release it (EXTEND MODE, GRAPH, CAPS LOCK).
- */
-export type LatchMode = 'oneshot' | 'hold';
-
 export interface KeyboardController {
   /** True when every matrix bit of the key is currently held (active-low). */
   isDown(positions: [number, number][]): boolean;
@@ -102,132 +95,23 @@ export interface KeyboardController {
   onUp(positions: [number, number][], latch?: LatchMode): void;
 }
 
-const idOf = (positions: [number, number][]) => positions.map(([r, b]) => `${r},${b}`).join('|');
-
 /**
  * Wires an on-screen keyboard to the live Spectrum:
- *   • ordinary keys are momentary (press on down, release on up);
- *   • CAPS/SYMBOL SHIFT and the mode keys latch (see LatchMode);
- *   • a per-frame poll mirrors the matrix so keys highlight for physical
+ *   - ordinary keys are momentary (press on down, release on up);
+ *   - CAPS/SYMBOL SHIFT and the mode keys latch (see LatchMode);
+ *   - a per-frame poll mirrors the matrix so keys highlight for physical
  *     keystrokes too, not just pointer presses.
+ *
+ * The latch itself is the shared one in `@/ui/keyboard/latch-keyboard.ts`.
  */
-/**
- * How long the CAPS+SYMBOL chord is held before release. Long enough for the
- * ROM's 50Hz keyboard scan to register it several times, but well under the
- * auto-repeat delay (REPDEL ≈ 0.7s) so EXTEND MODE toggles exactly once instead
- * of flickering in and out.
- */
-const CHORD_PULSE_MS = 120;
-
 export function useKeyboard(): KeyboardController {
-  // Mirrors the live matrix each frame so keys highlight for physical keystrokes too.
-  const matrix = createMatrixKeyboard({
+  return useLatchKeyboard<SpectrumKeyboard>({
     keyboard: () => activeSpectrum()?.keyboard ?? null,
     rows: (kb) => kb.rows,
-    setCell: (kb, row, bit, down) => kb.setKey(row, bit, down),
+    setKey: (kb, row, bit, down) => kb.setKey(row, bit, down),
     rowCount: 8,
     released: 0xff,
   });
-  const [latched, setLatched] = createSignal<ReadonlyMap<string, { positions: [number, number][]; hold: boolean }>>(new Map());
-
-  // Shift-chord (CAPS+SYMBOL) bits currently pulsed down, awaiting release.
-  let chordTimer: ReturnType<typeof setTimeout> | undefined;
-  let chordPositions: [number, number][] = [];
-  const releaseChord = () => {
-    const kb = activeSpectrum()?.keyboard;
-    if (kb) for (const [r, b] of chordPositions) kb.setKey(r, b, false);
-    chordPositions = [];
-    chordTimer = undefined;
-  };
-
-  const isDown = (positions: [number, number][]) =>
-    positions.length > 0 && positions.every(([r, b]) => matrix.isDown(r, b));
-
-  const onDown = (positions: [number, number][], latch?: LatchMode) => {
-    const kb = activeSpectrum()?.keyboard;
-    if (!kb) return;
-    if (!latch) {
-      for (const [r, b] of positions) kb.setKey(r, b, true);
-      return;
-    }
-    const id = idOf(positions);
-    const cur = latched();
-    // Click an already-latched key again to unlatch it.
-    if (cur.has(id)) {
-      for (const [r, b] of positions) kb.setKey(r, b, false);
-      const next = new Map(cur);
-      next.delete(id);
-      setLatched(next);
-      return;
-    }
-    // A second one-shot shift while another one-shot is already latched forms a
-    // momentary chord (CAPS+SYMBOL → EXTEND MODE). Latching both keeps the chord
-    // asserted forever, which makes the ROM auto-repeat the mode toggle (it
-    // flickers in and out). Instead pulse both shifts down together briefly: the
-    // ROM enters the mode once and remembers it, and we release both shifts.
-    if (latch === 'oneshot') {
-      const others = [...cur.entries()].filter(([, e]) => !e.hold);
-      if (others.length > 0) {
-        const next = new Map(cur);
-        const chord: [number, number][] = [...positions];
-        for (const [oid, e] of others) {
-          next.delete(oid);          // drop the persistent latch...
-          chord.push(...e.positions); // ...but keep its bit asserted for the pulse
-        }
-        setLatched(next);
-        for (const [r, b] of positions) kb.setKey(r, b, true);
-        chordPositions = [...chordPositions, ...chord];
-        if (chordTimer) clearTimeout(chordTimer);
-        chordTimer = setTimeout(releaseChord, CHORD_PULSE_MS);
-        return;
-      }
-    }
-    // Normal latch on.
-    for (const [r, b] of positions) kb.setKey(r, b, true);
-    const next = new Map(cur);
-    next.set(id, { positions, hold: latch === 'hold' });
-    setLatched(next);
-  };
-
-  const onUp = (positions: [number, number][], latch?: LatchMode) => {
-    const kb = activeSpectrum()?.keyboard;
-    if (!kb || latch) return; // latched keys toggle on press only
-    for (const [r, b] of positions) kb.setKey(r, b, false);
-    // Drop one-shot latches (CAPS/SYMBOL SHIFT); leave 'hold' latches asserted.
-    const map = latched();
-    const next = new Map(map);
-    let changed = false;
-    for (const [id, entry] of map) {
-      if (!entry.hold) {
-        for (const [r, b] of entry.positions) kb.setKey(r, b, false);
-        next.delete(id);
-        changed = true;
-      }
-    }
-    if (changed) setLatched(next);
-  };
-
-  /**
-   * Let go of everything this controller has asserted: a pending chord pulse
-   * and every latched key (CAPS/SYMBOL SHIFT one-shots and the mode holds). The
-   * pane can be closed with a shift latched — the machine outlives the pane, so
-   * without this the matrix keeps that bit held and the machine reads a stuck
-   * SHIFT forever.
-   */
-  const releaseAll = () => {
-    const kb = activeSpectrum()?.keyboard;
-    if (chordTimer) { clearTimeout(chordTimer); chordTimer = undefined; }
-    if (kb) {
-      for (const [r, b] of chordPositions) kb.setKey(r, b, false);
-      for (const entry of latched().values()) {
-        for (const [r, b] of entry.positions) kb.setKey(r, b, false);
-      }
-    }
-    chordPositions = [];
-    setLatched(new Map());
-  };
-
-  onCleanup(releaseAll);
-
-  return { isDown, onDown, onUp };
 }
+
+export type { LatchMode };

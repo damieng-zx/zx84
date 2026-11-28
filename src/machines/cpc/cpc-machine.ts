@@ -16,7 +16,7 @@
 import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { UPD765A } from '@/cores/upd765a.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { TapeDeck } from '@/media/tape/tap.ts';
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { isCpr, parseCpr } from '@/media/cartridge/cpr.ts';
@@ -177,7 +177,6 @@ export class CpcMachine extends Z80MachineBase implements Machine {
     this.hasFdc = this.config.hasFDC;
     // CDT timings are 3.5MHz-referenced; scale them to the CPC's 4MHz Z80.
     this.tape = new TapeDeck(CPC_CPU_CLOCK);
-    this.tape.pulseScale = CPC_CPU_CLOCK / TAPE_REF_HZ;
     this.keyboard = new CpcKeyboard();
     this.crtc = new Crtc6845(this.config.crtcType);
     this.gateArray = this.config.isPlus ? new Asic() : new GateArray();

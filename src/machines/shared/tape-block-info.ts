@@ -1,8 +1,8 @@
 /**
- * Shared TapeBlock → TapeBlockInfo mapping for the pulse-level TapeDeck machines
- * (CPC / Einstein). The Spectrum keeps its own copy in its services folder; this
- * is the identical logic factored out for the machines that came later, so the
- * tape pane sees the same one-line labels regardless of which deck backs them.
+ * Shared TapeBlock → TapeBlockInfo mapping for every pulse-level TapeDeck
+ * machine (the Spectrum, CPC, Einstein, Ace, ZX8x, MSX, Lynx, Atom and the
+ * Commodore datasettes). One implementation, so the tape pane sees the same
+ * one-line labels regardless of which deck backs them.
  */
 
 import type { TapeBlockInfo } from '@/machines/machine.ts';

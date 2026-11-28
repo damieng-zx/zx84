@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Spectrum MediaService — the machine's own file routing, ported verbatim from
  * the shell's per-extension cascade (emulator.ts loadFile tail + the
  * MediaManager's Spectrum half). The ORDER of these checks is load-bearing:
@@ -20,7 +20,7 @@ import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { parseFloppyImage } from '@/media/floppy/hfe.ts';
 import { parsePlusDMedia, parseBetaMedia, type SpectrumDiskService } from './disks.ts';
-import type { SpectrumTapeService } from './tape.ts';
+import type { DeckTapeService } from '@/machines/shared/deck-tape-service.ts';
 import type { SpectrumSnapshotService } from './snapshots.ts';
 import type { SpectrumRomService } from './roms.ts';
 
@@ -30,7 +30,7 @@ export class SpectrumMediaService implements MediaService {
   constructor(
     private readonly s: Spectrum,
     private readonly disks: SpectrumDiskService,
-    private readonly tape: SpectrumTapeService,
+    private readonly tape: DeckTapeService,
     private readonly snapshots: SpectrumSnapshotService,
     private readonly roms: SpectrumRomService,
   ) {}

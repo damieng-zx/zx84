@@ -10,7 +10,7 @@
  * one recording are read one after another just as the deck would play them.
  */
 
-import { TapeDeck, TAPE_REF_HZ, type TapeBlock } from '@/media/tape/tap.ts';
+import { TapeDeck, type TapeBlock } from '@/media/tape/tap.ts';
 import { ZX8X_CPU_CLOCK } from './constants.ts';
 import {
   findZx8xPrograms, labelZx8xPrograms, type Zx8xDeckProgram, type Zx8xTapeModel,
@@ -32,7 +32,6 @@ export class Zx8xCassette {
 
   constructor(private readonly model: Zx8xTapeModel) {
     // Tape pulses are authored against the Spectrum's 3.5MHz clock.
-    this.deck.pulseScale = ZX8X_CPU_CLOCK / TAPE_REF_HZ;
   }
 
   get loaded(): boolean { return this.deck.blocks.length > 0; }

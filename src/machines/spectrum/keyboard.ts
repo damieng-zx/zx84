@@ -1,9 +1,14 @@
 /**
  * ZX Spectrum keyboard emulation.
  *
- * 8 half-rows, 5 bits each, active-low.
+ * 8 half-rows, 5 bits each, active-low. The matrix and the host-key handling are
+ * the ZX machines' common ones (`MatrixKeyKeyboard`); this file is the Spectrum's
+ * key map — which key sits at which cell — and its symbol-shift character table.
+ *
  * PC keyboard events map to [row, bit] pairs.
  */
+
+import { MatrixKeyKeyboard, type ComboMapping, type KeyMapping } from '@/machines/shared/matrix-key-keyboard.ts';
 
 // [row, bit] for each ZX Spectrum key
 // Row 0: SHIFT, Z, X, C, V         (port 0xFEFE)
@@ -15,10 +20,9 @@
 // Row 6: ENTER, L, K, J, H         (port 0xBFFE)
 // Row 7: SPACE, SYM, M, N, B       (port 0x7FFE)
 
-type KeyMapping = { row: number; bit: number };
-type ComboMapping = KeyMapping[];
+type KeyMap = Record<string, KeyMapping | ComboMapping>;
 
-const KEY_MAP: Record<string, KeyMapping | ComboMapping> = {
+const KEY_MAP: KeyMap = {
   // Row 0: SHIFT, Z, X, C, V
   'ShiftLeft':    { row: 0, bit: 0 },
   'ShiftRight':   { row: 7, bit: 1 },  // SYM SHIFT (RShift = symbol access)
@@ -130,161 +134,10 @@ const CHAR_MAP: Record<string, ComboMapping> = {
   ']':  [CS, SS, { row: 5, bit: 3 }],  // EXT + U
 };
 
-export class SpectrumKeyboard {
-  /** 8 half-row bytes, bits 0-4, active low (0 = pressed) */
-  rows: Uint8Array;
 
-  /** Track active CHAR_MAP combos by physical key code for correct release */
-  private activeCharCombos = new Map<string, { combo: ComboMapping; suppressedCS: boolean }>();
-
-  /** Count of physical Shift keys currently held (ShiftLeft only — ShiftRight is SYM SHIFT) */
-  private physicalShiftCount = 0;
-
-  /**
-   * Keys deferred from combo presses — the modifier goes down immediately, and
-   * the remaining keys land one frame later so the Spectrum's scan always sees
-   * the modifier first.  Cleared by processPending() each frame.
-   */
-  private pendingKeys: KeyMapping[] = [];
-
-  /**
-   * Reference count per [row][bit].  Multiple sources can press the same bit
-   * (e.g. physical Shift + Backspace combo both press CS).  The bit only
-   * releases when the count drops to zero.
-   */
-  private pressCount: number[][];
-
+export class SpectrumKeyboard extends MatrixKeyKeyboard {
   constructor() {
-    this.rows = new Uint8Array(8);
-    this.rows.fill(0xFF);
-    this.pressCount = Array.from({ length: 8 }, () => Array(5).fill(0));
-  }
-
-  reset(): void {
-    this.rows.fill(0xFF);
-    this.activeCharCombos.clear();
-    this.physicalShiftCount = 0;
-    this.pendingKeys = [];
-    for (const row of this.pressCount) row.fill(0);
-  }
-
-  /**
-   * Apply deferred combo keys.  Call once per frame (start of runFrame) so
-   * that the modifier pressed on keydown is visible for one full scan before
-   * the main key appears.
-   */
-  processPending(): void {
-    for (const k of this.pendingKeys) this.setKey(k.row, k.bit, true);
-    this.pendingKeys = [];
-  }
-
-  /**
-   * Read half-rows selected by the high byte of the port address.
-   * Multiple rows can be selected at once (active low address lines).
-   */
-  readHalfRows(highByte: number): number {
-    let result = 0xFF;
-    for (let row = 0; row < 8; row++) {
-      if ((highByte & (1 << row)) === 0) {
-        result &= this.rows[row];
-      }
-    }
-    return result & 0x1F;
-  }
-
-  setKey(row: number, bit: number, pressed: boolean): void {
-    if (pressed) {
-      this.pressCount[row][bit]++;
-      this.rows[row] &= ~(1 << bit);
-    } else {
-      this.pressCount[row][bit] = Math.max(0, this.pressCount[row][bit] - 1);
-      if (this.pressCount[row][bit] === 0) {
-        this.rows[row] |= (1 << bit);
-      }
-    }
-  }
-
-  /**
-   * Temporarily suppress a bit (force release) without affecting the press
-   * count.  Used by CHAR_MAP handling to hide CAPS SHIFT while a symbol
-   * combo is active, without confusing the reference count.
-   */
-  private suppressBit(row: number, bit: number): void {
-    this.rows[row] |= (1 << bit);
-  }
-
-  /**
-   * Restore a previously suppressed bit — re-asserts it only if the press
-   * count says something is still holding it.
-   */
-  private restoreBit(row: number, bit: number): void {
-    if (this.pressCount[row][bit] > 0) {
-      this.rows[row] &= ~(1 << bit);
-    }
-  }
-
-  /** Check if CAPS SHIFT is currently pressed (row 0, bit 0 active-low). */
-  private get capsShiftPressed(): boolean {
-    return (this.rows[0] & 1) === 0;
-  }
-
-  handleKeyEvent(code: string, pressed: boolean, key?: string): boolean {
-    // Track physical Shift state so we know whether to restore CS on combo release.
-    // Only track ShiftLeft — ShiftRight now maps to SYM SHIFT, not CAPS SHIFT.
-    if (code === 'ShiftLeft') {
-      this.physicalShiftCount = Math.max(0, this.physicalShiftCount + (pressed ? 1 : -1));
-    }
-
-    // On key release, use the stored combo from keydown so we release the
-    // correct keys even if Shift state changed between press and release.
-    if (!pressed) {
-      const stored = this.activeCharCombos.get(code);
-      if (stored) {
-        for (const k of stored.combo) this.setKey(k.row, k.bit, false);
-        // Restore CAPS SHIFT only if physical Shift is still held.
-        // If Shift was released before this key, CS was already cleared by the
-        // ShiftLeft/Right keyup event; restoring it here would leave CS stuck.
-        if (stored.suppressedCS && this.physicalShiftCount > 0) this.restoreBit(0, 0);
-        this.activeCharCombos.delete(code);
-        return true;
-      }
-    }
-
-    // Check character map for symbol keys (';', '-', ',', etc.)
-    // Skip CHAR_MAP for digit keys — Shift+number has Spectrum meanings
-    // (EDIT, CAPS LOCK, TRUE VIDEO, etc.) that must not be intercepted by
-    // the symbol characters those PC keys produce (!@#$%^&*()).
-    const isDigitKey = code.startsWith('Digit');
-    const charMapping = (key && !isDigitKey) ? CHAR_MAP[key] : undefined;
-    if (charMapping) {
-      if (pressed) {
-        // If CAPS SHIFT is pressed (from physical Shift) but this combo
-        // doesn't need it, suppress CS to avoid entering extended mode.
-        const comboNeedsCS = charMapping.some(k => k.row === 0 && k.bit === 0);
-        const suppressCS = this.capsShiftPressed && !comboNeedsCS;
-        if (suppressCS) this.suppressBit(0, 0);
-        this.activeCharCombos.set(code, { combo: charMapping, suppressedCS: suppressCS });
-      }
-      for (const k of charMapping) this.setKey(k.row, k.bit, pressed);
-      return true;
-    }
-
-    const mapping = KEY_MAP[code];
-    if (!mapping) return false;
-
-    if (Array.isArray(mapping)) {
-      if (pressed) {
-        // Stagger: press the modifier (first key) immediately, defer the rest
-        // by one frame so the Spectrum's keyboard scan always sees the modifier
-        // first.  This prevents e.g. Backspace (SHIFT+0) registering as just 0.
-        this.setKey(mapping[0].row, mapping[0].bit, true);
-        for (let ci = 1; ci < mapping.length; ci++) this.pendingKeys.push(mapping[ci]);
-      } else {
-        for (const k of mapping) this.setKey(k.row, k.bit, false);
-      }
-    } else {
-      this.setKey(mapping.row, mapping.bit, pressed);
-    }
-    return true;
+    super({ keyMap: KEY_MAP, charMap: CHAR_MAP, capsShift: CS });
   }
 }
+

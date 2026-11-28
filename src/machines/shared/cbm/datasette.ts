@@ -15,7 +15,7 @@
  */
 
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { TapeDeck } from '@/media/tape/tap.ts';
 
 /** Frames the turbo stays engaged after the last tape access. */
 export const TAPE_TURBO_COOLDOWN = 25;
@@ -69,7 +69,6 @@ export class CbmDatasette {
 
   constructor(private readonly board: CbmDatasetteBoard, clockHz: number) {
     this.tape = new TapeDeck(clockHz);
-    this.tape.pulseScale = clockHz / TAPE_REF_HZ;
   }
 
   get turboActive(): boolean { return this._turboActive; }
