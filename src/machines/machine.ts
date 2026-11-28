@@ -1342,7 +1342,9 @@ export interface MachineServices {
 
 /**
  * One machine family's registry entry: the parts catalog line. `registry.ts`
- * and `src/models.ts` are the ONLY files that may name every machine (§3.5).
+ * holds exactly one entry per `MachineKind`, and its compile-time assertions
+ * hold those entries to the `MachineKind` union declared above and the
+ * `MachineModel` union in `src/models.ts`.
  */
 export interface MachineEntry {
   readonly kind: MachineKind;
