@@ -15,7 +15,7 @@
  * chunk in the file still wins on baud.
  */
 
-import { TapeDeck, TAPE_REF_HZ, type TapeBlock } from '@/media/tape/tap.ts';
+import { TapeDeck, type TapeBlock } from '@/media/tape/tap.ts';
 import { looksLikeUef, parseUEF } from '@/media/tape/uef.ts';
 import { parseCSW } from '@/media/tape/csw.ts';
 import { isWav, wavToPulseBlocks } from '@/media/tape/wav.ts';
@@ -42,12 +42,6 @@ export class AtomTape implements TapeService {
   /** Cassette-input level changes since the probe last consumed them. The EAR
    *  lamp shows activity, not the idle-high line. */
   private earEdges = 0;
-
-  constructor() {
-    // UEF/CSW pulses are authored in 3.5 MHz ticks; the Atom's CPU counts at
-    // 1 MHz, so scale them into its T-states.
-    this.deck.pulseScale = ATOM_CPU_CLOCK / TAPE_REF_HZ;
-  }
 
   get loaded(): boolean { return this.deck.blocks.length > 0; }
   get blocks(): readonly TapeBlockInfo[] { return this.deck.blocks.map(tapeBlockInfo); }

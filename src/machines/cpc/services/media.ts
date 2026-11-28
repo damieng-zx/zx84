@@ -1,4 +1,4 @@
-/**
+﻿/**
  * CPC MediaService — the machine's own file routing, ported verbatim from the
  * shell's former per-extension CPC cascade (the CPC branch of the old
  * emulator.loadFile, plus loadCpcSnapshot and the CPC half of loadDiskToUnit).
@@ -14,7 +14,7 @@ import { parseCSW } from '@/media/tape/csw.ts';
 import { wavToPulseBlocks } from '@/media/tape/wav.ts';
 import type { TapeBlock } from '@/media/tape/tap.ts';
 import { parseFloppyImage } from '@/media/floppy/hfe.ts';
-import type { CpcTapeService } from './tape.ts';
+import type { DeckTapeService } from '@/machines/shared/deck-tape-service.ts';
 import type { CpcDiskService } from './disks.ts';
 import type { CpcSnapshotService } from './snapshots.ts';
 import type { CpcRomService } from './roms.ts';
@@ -25,7 +25,7 @@ export class CpcMediaService implements MediaService {
   constructor(
     private readonly c: CpcMachine,
     private readonly disks: CpcDiskService,
-    private readonly tape: CpcTapeService,
+    private readonly tape: DeckTapeService,
     private readonly snapshots: CpcSnapshotService,
     private readonly roms: CpcRomService,
   ) {}

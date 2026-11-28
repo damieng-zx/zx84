@@ -22,7 +22,7 @@ import { Z80MachineBase } from '@/machines/shared/z80-machine-base.ts';
 import { crc32, type StateReader, type StateWriter } from '@/machines/shared/state-io.ts';
 import type { BeamInfo, BeamPos } from '@/debug/beam-log.ts';
 import { Z80Trace } from '@/debug/z80/trace.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { TapeDeck } from '@/media/tape/tap.ts';
 import { PulseRecorder } from '@/media/tape/pulse-recorder.ts';
 import type { IScreenRenderer } from '@/display/renderer.ts';
 import type {
@@ -162,7 +162,6 @@ export class LynxMachine extends Z80MachineBase implements Machine {
     this._pixels32 = this.video.pixels;
     this._pixels = new Uint8Array(this._pixels32.buffer);
 
-    this.tape.pulseScale = this.clock / TAPE_REF_HZ;
     this.cpu.onInterrupt = (handler, nmi) => this.noteInterrupt(handler, nmi);
     this.cpu.read8 = (addr: number): number => {
       const value = this.memory.readByte(addr);

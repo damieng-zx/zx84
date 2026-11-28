@@ -21,7 +21,7 @@ describe('TapeDeck pulseScale', () => {
     expect(TAPE_REF_HZ).toBe(3_500_000);
   });
 
-  it('defaults to scale 1 — Spectrum pulse lengths are unchanged', () => {
+  it('is 1 at the 3.5MHz reference — Spectrum pulse lengths are unchanged', () => {
     const deck = new TapeDeck(3_500_000);
     expect(deck.pulseScale).toBe(1);
     deck.blocks = [{ kind: 'tone', pulseLen: 2168, count: 4 }];
@@ -30,9 +30,13 @@ describe('TapeDeck pulseScale', () => {
     expect(deck.tStatesToNextEdge()).toBe(2168);
   });
 
+  it('follows the deck clock: 4/3.5 on the CPC', () => {
+    const deck = new TapeDeck(4_000_000);
+    expect(deck.pulseScale).toBeCloseTo(CPC_SCALE, 12);
+  });
+
   it('scales a tone pulse by 4/3.5 for the CPC', () => {
     const deck = new TapeDeck(4_000_000);
-    deck.pulseScale = CPC_SCALE;
     deck.blocks = [{ kind: 'tone', pulseLen: 1000, count: 4 }];
     deck.startPlayback();
     // round(1000 × 4/3.5) = round(1142.857) = 1143
@@ -47,11 +51,17 @@ describe('TapeDeck pulseScale', () => {
 
   it('scales a data-block pilot pulse by 4/3.5', () => {
     const deck = new TapeDeck(4_000_000);
-    deck.pulseScale = CPC_SCALE;
     deck.blocks = [mkData({ pilotPulse: 2168, pilotCount: 100 })];
     deck.startPlayback();
     // round(2168 × 4/3.5) = round(2477.71) = 2478
     expect(deck.tStatesToNextEdge()).toBe(2478);
+  });
+
+  it('re-derives when the clock changes (the timing harness sets cpuClock)', () => {
+    const deck = new TapeDeck(3_500_000);
+    expect(deck.pulseScale).toBe(1);
+    deck.cpuClock = 4_000_000;
+    expect(deck.pulseScale).toBeCloseTo(CPC_SCALE, 12);
   });
 });
 
@@ -83,7 +93,6 @@ describe('TapeDeck faithful rawBytes playback', () => {
 
   it('scales rawBytes pulses on the CPC too', () => {
     const deck = new TapeDeck(4_000_000);
-    deck.pulseScale = CPC_SCALE;
     deck.blocks = [mkBitProbe(new Uint8Array([0x80, 0x00]))];
     deck.startPlayback();
     // round(200 × 4/3.5) = round(228.57) = 229

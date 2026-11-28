@@ -16,7 +16,7 @@
 
 import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { TapeDeck } from '@/media/tape/tap.ts';
 import { LoaderDetector } from '@/media/tape/loader-detector.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
@@ -122,9 +122,6 @@ export class JupiterAceMachine extends Z80MachineBase implements Machine {
     this.keyboard = new AceKeyboard();
     this.ula = new AceUla(this.keyboard);
     this.tape = new TapeDeck(ACE_CPU_CLOCK);
-    // TAP/TZX pulse lengths are 3.5MHz-referenced; scale them to the Ace's
-    // 3.25 MHz clock (same treatment as the CPC/Einstein/Lynx decks).
-    this.tape.pulseScale = ACE_CPU_CLOCK / TAPE_REF_HZ;
     this.ay = new AY3891x(ACE_CPU_CLOCK, 48000, 'ABC');
     this.audio = new Audio();
     this.mixer = new AudioMixer(ACE_CPU_CLOCK);

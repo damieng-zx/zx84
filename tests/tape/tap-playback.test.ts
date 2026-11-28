@@ -1333,7 +1333,6 @@ describe('TapeDeck — data block pause: mid-flip decrement leaves flip pending'
     // 1ms is round(3_546_900 / 1000) = 3547 CPU T-states.
     const deck = deckWith(makeData(0xFF, [1], { pause: 100 }));
     deck.cpuClock = 3_546_900;
-    deck.pulseScale = 3_546_900 / 3_500_000;
     // Enter the pause directly via the ROM-trap path (holds the line high).
     deck.nextDataBlock();
     deck.skipBlock();

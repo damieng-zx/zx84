@@ -21,7 +21,7 @@ import { Z80 } from '@/cores/z80.ts';
 import { AY3891x } from '@/cores/ay-3-8910.ts';
 import { WD179x } from '@/cores/wd179x.ts';
 import { Tms9918a, MSX_PALETTES } from '@/cores/tms9918a.ts';
-import { TapeDeck, TAPE_REF_HZ } from '@/media/tape/tap.ts';
+import { TapeDeck } from '@/media/tape/tap.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
 import { Audio } from '@/audio.ts';
 import { AudioMixer } from '@/machines/shared/audio-mixer.ts';
@@ -139,7 +139,6 @@ export class MsxMachine extends Z80MachineBase implements Machine {
     this.ppi = new MsxPpi(this.memory, this.keyboard);
     this.tape = new TapeDeck(MSX_CPU_CLOCK);
     // Tape timings are written in 3.5 MHz T-states; the MSX runs at 3.58 MHz.
-    this.tape.pulseScale = MSX_CPU_CLOCK / TAPE_REF_HZ;
     this.audio = new Audio();
     this.mixer = new AudioMixer(MSX_CPU_CLOCK);
     // The 1-bit "beeper" path carries the PPI port C bit 7 key click.

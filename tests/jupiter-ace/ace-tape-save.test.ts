@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Recovering a SAVE from the MIC line.
  *
  * The expected waveform is the ROM's own, from the SAVE routine at
@@ -86,7 +86,7 @@ describe('AceTapeRecorder', () => {
   });
 });
 
-describe('AceTapeService.recordedBytes', () => {
+describe('DeckTapeService.recordedBytes (Ace)', () => {
   function machine(): JupiterAceMachine {
     const m = new JupiterAceMachine('jupiter-ace', null);
     m.start = async () => {};   // headless: no AudioContext / rAF

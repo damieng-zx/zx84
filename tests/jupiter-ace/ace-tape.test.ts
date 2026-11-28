@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Ace tape format (jupiter-ace.co.uk doc_AceTapeFormat, MAME ace_tap.cpp).
  *
  * Ace .tap chunks are [len16][bytes] with NO flag and NO checksum of their
@@ -307,7 +307,7 @@ describe('tagAceTapeFiles', () => {
   });
 });
 
-describe('AceTapeService — mountBytes tags Ace pairs end to end', () => {
+describe('DeckTapeService — mountBytes tags Ace pairs end to end', () => {
   function machine(): JupiterAceMachine {
     const m = new JupiterAceMachine('jupiter-ace', null);
     m.start = async () => {};

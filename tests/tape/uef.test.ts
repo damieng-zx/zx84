@@ -148,7 +148,6 @@ describe('UEF → deck → demodulator → UART round trip', () => {
 
   function playThrough(blocks: TapeBlock[], baud = 1200): { got: number[]; carrierDuring: boolean[] } {
     const deck = new TapeDeck(CPU);
-    deck.pulseScale = CPU / TAPE_REF_HZ;
     deck.blocks = blocks;
     deck.startPlayback();
     const fsk = new CassetteFsk(CPU);
