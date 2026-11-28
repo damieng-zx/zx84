@@ -2,7 +2,7 @@ import { createMemo, createSignal, createEffect, onMount, onCleanup, Show, For }
 import { HiOutlineFunnel, HiOutlinePlay } from 'solid-icons/hi';
 import { DropDownMenuButton, type MenuItem } from '@/ui/components/DropDownMenuButton.tsx';
 import { loadFile, ejectDisk } from '@/shell/media.ts';
-import { switchModel, autoBootLoad, resetMachine } from '@/shell/lifecycle.ts';
+import { switchModel, autoBootLoad } from '@/shell/lifecycle.ts';
 import { setStatus } from '@/shell/context.ts';
 import * as settings from '@/store/settings.ts';
 import { currentModel, cartridgeName } from '@/state/machine-state.ts';
@@ -396,7 +396,7 @@ export function LibraryBrowser() {
       const isSnapshot = plan.boot === 'snapshot';
       const isRom = plan.boot === 'rom';
       // A Beta disk is a peripheral mount too; it differs only in being booted.
-      const isPeripheral = plan.boot === 'peripheral' || plan.boot === 'trdos';
+      const isPeripheral = plan.boot === 'peripheral' || plan.boot === 'trdos' || plan.boot === 'plusd';
       // A tape-only game on a +3/+2A must not find a disk in A: — the boot
       // menu's Loader boots the disk in preference to the tape. Eject any
       // mounted disk so the Loader falls through to the cassette loader.
@@ -415,10 +415,9 @@ export function LibraryBrowser() {
       // manager's default "…loaded" message.
       const source = plan.kind === 'plus3-disk' ? '+3 disk' : plan.kind === 'mgt-disk' ? 'MGT disk' : plan.kind === 'beta-disk' ? 'Beta disk' : plan.kind;
       setStatus(`Loaded ${source} ${basename(plan.link)}`);
-      // G+DOS boots from the mounted disk after reset; a Beta disk is booted by
-      // typing RANDOMIZE USR 15616 and RUN once the editor is up (autoBootLoad);
+      // A +D disk is booted by typing RUN once the editor is up, and a Beta disk
+      // by RANDOMIZE USR 15616 and RUN (autoBootLoad, which resets first);
       // Interface 1 cartridges remain mounted for the program's own LOAD * command.
-      if (!remountOnly && plan.kind === 'mgt-disk') resetMachine();
       if (!remountOnly && plan.boot !== 'snapshot' && plan.boot !== 'rom' && plan.boot !== 'peripheral') autoBootLoad(plan.boot);
     } catch (err) {
       console.warn(`Failed to load "${game.title}":`, err);

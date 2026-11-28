@@ -237,7 +237,7 @@ export function register(server: McpServer): void {
       // 6. Mount + boot. Snapshots and peripheral media use the path-based
       // loader: it handles SZX banking and enables the +D/Interface 1 ROM before
       // mounting. Tapes/disks mount + arm the auto-boot trap like the UI.
-      if (plan.boot === 'snapshot' || plan.boot === 'peripheral' || plan.boot === 'trdos') {
+      if (plan.boot === 'snapshot' || plan.boot === 'peripheral' || plan.boot === 'trdos' || plan.boot === 'plusd') {
         fs.mkdirSync(CACHE_DIR, { recursive: true });
         const tmp = path.join(CACHE_DIR, `library-${path.basename(innerName)}`);
         fs.writeFileSync(tmp, data);
@@ -246,6 +246,11 @@ export function register(server: McpServer): void {
           // A Beta disk boots through TR-DOS: reset, then type RANDOMIZE USR 15616 / RUN.
           activeSpectrum()!.reset();
           activeSpectrum()!.armBootTrap('trdos');
+        } else if (plan.boot === 'plusd') {
+          // A +D disk boots by typing RUN: G+DOS from the disk (or the fallback
+          // system file), then its AUTO file.
+          activeSpectrum()!.reset();
+          activeSpectrum()!.armBootTrap('plusd');
         }
       } else {
         lines.push(mountAndArm(activeSpectrum()!, data, innerName, plan.boot));
@@ -256,7 +261,7 @@ export function register(server: McpServer): void {
       //    self-starting, no loader to poll) just runs the frames.
       if (frames > 0) {
         const spec = activeSpectrum()!;
-        if (plan.boot === 'snapshot' || plan.boot === 'rom' || plan.boot === 'peripheral' || plan.boot === 'trdos') {
+        if (plan.boot === 'snapshot' || plan.boot === 'rom' || plan.boot === 'peripheral' || plan.boot === 'trdos' || plan.boot === 'plusd') {
           const ran = spec.runUntil(frames);
           lines.push(`Ran ${ran}/${frames} frame(s). PC=${h16(spec.cpu.pc)} T=${spec.cpu.tStates}`);
         } else {

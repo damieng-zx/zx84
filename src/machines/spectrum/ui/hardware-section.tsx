@@ -170,7 +170,7 @@ export function SpectrumHardwareSection() {
                   s.mgtPlusD.enabled = on;
                   // The +D boots at reset (shadow ROM pages in at 0x0000), so
                   // a reset is needed for the toggle to take effect.
-                  if (on && !s.mgtPlusD.romLoaded) {
+                  if (on && (!s.mgtPlusD.romLoaded || s.mgtPlusD.systemFile === null)) {
                     loadPlusDROM(s).then(() => resetMachine());
                   } else {
                     resetMachine();

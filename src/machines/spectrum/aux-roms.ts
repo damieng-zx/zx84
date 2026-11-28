@@ -20,6 +20,9 @@ import { variantForModel, variantLabel, romFilename } from '@/machines/spectrum/
 
 export const VTX5000_ROM = 'sinclair/vtx5000-3-1.rom';
 export const PLUSD_ROM = 'sinclair/plus-d.rom';
+/** The G+DOS system file (the body of `+SYS`, loaded at 0x2000) the +D uses
+ *  for disks that have none of their own. See mgt-plusd.ts. */
+export const PLUSD_SYSTEM = 'sinclair/plus-d-system.bin';
 export const BETADISK_ROM = 'sinclair/trdos.rom';
 export const IF1_ROM = 'sinclair/if1-2.rom';
 export const USPEECH_ROM = 'sinclair/currah-uspeech.rom';
@@ -57,6 +60,26 @@ export function plusDAuxRom(m: Spectrum): AuxRomRequest {
     failMsg: 'Failed to load MGT +D ROM', failId: 'plusd',
     apply: (d) => m.mgtPlusD.loadROM(d), awaitLoad: true,
   };
+}
+
+/** The +D's fallback G+DOS system file. Optional: without it the +D works as
+ *  on hardware, and a disk with no system file of its own says so on RUN. Its
+ *  failure id has no Hardware-pane signal, so a miss never disables the +D. */
+export function plusDSystemAuxRom(m: Spectrum): AuxRomRequest {
+  return {
+    cacheKey: 'plusd-system', source: PLUSD_SYSTEM,
+    fetchingMsg: 'Fetching G+DOS system file…',
+    loadedMsg: (n) => `G+DOS system file loaded (${n} bytes)`,
+    failMsg: 'G+DOS system file unavailable: disks without one need a system disk first',
+    failId: 'plusd-system',
+    apply: (d) => { m.mgtPlusD.loadSystemFile(d); },
+    awaitLoad: true, optional: true,
+  };
+}
+
+/** Both +D images: the ROM, then the system file disks without one boot from. */
+export function plusDAuxRoms(m: Spectrum): AuxRomRequest[] {
+  return [plusDAuxRom(m), plusDSystemAuxRom(m)];
 }
 
 export function if1AuxRom(m: Spectrum): AuxRomRequest {
@@ -131,7 +154,7 @@ export function buildSpectrumAuxRoms(m: Spectrum, view: SettingsView): AuxRomReq
   if (m.mgtPlusD.enabled) {
     m.mgtPlusD.fdc.writeProtect[0] = view.get('write-protect-c', false);
     m.mgtPlusD.fdc.writeProtect[1] = view.get('write-protect-d', false);
-    reqs.push(plusDAuxRom(m));
+    reqs.push(...plusDAuxRoms(m));
   }
 
   m.interface1.enabled = !betaActive && view.get('interface1', false) && isInterface1Capable(model);

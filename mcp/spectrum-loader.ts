@@ -23,10 +23,22 @@ import { parseScl } from '../src/media/floppy/scl-image.ts';
 import { parseTZX } from '../src/media/tape/tzx.ts';
 import { parseCSW } from '../src/media/tape/csw.ts';
 import { hex16 as h16 } from '../src/utils/hex.ts';
-import { fetchPlusDRom, fetchInterface1Rom, fetchBetaDiskRom } from './rom-fetch.ts';
+import { fetchPlusDRom, fetchPlusDSystemFile, fetchInterface1Rom, fetchBetaDiskRom } from './rom-fetch.ts';
 import { state, initMachine } from './state.ts';
 import { activeSpectrum } from './concrete.ts';
 import { resolveMediaSource } from './media-source.ts';
+
+/** Give the +D the G+DOS system file it boots disks without one from, if it can
+ *  be fetched. Optional, as in the app: without it RUN on such a disk reports
+ *  "No +SYS file" as the hardware does. Returns whether the +D has one. */
+export async function loadPlusDSystemFile(spec: Spectrum): Promise<boolean> {
+  if (spec.mgtPlusD.systemFile !== null) return true;
+  try {
+    return spec.mgtPlusD.loadSystemFile(await fetchPlusDSystemFile());
+  } catch {
+    return false;
+  }
+}
 
 export async function loadFileInto(spec: Spectrum, source: string, diskUnit: number = 0): Promise<string> {
   let media;
@@ -97,6 +109,7 @@ export async function loadFileInto(spec: Spectrum, source: string, diskUnit: num
     if (!spec.mgtPlusD.enabled || !spec.mgtPlusD.romLoaded) {
       const rom = await fetchPlusDRom();
       spec.mgtPlusD.loadROM(rom);
+      await loadPlusDSystemFile(spec);
       spec.mgtPlusD.enabled = true;
       spec.reset();
     }

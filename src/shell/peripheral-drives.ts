@@ -269,6 +269,9 @@ export function reflectPeripheralMount(
     const u = Number(target.slice(6));
     setPeripheralDiskState(u, m.services.disks?.image?.(target) ?? null, filename);
     persistPlusDDisk(u, data, filename);
+    // Opening a +D disk runs it, as the library does: reset and RUN, which boots
+    // G+DOS from the disk (or the supplied system file) and its AUTO file.
+    if (autoBoot && u === 0) autoBootLoad('plusd');
   } else if (target.startsWith('beta:')) {
     const u = Number(target.slice(5));
     setPeripheralDiskState(u, m.services.disks?.image?.(target) ?? null, filename);

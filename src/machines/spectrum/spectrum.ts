@@ -129,9 +129,10 @@ function menu48BasicSequence(): BootKeyStep[] {
   return [{ keys: [], frames: 30 }, ...down, ...down, ...down, { keys: [K_ENTER], frames: HOLD }];
 }
 
-/** TR-DOS is up at the 48K editor: `RUN` + ENTER loads and runs the disk's boot
- *  file. RUN is key R in K-mode. */
-function trdosRunSequence(): BootKeyStep[] {
+/** At the 48K editor with a disk interface ready: `RUN` + ENTER. Under TR-DOS
+ *  it runs the disk's boot file; on the +D it boots G+DOS and the AUTO file.
+ *  RUN is key R in K-mode. */
+function runSequence(): BootKeyStep[] {
   const HOLD = 5, GAP = 5;
   return [{ keys: [K_R], frames: HOLD }, { keys: [], frames: GAP }, { keys: [K_ENTER], frames: HOLD }];
 }
@@ -340,7 +341,7 @@ export class Spectrum extends Z80MachineBase implements Machine {
    *  (A cold jump to LD-BYTES doesn't work: it loads one block to undefined
    *  IX/DE/A' and never runs the BASIC loader, so we drive the real keyboard.) */
   bootTrapPc = -1;
-  bootTrapKind: 'menu' | 'rom48k' | 'trdos-menu' | 'trdos-run' | 'trdos-ready' = 'menu';
+  bootTrapKind: 'menu' | 'rom48k' | 'trdos-menu' | 'trdos-run' | 'trdos-ready' | 'plusd-menu' | 'plusd-run' = 'menu';
   /** Remaining auto-boot keystroke steps; each holds a key set for `frames`
    *  frames (an empty key set is a release gap so the ROM sees distinct keys). */
   private bootKeySteps: BootKeyStep[] = [];
@@ -356,8 +357,21 @@ export class Spectrum extends Z80MachineBase implements Machine {
    *  itself and RUN is typed. Elsewhere 48 BASIC is selected (by hardware state
    *  where 7FFD bit 4 picks the ROM, else from the menu), TR-DOS is entered with
    *  the CALL that RANDOMIZE USR 15616 makes, and RUN is typed once it is back at
-   *  the editor. */
-  armBootTrap(kind: 'menu' | 'rom48k' | 'trdos'): void {
+   *  the editor.
+   *  'plusd' boots the +D disk in drive 1 as a power-on would: the +D's RAM is
+   *  cleared (so no G+DOS system is left from an earlier disk, and RUN does the
+   *  full boot), 48 BASIC is selected on the 128K/+2, and RUN is typed at the
+   *  editor. G+DOS then loads the disk's system file (or the supplied one) and
+   *  its AUTO file. */
+  armBootTrap(kind: 'menu' | 'rom48k' | 'trdos' | 'plusd'): void {
+    if (kind === 'plusd') {
+      if (!this.mgtPlusD.enabled) return;
+      this.mgtPlusD.clearRam(this.memory);
+      const hasMenu = !this.variant.is48K;
+      this.bootTrapKind = hasMenu ? 'plusd-menu' : 'plusd-run';
+      this.bootTrapPc = hasMenu ? bootWaitPc(this.model, this.memory.romPages[0]) : EDITOR_KEY_WAIT;
+      return;
+    }
     if (kind === 'trdos') {
       const hasMenu = !this.variant.is48K;
       this.bootTrapKind = hasMenu ? 'trdos-menu' : 'trdos-run';
@@ -704,6 +718,9 @@ export class Spectrum extends Z80MachineBase implements Machine {
     this.keyboard.reset();
     this.audio.reset();
     this.fdc.reset();
+    // The +D's RAM survives reset; while it is mapped its live contents are in
+    // slot 0, which memory.reset() wipes, so copy them back first.
+    if (this.mgtPlusD.pagedIn) this.mgtPlusD.pageOut(this.memory);
     this.memory.reset();
     this.vtx5000.reset();
     if (this.vtx5000.enabled && this.vtx5000.romLoaded) {
@@ -723,7 +740,8 @@ export class Spectrum extends Z80MachineBase implements Machine {
     this.specdrum.reset();
     this.mixer.reset();
     this.multiface.reset();
-    // +D shadow ROM boots at 0x0000: page it in at reset so its init runs.
+    // +D shadow ROM boots at 0x0000: page it in at reset so its init runs. Its
+    // RAM (and a loaded G+DOS system) is kept, as on hardware.
     this.mgtPlusD.reset();
     if (this.mgtPlusD.enabled && this.mgtPlusD.romLoaded) {
       this.mgtPlusD.pageIn(this.memory);
@@ -771,6 +789,18 @@ export class Spectrum extends Z80MachineBase implements Machine {
     this.cpu.pc = TRDOS_ENTRY;
     this.betaDisk.checkPage(this.cpu.pc, this.memory);
     return true;
+  }
+
+  /** The boot trap's PC has been reached; whether the code running there is the
+   *  one the trap means. The editor stages wait for the 48K BASIC ROM itself:
+   *  the same address in another ROM (128 BASIC, or the +D's own ROM, which
+   *  overlays slot 0 when paged in) is a different routine. */
+  private bootTrapReady(): boolean {
+    switch (this.bootTrapKind) {
+      case 'trdos-run': case 'trdos-ready': return this.memory.isBasicRomActive();
+      case 'plusd-run': return this.memory.isBasicRomActive() && !this.mgtPlusD.pagedIn;
+      default: return true;
+    }
   }
 
   /** Pop the next auto-boot keystroke step and press its keys (held until its
@@ -1014,8 +1044,9 @@ export class Spectrum extends Z80MachineBase implements Machine {
 
       // MGT +D shadow-ROM paging: M1 opcode-fetch trap. Must run every
       // instruction (before any branch) so the +D maps itself in at its RST/
-      // entry-point traps and can intercept G+DOS commands. See mgt-plusd.ts.
-      if (this.mgtPlusD.enabled) this.mgtPlusD.checkM1Page(this.cpu.pc, this.memory);
+      // entry-point traps and can intercept G+DOS commands (and supply the
+      // system file to a disk booted without one). See mgt-plusd.ts.
+      if (this.mgtPlusD.enabled) this.mgtPlusD.checkM1Page(this.cpu, this.memory);
 
       // Interface 1 shadow-ROM paging: page IN before the instruction at
       // 0x0008 / 0x1708 (so it runs from the IF1 ROM). Page OUT is deferred to
@@ -1041,11 +1072,17 @@ export class Spectrum extends Z80MachineBase implements Machine {
       // One-shot auto-boot trap (software-library play): the ROM has reached its
       // menu / 48K editor key-wait loop, so queue the loader keystrokes and
       // disarm. setKey is the same matrix path the joystick uses.
-      if (this.bootTrapPc >= 0 && this.cpu.pc === this.bootTrapPc &&
-          ((this.bootTrapKind !== 'trdos-run' && this.bootTrapKind !== 'trdos-ready') || this.memory.isBasicRomActive())) {
+      if (this.bootTrapPc >= 0 && this.cpu.pc === this.bootTrapPc && this.bootTrapReady()) {
         this.bootTrapPc = -1;          // one-shot
         switch (this.bootTrapKind) {
           case 'rom48k': this.bootKeySteps = load48kSequence(); break;
+          case 'plusd-menu':
+            // The +D is only on the 48K/128K/+2: 7FFD bit 4 picks 48 BASIC.
+            this.coldStart48Basic();
+            this.bootTrapKind = 'plusd-run';
+            this.bootTrapPc = EDITOR_KEY_WAIT;
+            break;
+          case 'plusd-run': this.bootKeySteps = runSequence(); break;
           case 'trdos-menu':
             if (isScorpionClass(this.model)) { this.bootKeySteps = scorpionTrdosSequence(); break; }
             // Second stage: the editor's key-wait once 48 BASIC is paged in.
@@ -1059,7 +1096,7 @@ export class Spectrum extends Z80MachineBase implements Machine {
             // come back to the editor's key-wait when it has initialised the drive.
             if (this.callTrdos()) { this.bootTrapKind = 'trdos-ready'; this.bootTrapPc = EDITOR_KEY_WAIT; }
             break;
-          case 'trdos-ready': this.bootKeySteps = trdosRunSequence(); break;
+          case 'trdos-ready': this.bootKeySteps = runSequence(); break;
           default: this.bootKeySteps = menuEnterSequence();
         }
         this.advanceBootStep();        // press the first step now

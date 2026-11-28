@@ -246,10 +246,11 @@ export interface LoadPlan {
   // How to start it: press Enter on the 128K/+3 loader menu, jump the 48K ROM
   // loader, mount a ZX Interface 2 cartridge (self-boots on reset, no loader
   // kick), or — for a snapshot — nothing (it restores running state itself).
-  // 'peripheral' mounts the disk/cartridge and resets, leaving the user at the
-  // machine's own prompt (G+DOS, or BASIC for an Interface 1). 'trdos' mounts a
-  // Beta Disk and types RANDOMIZE USR 15616 and RUN to boot it.
-  boot: 'menu' | 'rom48k' | 'snapshot' | 'rom' | 'peripheral' | 'trdos';
+  // 'peripheral' mounts the cartridge and resets, leaving the user at BASIC for
+  // an Interface 1. 'trdos' mounts a Beta Disk and types RANDOMIZE USR 15616
+  // and RUN to boot it. 'plusd' mounts a +D disk and types RUN, which loads
+  // G+DOS (the disk's own system file, or the supplied one) and its AUTO file.
+  boot: 'menu' | 'rom48k' | 'snapshot' | 'rom' | 'peripheral' | 'trdos' | 'plusd';
 }
 
 /** A Beta Disk (TR-DOS) image runs on the Pentagon/Scorpion, which have the
@@ -269,12 +270,13 @@ function planFormat(game: Game, current: MachineModel, format: LibraryFormat): L
   const { tape16, tape48, tape128, plus3Disk, mgt48, mgt128, microdrive48, microdrive128, snap16, snap48, snap128, rom, tapeTimex, snapTimex } = game;
   const peripheral = (kind: 'mgt-disk' | 'microdrive', link48: string, link128: string): LoadPlan | null => {
     const peripheralName = kind === 'mgt-disk' ? 'plusd' : 'interface1';
+    const boot = kind === 'mgt-disk' ? 'plusd' : 'peripheral';
     if (is128kClass(current) && !isPlus3(current)) {
       const target = current === 'zx128kplus2a' ? 'zx128k' : current as SpectrumModel;
-      if (link128 || link48) return { target, link: link128 || link48, kind, peripheral: peripheralName, boot: 'peripheral' };
+      if (link128 || link48) return { target, link: link128 || link48, kind, peripheral: peripheralName, boot };
     }
-    if (link48) return { target: 'zx48k', link: link48, kind, peripheral: peripheralName, boot: 'peripheral' };
-    if (link128) return { target: 'zx128k', link: link128, kind, peripheral: peripheralName, boot: 'peripheral' };
+    if (link48) return { target: 'zx48k', link: link48, kind, peripheral: peripheralName, boot };
+    if (link128) return { target: 'zx128k', link: link128, kind, peripheral: peripheralName, boot };
     return null;
   };
 
@@ -353,7 +355,7 @@ export function planLoad(game: Game, current: MachineModel, preferredFormats: It
     // The +2A is 128K-class but its Amstrad edge connector cannot host the +D
     // or Interface 1. Use a plain 128K model when a peripheral is needed.
     const peripheralTarget = current === 'zx128k' || current === 'zx128kplus2' ? current as SpectrumModel : 'zx128k';
-    if (mgt128 || mgt48) return { target: peripheralTarget, link: mgt128 || mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (mgt128 || mgt48) return { target: peripheralTarget, link: mgt128 || mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'plusd' };
     if (microdrive128 || microdrive48) return { target: peripheralTarget, link: microdrive128 || microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
     if (plus3Disk) return { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
   } else {
@@ -362,10 +364,10 @@ export function planLoad(game: Game, current: MachineModel, preferredFormats: It
     if (!is16 && tape48) return { target: 'zx48k', link: tape48, kind: 'tape', boot: 'rom48k' };
     if (tape16) return { target: 'zx48k', link: tape16, kind: 'tape', boot: 'rom48k' };
     if (tape48) return { target: 'zx48k', link: tape48, kind: 'tape', boot: 'rom48k' };
-    if (mgt48) return { target: 'zx48k', link: mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (mgt48) return { target: 'zx48k', link: mgt48, kind: 'mgt-disk', peripheral: 'plusd', boot: 'plusd' };
     if (microdrive48) return { target: 'zx48k', link: microdrive48, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
     if (tape128) return { target: 'zx128k', link: tape128, kind: 'tape', boot: 'menu' };
-    if (mgt128) return { target: 'zx128k', link: mgt128, kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' };
+    if (mgt128) return { target: 'zx128k', link: mgt128, kind: 'mgt-disk', peripheral: 'plusd', boot: 'plusd' };
     if (microdrive128) return { target: 'zx128k', link: microdrive128, kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' };
     if (plus3Disk) return { target: 'zx128kplus3', link: plus3Disk, kind: 'plus3-disk', boot: 'menu' };
   }

@@ -7,7 +7,7 @@ import { state, initMachine } from '../state.ts';
 import { activeCbm64, activeElectron, activeMsx, activeMtx, activeSpectrum } from '../concrete.ts';
 import { text } from '../format.ts';
 import { C64_DRIVE_ROM_SOURCES } from '../../src/machines/c64/models.ts';
-import { fetchRomSource, fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
+import { fetchRomSource, fetchMFRom, fetchVTXRom, fetchPlusDRom, fetchPlusDSystemFile, fetchBetaDiskRom, fetchMsxDiskRom, fetchUspeechRom, fetchSp0256Rom } from '../rom-fetch.ts';
 
 export function register(server: McpServer): void {
   server.registerTool(
@@ -178,7 +178,7 @@ export function register(server: McpServer): void {
 
       if (action === 'status') {
         return text(
-          `MGT +D: ${pd.enabled ? 'ON' : 'OFF'}  romLoaded=${pd.romLoaded}  pagedIn=${pd.pagedIn}\n` +
+          `MGT +D: ${pd.enabled ? 'ON' : 'OFF'}  romLoaded=${pd.romLoaded}  pagedIn=${pd.pagedIn}  systemFallback=${pd.canSupplySystem}\n` +
           `WD1772: track=${pd.fdc.currentTrack} drive=${pd.fdc.currentUnit} side=${pd.fdc.side} status=${h8(pd.fdc.readStatus())}\n` +
           `Model: ${spec.model}\n` +
           `[0x0000]=${h8(spec.memory.readByte(0x0000))} [0x1FFF]=${h8(spec.memory.readByte(0x1FFF))} [0x2000]=${h8(spec.memory.readByte(0x2000))}  PC=${h16(spec.cpu.pc)}`
@@ -204,9 +204,14 @@ export function register(server: McpServer): void {
           return text(`Failed to load +D ROM: ${err}`);
         }
       }
+      // Optional: the G+DOS system file disks without one of their own boot from.
+      if (pd.systemFile === null) {
+        try { pd.loadSystemFile(await fetchPlusDSystemFile()); } catch { /* boots as hardware does */ }
+      }
       spec.reset(); // pages the +D shadow ROM in so G+DOS boots
       return text(
-        `MGT +D enabled (ROM ${pd.rom.length} bytes). Machine reset.\n` +
+        `MGT +D enabled (ROM ${pd.rom.length} bytes, ` +
+        `${pd.canSupplySystem ? 'fallback G+DOS system file ready' : 'no fallback system file'}). Machine reset.\n` +
         `pagedIn=${pd.pagedIn}  [0x0000]=${h8(spec.memory.readByte(0x0000))} [0x1FFF]=${h8(spec.memory.readByte(0x1FFF))}  PC=${h16(spec.cpu.pc)}`
       );
     },

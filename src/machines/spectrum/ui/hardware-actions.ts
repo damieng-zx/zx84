@@ -10,12 +10,19 @@ import { setStatus } from '@/shell/context.ts';
 import { activeSpectrum } from '@/machines/spectrum/ui/active.ts';
 import type { Spectrum } from '@/machines/spectrum/spectrum.ts';
 import {
-  multifaceAuxRom, vtx5000AuxRom, plusDAuxRom, if1AuxRom, betaAuxRom, uspeechAuxRoms,
+  multifaceAuxRom, vtx5000AuxRom, plusDAuxRom, plusDSystemAuxRom, if1AuxRom, betaAuxRom, uspeechAuxRoms,
 } from '@/machines/spectrum/aux-roms.ts';
 
 export const loadMultifaceROM = (s: Spectrum) => loadAuxRom(multifaceAuxRom(s));
 export const loadVTX5000ROM = (s: Spectrum) => loadAuxRom(vtx5000AuxRom(s));
-export const loadPlusDROM = (s: Spectrum) => loadAuxRom(plusDAuxRom(s));
+/** Fetch whichever +D images are missing: the ROM, then the optional G+DOS
+ *  system file. Resolves to whether the ROM is present (the +D works without
+ *  the system file). */
+export async function loadPlusDROM(s: Spectrum): Promise<boolean> {
+  if (!s.mgtPlusD.romLoaded && !(await loadAuxRom(plusDAuxRom(s)))) return false;
+  if (s.mgtPlusD.systemFile === null) await loadAuxRom(plusDSystemAuxRom(s));
+  return true;
+}
 export const loadInterface1ROM = (s: Spectrum) => loadAuxRom(if1AuxRom(s));
 export const loadBetaDiskROM = (s: Spectrum) => loadAuxRom(betaAuxRom(s));
 /** Fetch both µSpeech images; true only if both arrived. */

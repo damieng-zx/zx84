@@ -4,7 +4,7 @@ import { entryForModel } from '../src/machines/registry.ts';
 import type { MachineModel } from '../src/models.ts';
 import { resolveRomSource, unwrapRomArchive } from '../src/managers/rom-manager.ts';
 import {
-  BETADISK_ROM, IF1_ROM, PLUSD_ROM, VTX5000_ROM, USPEECH_ROM, SP0256_AL2_ROM,
+  BETADISK_ROM, IF1_ROM, PLUSD_ROM, PLUSD_SYSTEM, VTX5000_ROM, USPEECH_ROM, SP0256_AL2_ROM,
 } from '../src/machines/spectrum/aux-roms.ts';
 import { MSX_DISK_ROM } from '../src/machines/msx/aux-roms.ts';
 import { romFilename, type MultifaceVariant } from '../src/machines/spectrum/peripherals/multiface.ts';
@@ -71,6 +71,11 @@ export function fetchVTXRom(): Promise<Uint8Array> {
 
 export function fetchPlusDRom(): Promise<Uint8Array> {
   return fetchCached(PLUSD_ROM);
+}
+
+/** The G+DOS system file the +D boots disks without one from (optional). */
+export function fetchPlusDSystemFile(): Promise<Uint8Array> {
+  return fetchCached(PLUSD_SYSTEM);
 }
 
 export function fetchUspeechRom(): Promise<Uint8Array> {

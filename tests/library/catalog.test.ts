@@ -239,9 +239,9 @@ describe('library media selection', () => {
   });
 
   it('selects MGT +D and microdrive media with their required peripheral', () => {
-    expect(planLoad(mgt, 'zx48k')).toEqual({ target: 'zx48k', link: '/pub/x.mgt.zip', kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' });
+    expect(planLoad(mgt, 'zx48k')).toEqual({ target: 'zx48k', link: '/pub/x.mgt.zip', kind: 'mgt-disk', peripheral: 'plusd', boot: 'plusd' });
     expect(planLoad(microdrive, 'zx128k')).toEqual({ target: 'zx128k', link: '/pub/x.mdv.zip', kind: 'microdrive', peripheral: 'interface1', boot: 'peripheral' });
-    expect(planLoad(mgt, 'zx128kplus2a')).toEqual({ target: 'zx128k', link: '/pub/x.mgt.zip', kind: 'mgt-disk', peripheral: 'plusd', boot: 'peripheral' });
+    expect(planLoad(mgt, 'zx128kplus2a')).toEqual({ target: 'zx128k', link: '/pub/x.mgt.zip', kind: 'mgt-disk', peripheral: 'plusd', boot: 'plusd' });
   });
 
   it('honours the selected format over the default current-machine preference', () => {
