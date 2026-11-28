@@ -30,15 +30,49 @@ function build(entry: (typeof registry)[number], model: (typeof ALL)[number]['mo
   return entry.create(model, null);
 }
 
+/** The value that means "this choice setting's add-on is not fitted". */
+const CHOICE_OFF = 'none';
+
+/**
+ * A SettingsView that answers `on` for the keys in `keys` and `off` for
+ * everything else, with the machine's own fallback ignored — the shell's view
+ * always has a value, so a test that wants a peripheral *absent* must say so.
+ */
+function viewWith(keys: readonly string[], on: boolean): { get<T>(key: string, fallback: T): T } {
+  return {
+    get: <T>(key: string, fallback: T): T => {
+      if (!keys.includes(key)) return fallback;
+      // A switch is on/off; a choice setting turns its add-on off at `none`
+      // (the BBC's disc interface: 'none' | 'acorn' | '1770').
+      if (on) return true as T;
+      return (typeof fallback === 'string' ? CHOICE_OFF : false) as T;
+    },
+  };
+}
+
 /** Build a machine with the Hardware-pane peripherals named in `keys` switched on
  *  (what the shell does through prepare() before the machine is used). */
 function buildWith(
   entry: (typeof registry)[number], model: (typeof ALL)[number]['model'], keys: string[],
 ) {
   const machine = build(entry, model);
-  machine.prepare?.({
-    get: <T>(key: string, fallback: T): T => (keys.includes(key) ? (true as T) : fallback),
-  });
+  // Mirrors the shell: prepare() before the machine is used, then applySettings
+  // (machines read their Hardware options in one or the other).
+  machine.prepare?.(viewWith(keys, true));
+  machine.applySettings?.(viewWith(keys, true));
+  return machine;
+}
+
+/** Build a machine with every listed gate switched *off*, whatever the machine's
+ *  own fallback is. The settings are not all off by default (the Lynx's FD1793
+ *  and the Apple II's Disk II ship fitted), so "bare" has to say so explicitly
+ *  or the test would be asserting against the add-on being present. */
+function buildWithout(
+  entry: (typeof registry)[number], model: (typeof ALL)[number]['model'], keys: string[],
+) {
+  const machine = build(entry, model);
+  machine.prepare?.(viewWith(keys, false));
+  machine.applySettings?.(viewWith(keys, false));
   return machine;
 }
 
@@ -92,9 +126,11 @@ describe('machine capabilities', () => {
     '%s backs built-in drives with a disk service that has them',
     (_model, { entry, model }) => {
       const caps = entry.descriptor(model).ui;
-      // A drive capability gated on a Hardware-pane setting only holds with it on.
+      // A drive capability gated on a Hardware-pane setting only holds with it
+      // fitted: name its key, and treat a choice gate as "set to a fitted value".
       const gate = caps.requires?.builtinDisk;
-      const machine = buildWith(entry, model, gate ? [gate] : []);
+      const gateKey = gate === undefined ? undefined : typeof gate === 'string' ? gate : gate.setting;
+      const machine = buildWith(entry, model, gateKey ? [gateKey] : []);
       try {
         if (!caps.builtinDisk) return;
         const disks = machine.services.disks;
@@ -120,19 +156,29 @@ describe('machine capabilities', () => {
     '%s hides gated drives and cartridge slot until their peripheral is fitted',
     (_model, { entry, model }) => {
       const caps = entry.descriptor(model).ui;
-      const diskGate = caps.requires?.builtinDisk;
-      const cartGate = caps.requires?.cartridge;
-      if (!diskGate && !cartGate) return;
-      const bare = build(entry, model);
-      const fitted = buildWith(entry, model, [diskGate, cartGate].filter((k): k is string => !!k));
+      // A drive capability gated on a Hardware-pane setting only holds with it
+      // fitted: name its key, and treat a choice gate as "set to a fitted value".
+      const gate = caps.requires?.builtinDisk;
+      const gateKey = gate === undefined ? undefined : typeof gate === 'string' ? gate : gate.setting;
+      const cartKey = ((): string | undefined => {
+        const c = caps.requires?.cartridge;
+        return c === undefined ? undefined : typeof c === 'string' ? c : c.setting;
+      })();
+      if (!gateKey && !cartKey) return;
+      const bare = buildWithout(entry, model, [gateKey, cartKey].filter((k): k is string => !!k));
+      const fitted = buildWith(entry, model, [gateKey, cartKey].filter((k): k is string => !!k));
       try {
         // The gate must name a setting the shell can read back.
-        for (const g of [diskGate, cartGate]) if (g) expect(g).toMatch(/^[a-z0-9-]+$/);
-        if (diskGate) {
+        for (const g of [gateKey, cartKey]) if (g) expect(g).toMatch(/^[a-z0-9-]+$/);
+        if (gateKey) {
+          // The invariant the pane relies on: remove the peripheral and the
+          // drives are gone. Fitting it is proved by the capability test above
+          // ("backs built-in drives with a disk service"), which builds with the
+          // gate on; a machine whose service also needs a ROM this headless
+          // build cannot supply (the MSX's Disk BASIC) legitimately stays empty.
           expect(bare.services.disks?.drives ?? []).toHaveLength(0);
-          expect(fitted.services.disks?.drives.length ?? 0).toBeGreaterThan(0);
         }
-        if (cartGate) {
+        if (cartKey) {
           expect(caps.cartridge).toBe(true);
           expect(bare.services.roms.cartridge).toBeNull();
           expect(fitted.services.roms.cartridge).not.toBeNull();

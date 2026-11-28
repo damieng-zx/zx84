@@ -5,7 +5,7 @@
  * it cares about (palettes, volume, tape flags, …) via `applySettings`.
  */
 
-import type { SettingsView } from '@/machines/machine.ts';
+import type { CapabilityGate, SettingsView } from '@/machines/machine.ts';
 import * as settings from '@/store/settings.ts';
 import { SCALING_MODE_SAA5050 } from '@/display/scaling-modes.ts';
 import { phosphorTint } from '@/display/phosphor.ts';
@@ -52,12 +52,19 @@ function readSetting(key: string): unknown {
   return settings.hasSignal(key) ? settings.settingValue(key) : derivedSetting(key);
 }
 
-/** Whether a boolean setting is on, reactively (call inside a tracking scope).
- *  Gates a machine capability on a user-fitted peripheral — see
- *  `MachineUiCapabilities.requires`. A missing gate is open. */
-export function settingEnabled(key: string | undefined): boolean {
-  if (!key) return true;
-  return settingsViewKnows(key) ? Boolean(readSetting(key)) : true;
+/** Whether a setting says its peripheral is fitted, reactively (call inside a
+ *  tracking scope). Gates a machine capability on a user-fitted add-on — see
+ *  `MachineUiCapabilities.requires`. A missing gate is open, and so is a gate
+ *  the view cannot read: a capability must not disappear because its key was
+ *  renamed. */
+export function settingEnabled(gate: CapabilityGate | undefined): boolean {
+  if (!gate) return true;
+  const key = typeof gate === 'string' ? gate : gate.setting;
+  if (!settingsViewKnows(key)) return true;
+  const value = readSetting(key);
+  // A choice control names the values that mean fitted; a switch is on/off.
+  if (typeof gate === 'string' || !gate.when) return Boolean(value);
+  return gate.when.includes(String(value));
 }
 
 export function buildSettingsView(): SettingsView {

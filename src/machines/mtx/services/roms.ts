@@ -40,9 +40,15 @@ export class MtxRomService implements RomService {
   // Five independently-overridable 8K firmware slots (OS, BASIC, ASSEM, CP/M
   // bootstrap, FDX Disk BASIC), in the concatenation order MtxMemory.loadRom
   // expects. An empty label falls back to the slot's default ROM name.
+  //
+  // The FDX Disk BASIC socket only exists while the FDX floppy subsystem is
+  // fitted: it is that board's ROM, and CP/M force-fits the board. Reporting
+  // the layout here means the pane shows the sockets the machine actually has
+  // rather than filtering by model itself.
   get systemSlots(): readonly RomSlotInfo[] {
     const ops = this.host()?.roms;
-    return MTX_ROM_SLOT_LABELS.map((defaultLabel, index) => {
+    const count = this.machine.floppyEnabled ? MTX_ROM_SLOT_LABELS.length : MTX_ROM_SLOT_LABELS.length - 1;
+    return MTX_ROM_SLOT_LABELS.slice(0, count).map((defaultLabel, index) => {
       const p = ops?.cachedPage(index) ?? null;
       return {
         index,

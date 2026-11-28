@@ -35,8 +35,10 @@ function lynxUi(model: LynxModel): MachineUiCapabilities {
     // no per-t-state effects to model.
     accuracy: false,
     // The 96K and 128K carry the FD1793 and its DOS ROM, so they show the
-    // Drive pane; the 48K has neither.
+    // Drive pane; the 48K has neither. The interface is also a Hardware-pane
+    // switch, so the pane hides while it is unplugged.
     builtinDisk: disk,
+    requires: { builtinDisk: 'lynx-fdc' },
     builtinDrives: disk ? LYNX_MAX_DRIVES : 2,
     joystick: false,
     fixedJoystick: false,

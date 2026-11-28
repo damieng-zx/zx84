@@ -95,6 +95,9 @@ export function apple2Descriptor(
       systemRomLabel: apple2ModelInfo(model).romLabel,
       // The //c has no slots, so no Mockingboard to weigh against the speaker.
       soundDevices: apple2ModelInfo(model).iic ? APPLE2_SPEAKER_ONLY : APPLE2_SOUND_DEVICES,
+      // Disk II lived on a plug-in controller card, a Hardware-pane switch —
+      // except on the //c, which has the drive controller built in.
+      ...(apple2ModelInfo(model).iic ? {} : { requires: { builtinDisk: 'apple2-disk2' } }),
     },
   };
 }

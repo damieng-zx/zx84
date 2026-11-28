@@ -35,6 +35,9 @@ const BBC_B_UI: MachineUiCapabilities = {
   },
   accuracy: 'raster',
   builtinDisk: true,
+  // The disc interface was an upgrade: either 8271 DFS, the later 1770, or
+  // nothing at all. Only 'none' means the drives are not there.
+  requires: { builtinDisk: { setting: 'bbc-disk-system', when: ['acorn', '1770'] } },
   builtinDrives: 2,
   // The analogue port: two proportional sticks on the uPD7002, one fire
   // button each on the System VIA.

@@ -27,8 +27,9 @@ const MSX_UI: MachineUiCapabilities = {
   },
   accuracy: false,
   // The floppy interface is a Hardware-pane option: the Drives pane shows only
-  // while it is fitted (see DrivePane's msxFloppy gate).
+  // while it is fitted (see the `requires` gate below).
   builtinDisk: true,
+  requires: { builtinDisk: 'msx-floppy' },
   builtinDrives: 2,
   joystick: true,
   fixedJoystick: true,
