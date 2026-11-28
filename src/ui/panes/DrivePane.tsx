@@ -24,10 +24,10 @@ import {
   driveBForceReady, setDriveBForceReady,
   diskSoundC, setDiskSoundC, diskSoundD, setDiskSoundD,
   writeProtectC, setWriteProtectC, writeProtectD, setWriteProtectD,
-  plusDEnabled, betaDiskEnabled, lynxFdc, bbcDiskSystem, msxFloppy, apple2Disk2, tapeTurbo, setTapeTurbo,
+  plusDEnabled, betaDiskEnabled, tapeTurbo, setTapeTurbo,
   persistSetting, resetSettingsGroup, driveCountFor, setDriveCountFor, driveModelsFor,
 } from '@/store/settings.ts';
-import { isPlusDCapable, isBetaDiskCapable, hasBuiltinBetaDisk, isLynxModel, isBbcModel, isMsxModel, isApple2Model } from '@/models.ts';
+import { isPlusDCapable, isBetaDiskCapable, hasBuiltinBetaDisk } from '@/models.ts';
 import { machineCaps, machineDescriptor } from '@/state/machine-caps.ts';
 import { DISK_FORMATS, formatLabel, createBlankDisk } from '@/media/floppy/dsk.ts';
 import type { DskImage } from '@/media/floppy/disk-image.ts';
@@ -261,7 +261,7 @@ const LYNX_NEW_ITEMS = [
   { value: 'ldf', label: 'LDF image', children: LYNX_GEOMETRIES.map((g, i) => ({ value: `ldf-${i}`, label: g.label })) },
 ];
 
-// The BBC saves raw Acorn DFS sector dumps (10 × 256-byte sectors), so its
+// The BBC saves raw Acorn DFS sector dumps (10 Ã— 256-byte sectors), so its
 // drives offer blank DFS discs: .ssd single sided, .dsd double sided.
 const DFS_GEOMETRIES = [
   { label: 'Blank 100K SS/40T', tracks: 40, sides: 1 },
@@ -436,17 +436,13 @@ export function DrivePane() {
   // The Beta Disk (drives A:/B:) is mutually exclusive with the +D and reuses
   // the same C/D drive-state signals; only the label and FDC differ.
   const betaDiskActive = () => (betaDiskEnabled() || hasBuiltinBetaDisk(currentModel())) && isBetaDiskCapable(currentModel());
-  // Machines with a built-in floppy controller (Spectrum +3, disk CPCs, Einstein).
-  // The Lynx's FD1793 is a Hardware-pane toggle, so its drives only count when
-  // the interface is actually fitted; likewise the BBC's disc interface can be
-  // set to "none"; the Apple II's Disk ][ controller card is a Hardware-pane option.
+  // Machines with a built-in floppy controller (Spectrum +3, disk CPCs, Einstein,
+  // Lynx FD1793, BBC disc interface, MSX interface, Apple II Disk ][). Which of
+  // them are only fitted as an add-on is the descriptor's `requires` gate, so the
+  // pane never has to know which machine it is showing.
   const builtinDisk = () =>
     machineCaps().builtinDisk
-    && settingEnabled(machineCaps().requires?.builtinDisk)
-    && !(isLynxModel(currentModel()) && !lynxFdc())
-    && !(isBbcModel(currentModel()) && bbcDiskSystem() === 'none')
-    && !(isMsxModel(currentModel()) && !msxFloppy())
-    && !(isApple2Model(currentModel()) && !apple2Disk2());
+    && settingEnabled(machineCaps().requires?.builtinDisk);
   // The Lynx's FD1793 addresses four drives; everything else here has two.
   const builtinFourDrives = () =>
     builtinDisk() && (machineCaps().builtinDrives ?? 2) > 2;

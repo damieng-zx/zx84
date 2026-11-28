@@ -31,6 +31,20 @@ export type MachineKind = 'spectrum' | 'cpc' | 'einstein' | 'msx' | 'zx8x' | 'mt
  *  'uk' = default (English, no locale-specific ROM/keyboard). */
 export type MachineLocale = 'uk' | 'es' | 'fr' | 'us';
 
+/**
+ * A Hardware-pane gate on a capability: the SettingsView key whose value says
+ * whether the add-on is fitted, and (for a control that is a choice rather than
+ * a switch) which of its values mean fitted. See
+ * {@link MachineUiCapabilities.requires}.
+ */
+export type CapabilityGate =
+  | string
+  | {
+      readonly setting: string;
+      /** Values that count as fitted. Omit for a plain on/off setting. */
+      readonly when?: readonly string[];
+    };
+
 /** Border-size selector shared by both machines: 0=none, 1=small, 2=normal. */
 export type BorderMode = 0 | 1 | 2;
 
@@ -428,16 +442,25 @@ export interface MachineUiCapabilities {
   readonly accuracy: false | 'scanline' | 'raster' | 'contention';
   /** Built-in floppy drives (A:/B:) are fitted. */
   readonly builtinDisk: boolean;
-  /** Boolean Hardware-pane settings (SettingsView keys) a capability depends
-   *  on, for peripherals fitted by the user: the capability only applies while
-   *  its setting is on. The machine still declares the capability statically
-   *  (descriptors are pure functions of the model); the generic panes consult
-   *  the setting so they show nothing for hardware that isn't fitted. */
+  /**
+   * Hardware-pane settings (SettingsView keys) a capability depends on, for
+   * peripherals fitted by the user: the capability only applies while its
+   * setting says the hardware is fitted. The machine still declares the
+   * capability statically (descriptors are pure functions of the model); the
+   * generic panes consult the setting so they show nothing for hardware that
+   * isn't fitted, and never need to know which machine they are showing.
+   *
+   * A key is a boolean setting (on = fitted), or an object naming the values
+   * that mean "fitted" where the control is a choice rather than a switch: the
+   * BBC's disc interface is `'none' | 'acorn' | '1770'`, so `'acorn'` and
+   * `'1770'` both count. A key the view does not know, or a value outside the
+   * list, means fitted — a gate that cannot be read must not hide hardware.
+   */
   readonly requires?: {
-    readonly builtinDisk?: string;
-    readonly cartridge?: string;
+    readonly builtinDisk?: CapabilityGate;
+    readonly cartridge?: CapabilityGate;
     /** The joystick ports belong to an add-on (the Electron's Plus 1). */
-    readonly joystick?: string;
+    readonly joystick?: CapabilityGate;
   };
   /** Built-in drives fitted, A: onward — defaults to 2 when `builtinDisk`.
    *  The Lynx's FD1793 addresses four. Peripheral drives are not counted. */

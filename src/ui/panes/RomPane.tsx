@@ -5,9 +5,7 @@ import {
   setSidewaysRom, resetSidewaysRom,
 } from '@/shell/rom.ts';
 import { loadFile, ejectCartridge } from '@/shell/media.ts';
-import { romSlots, sidewaysRomSlots, cartridgeName, currentModel } from '@/state/machine-state.ts';
-import { isMtxModel } from '@/models.ts';
-import { mtxFloppy, mtxCpm } from '@/store/settings.ts';
+import { romSlots, sidewaysRomSlots, cartridgeName } from '@/state/machine-state.ts';
 import { machineCaps } from '@/state/machine-caps.ts';
 import type { RomPage } from '@/managers/rom-manager.ts';
 import { openFile } from '@/ui/file-picker.ts';
@@ -72,15 +70,10 @@ function Slot(props: {
  * ROM socket, a multi-page ROM, or a cartridge slot.
  */
 export function RomPane(): JSX.Element {
-  // The FDX Disk BASIC ROM (slot 4) exists only with the FDX floppy fitted
-  // (CP/M force-fits it); hide its socket when the floppy is removed.
-  const slots = () => {
-    const all = romSlots();
-    if (isMtxModel(currentModel()) && !mtxFloppy() && !mtxCpm()) {
-      return all.filter(s => s.index !== 4);
-    }
-    return all;
-  };
+  // The machine's RomService reports the sockets it actually has — its layout
+  // follows its own hardware (the MTX's FDX Disk BASIC socket comes and goes
+  // with the floppy subsystem), so the pane never filters by model.
+  const slots = () => romSlots();
 
   async function loadSlot(index: number, multi: boolean): Promise<void> {
     const id = `zx84-system-rom${multi ? `-page${index}` : ''}`;

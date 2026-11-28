@@ -34,6 +34,10 @@ export class LynxDiskService implements DiskService {
   }
 
   get drives(): readonly DriveDescriptor[] {
+    // No FD1793 fitted (a Hardware-pane switch on the 96K/128K) means no drives
+    // at all — the pane hides itself, and the service agrees. Without this it
+    // listed drives for a controller that was not plugged in.
+    if (!this.m.hasDisk) return [];
     const fdc = this.m.fdc;
     const out: DriveDescriptor[] = [];
     for (let u = 0; u < this.m.driveCount; u++) {
