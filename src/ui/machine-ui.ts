@@ -12,6 +12,7 @@
  */
 
 import { lazy, type Component } from 'solid-js';
+import type { MachineKind } from '@/machines/machine.ts';
 import type { KeyboardLabPresetLoader } from './keyboard-lab/types.ts';
 
 /** Per-machine UI contributions. Any field may be absent (the machine doesn't
@@ -31,7 +32,12 @@ export interface MachineUiContribution {
   readonly HuntFonts?: () => void;
 }
 
-const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
+/**
+ * Keys are held to `MachineKind` by `satisfies`, so a machine renamed in the
+ * SPI fails `tsc` here rather than silently losing its contributions. The map
+ * is `Partial` because a machine with no UI contribution is legitimate.
+ */
+const CONTRIBUTIONS = {
   spectrum: {
     HardwareSection: lazy(() =>
       import('@/machines/spectrum/ui/hardware-section.tsx').then(m => ({ default: m.SpectrumHardwareSection }))),
@@ -168,11 +174,13 @@ const CONTRIBUTIONS: Record<string, MachineUiContribution> = {
     Keyboard: lazy(() =>
       import('@/machines/oric/ui/keyboard/KeyboardPane.tsx').then(m => ({ default: m.KeyboardPane }))),
   },
-};
+} as const satisfies Partial<Record<MachineKind, MachineUiContribution>>;
 
 /** The UI contributions for a machine kind (empty object when none registered). */
 export function machineUi(kind: string): MachineUiContribution {
-  return CONTRIBUTIONS[kind] ?? {};
+  // The cast widens the known-kind keys so an unknown kind still degrades to an
+  // empty contribution; the literal above is what `tsc` checks against the SPI.
+  return (CONTRIBUTIONS as Readonly<Record<string, MachineUiContribution>>)[kind] ?? {};
 }
 
 /**

@@ -1,23 +1,32 @@
 # Adding a machine
 
 This is the definition-of-done checklist for the "machines as hardware" layout.
-Adding a machine — including a 6502-based one — touches **only** a new
-`src/machines/<name>/` folder, one line each in `registry.ts` and `models.ts`,
-optional `ui/` contributions, and an optional new
-`debug-<family>/` module. **Nothing else in the tree changes.** If you find
-yourself editing a shell file, a generic component, or a core to add a machine,
-stop — the seam you need already exists (or belongs in your machine folder).
+Adding a machine — including a 6502-based one — touches a new
+`src/machines/<name>/` folder, the three catalogue declarations (`MachineKind`
+in `machines/machine.ts`, the model type/union member in `models.ts`, the
+`registry.ts` entry), optional `ui/` contributions, an optional new
+`debug/<family>/` module, and the lists that *present* the machine (the model
+picker, the UI manifest when it contributes UI, the README table, its sheet under
+`docs/machines/`, and the image tools). It never changes a shell file, a generic
+component, or a core to add a machine: those bind to services, descriptor
+capabilities and the catalogue. If you find yourself editing one of those, stop —
+the seam you need already exists (or belongs in your machine folder).
 
-The two manifests are genuinely all there is to register, and drift between them
-is a **compile error, not a runtime surprise**. `registry.ts` derives the union of
-its entries' `kind`s and the union of their `models` and asserts each is *exactly*
-`MachineKind` / `MachineModel` (an `AssertEqual` that only accepts both
-directions). Add a model to `models.ts` without a registry entry, or register one
-the union does not name, and `tsc` fails — there is no machine that 404s only when
-a user selects it.
+The catalogue is genuinely all there is to *define*, and drift is a **compile
+error, not a runtime surprise**. `registry.ts` derives the union of its entries'
+`kind`s and `models` and asserts each is *exactly* `MachineKind` / `MachineModel`
+(an `AssertEqual` that only accepts both directions); it also asserts no two
+entries claim the same model or kind. Add a model to `models.ts` without a
+registry entry, register one the union does not name, or list one twice, and
+`tsc` fails — there is no machine that 404s only when a user selects it.
+
+The presentation lists cannot define a machine either. The UI manifest's keys
+are typed by `MachineKind`, the model picker's `MODEL_LABELS` is exhaustive over
+`MachineModel`, and `tests/ui/model-menu.test.ts` proves the picker reaches every
+registered model exactly once.
 
 `npm run depcheck` enforces a different boundary (a machine folder may not import
-UI/state/shell); it does **not** check the catalog. `tsc` owns the catalog.
+UI/state/shell); it does **not** check the catalogue. `tsc` owns the catalogue.
 
 ## The mental model
 
@@ -171,27 +180,46 @@ The one deliberate exception is the MCP `frame_trace` tool, which is Spectrum
 hardware forensics (per-instruction contention attribution) behind the
 `activeSpectrum()` narrowing, not a generic debug tool.
 
-### 6. Register it (the only two manifests)
+### 6. Register it (the catalogue)
 
+Three declarations, in this order — `tsc` checks each against the others:
+
+- `src/machines/machine.ts` — add your family's `kind` to the `MachineKind`
+  union. A new kind is a new hardware family, not just another model.
+- `src/models.ts` — add your model type and its union member to `MachineModel`
+  (plus any leaf helper like an `isBbcModel` guard). The union is half of the
+  proof: extend it and forget the registry and `RegistryCoversModels` fails.
 - `src/machines/registry.ts` — one `import` + one array entry. Export the entry
   as `export const <name>Entry = { … } satisfies MachineEntry` with a literal
   `models: [...] as const`: the registry compares that list against the
-  `MachineModel` union at compile time (and the `kind` against `MachineKind`), so
-  `tsc` rejects a model that is registered but absent from the union, or in the
-  union but in no entry. `npm run depcheck` does not check this; `tsc` does.
-- `src/models.ts` — add your models to the `MachineModel` union (and any leaf
-  helper like an `isBbcModel` guard if the union needs one). The union is the
-  other half of that proof: extend it and forget the registry and the registry's
-  `RegistryCoversModels` check fails.
+  `MachineModel` union at compile time (and the `kind` against `MachineKind`),
+  rejects a model that is registered but absent from the union, in the union but
+  in no entry, or owned by two entries, and rejects a kind no entry claims.
+  `npm run depcheck` does not check this; `tsc` does.
 
-### 7. ROM sources
+### 7. Present it (the lists that make it reachable)
+
+None of these is a definition; each is held to the catalogue.
+
+- `src/ui/panes/model-menu.ts` — add a `MODEL_LABELS` entry and a
+  `modelEntry(...)` under the right maker group. A model missing here exists but
+  cannot be selected: `MODEL_LABELS` is a `Record<MachineModel, string>` (so a
+  missing or extra label is a `tsc` error) and `tests/ui/model-menu.test.ts`
+  proves the menu reaches every registered model exactly once.
+- `src/ui/machine-ui.ts` — only if you contribute `ui/` components (step 4). Its
+  keys are typed against `MachineKind`, so a renamed kind fails `tsc`.
+- `README.md` and `docs/machines/<name>.md` — the table entry and the sheet
+  (step 9). `tools/check-readme-machines.ts` fails when a registered model or a
+  sheet on disk is undocumented.
+
+### 8. ROM sources
 
 List each model's system-ROM image URLs in `descriptor.romSources(model)`. The
 shared `rom-manager` fetches, caches (IndexedDB), concatenates, and persists them
 generically; peripheral ROMs go through `AuxRomRequest` from your `prepare()`/
 `bootRoms()` hooks.
 
-### 8. The machine sheet and its pictures
+### 9. The machine sheet and its pictures
 
 Every machine has a sheet under `docs/machines/` — start from `TEMPLATE.md` — and
 links from the README's table. It opens with two pictures: the machine at its

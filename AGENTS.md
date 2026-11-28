@@ -37,8 +37,11 @@ depcheck`, zero exceptions).
   (`cpuCycles`/`stackPointer`/`cpuPc`/`interruptedPc`, the 6502's deferred access
   stamps) from the machine's `cpu`, so a machine supplies only its frame loop,
   port decode and bus hooks.
-- `src/machines/registry.ts` — the **parts catalog**: the only file besides
-  `src/models.ts` allowed to name every machine. Stays headless-safe.
+- `src/machines/registry.ts` — the **parts catalog**: one entry per
+  `MachineKind`, with a literal list of that family's `MachineModel`s.
+  Compile-time assertions hold it to the `MachineKind` union in
+  `machines/machine.ts` and the `MachineModel` union in `src/models.ts`. Stays
+  headless-safe.
 - `src/media/` — format codecs → neutral models: `floppy/` (`DskImage`,
   DSK/HFE/SCP/MGT/TRD/SCL, `disk-detect.ts`, `floppy-sound.ts`), `tape/`
   (TAP/TZX/CSW deck + `.cas`), `zip.ts`. Pure — imports only media + utils.
